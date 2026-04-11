@@ -2,6 +2,8 @@
 
 use indexmap::IndexMap;
 
+use crate::http::tls::SslInfo;
+
 #[derive(Debug, Clone, Default)]
 pub struct Response {
     pub status: u16,
@@ -10,6 +12,8 @@ pub struct Response {
     pub headers: IndexMap<String, String>,
     pub body: Vec<u8>,
     pub error: Option<String>,
+    /// TLS information for HTTPS responses; None for plaintext requests.
+    pub tls: Option<SslInfo>,
 }
 
 impl Response {
@@ -46,6 +50,7 @@ impl Response {
             headers,
             body: body.to_vec(),
             error: None,
+            tls: None,
         })
     }
 

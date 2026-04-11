@@ -181,13 +181,18 @@ async fn scan_one(ctx: Arc<ScanCtx>, mark: Arc<Mutex<Mark>>) -> Result<()> {
         }
     };
 
-    // Populate platform/banner/404 baseline
+    // Populate platform/banner/ssl_info/404 baseline
     {
         let mut m = mark.lock().await;
         m.platform = profile::platform_profile(&init);
         if m.banner.is_none() {
             if let Some(s) = init.header("server") {
                 m.banner = Some(s.to_string());
+            }
+        }
+        if m.ssl_info.is_none() {
+            if let Some(info) = init.tls.clone() {
+                m.ssl_info = Some(info);
             }
         }
         m.start_time = SystemTime::now();

@@ -102,7 +102,27 @@ async fn main() -> Result<()> {
             .map(EvasionSet::parse)
             .unwrap_or_default(),
     );
-    let dbs = db::load();
+    // Load embedded databases; optionally merge a user-supplied -Userdbs CSV.
+    let dbs = {
+        let embedded = db::load();
+        match cli.userdbs.as_ref() {
+            Some(path) => {
+                let mut cloned = (*embedded).clone();
+                match db::csv_loader::load_user_tests(path) {
+                    Ok(rows) => {
+                        let n = rows.len();
+                        db::csv_loader::merge_user_tests(&mut cloned, rows);
+                        println!("+ -Userdbs: merged {n} rows from {}", path.display());
+                    }
+                    Err(e) => {
+                        eprintln!("- WARNING: failed to load {}: {e}", path.display());
+                    }
+                }
+                Arc::new(cloned)
+            }
+            None => embedded,
+        }
+    };
     let reports = Arc::new(Mutex::new(nikto_plugins::build_sinks(
         cli.format.as_deref().unwrap_or("txt"),
         cli.output.as_deref(),

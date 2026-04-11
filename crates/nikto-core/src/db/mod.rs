@@ -2,7 +2,9 @@
 //!
 //! `build.rs` serializes all 14 databases into `OUT_DIR/databases.bin` at
 //! compile time; we embed that blob and deserialize it lazily on first use.
+//! Runtime code can also layer user-supplied CSVs on top via [`csv_loader`].
 
+pub mod csv_loader;
 pub mod types;
 
 use once_cell::sync::Lazy;

@@ -1,10 +1,23 @@
+//! Save HTTP responses to disk when `-Save` is set. Each response lands in
+//! `<save_dir>/<host>-<port>/<sanitized-uri>.txt` as the raw body.
+
 use async_trait::async_trait;
+use nikto_core::error::Result;
+use nikto_core::http::request::Request;
+use nikto_core::http::response::Response;
 use nikto_core::plugin::{HookKind, Plugin, PluginInfo};
+use nikto_core::report::ReportItem;
+use nikto_core::scan::ScanCtx;
+use nikto_core::target::Mark;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 static INFO: PluginInfo = PluginInfo {
     name: "fileops",
     full_name: "File Operations",
-    description: "Save responses and compute checksums.",
+    description: "Save responses to disk when --Save is set.",
     weight: 50,
     default: false,
     extra: false,
@@ -14,9 +27,44 @@ static INFO: PluginInfo = PluginInfo {
 #[derive(Default)]
 pub struct FileopsPlugin;
 
+fn sanitize(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c => c,
+        })
+        .collect()
+}
+
 #[async_trait]
 impl Plugin for FileopsPlugin {
     fn info(&self) -> &'static PluginInfo {
         &INFO
+    }
+
+    async fn on_postfetch(
+        &self,
+        ctx: &ScanCtx,
+        mark: Arc<Mutex<Mark>>,
+        req: &Request,
+        resp: &Response,
+    ) -> Result<Vec<ReportItem>> {
+        let save_dir = match ctx.cli.save.as_ref() {
+            Some(d) => d.clone(),
+            None => return Ok(Vec::new()),
+        };
+        let host_dir: PathBuf = {
+            let m = mark.lock().await;
+            save_dir.join(format!("{}-{}", m.hostname, m.port))
+        };
+        let _ = fs::create_dir_all(&host_dir);
+        let filename = format!(
+            "{}-{}.txt",
+            req.method.to_ascii_lowercase(),
+            sanitize(req.uri.trim_start_matches('/'))
+        );
+        let path = host_dir.join(filename);
+        let _ = fs::write(&path, &resp.body);
+        Ok(Vec::new())
     }
 }

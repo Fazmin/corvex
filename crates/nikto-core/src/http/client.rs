@@ -78,7 +78,19 @@ impl HttpClient {
                 .connect()
                 .await
                 .map_err(|e| NiktoError::Tls(format!("handshake: {e}")))?;
-            exchange(&mut stream, req).await
+
+            // Capture handshake metadata before we drain the socket.
+            let info = {
+                let s = stream.ssl();
+                let cipher = s.current_cipher().map(|c| c.name().to_string());
+                let proto = s.version_str().to_string();
+                let cert = s.peer_certificate();
+                tls::extract_info(cert.as_ref(), cipher.as_deref(), Some(&proto))
+            };
+
+            let mut resp = exchange(&mut stream, req).await?;
+            resp.tls = Some(info);
+            Ok(resp)
         } else {
             let mut tcp = tcp;
             exchange(&mut tcp, req).await

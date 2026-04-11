@@ -4,9 +4,13 @@ A Rust port of the Nikto web server vulnerability scanner. Same tuned signature 
 
 ## What it does
 
-- Probes a target web server with Nikto's full signature database (7,236 tests + 1,257 outdated-software fingerprints + 362 favicon hashes + …).
-- Reports misconfigurations, dangerous default files, stale server versions, exposed admin consoles, and the usual categories below.
-- Emits the scan in text, CSV, JSON, XML, HTML or SQL.
+- Probes a target web server with Nikto's full signature database (7,236 tests + 1,257 outdated-software fingerprints + 362 favicon hashes + 260 server-banner rules + 170 auth realms + 40 404-page signatures + 1,825 dictionary entries).
+- Expands Nikto's full `@LFI(nix|win|abs|url)` template family for local-file-inclusion tests, plus `@JUNK(n)`, `@IP`, `@HOSTNAME`, and every variable from `db_variables` (`@CGIDIRS`, `@USERS`, `@ADMIN`, …).
+- Runs a full plugin suite: shellshock (CVE-2014-6271), Spring Boot actuator enumeration, Optionsbleed (CVE-2017-9798), MS10-070 ASP.NET padding oracle, PUT/DELETE verification, mod_userdir enumeration, mod_negotiation detection, exposed site files (`.git/`, `.env`, `backup.*`, `WEB-INF/`, …), CGI directory probing, favicon fingerprinting, robots.txt harvesting, HTML path extraction, cookie leak analysis, HTTP auth realm matching with default-credential lookup, and of course the full `db_tests` test runner.
+- Extracts TLS certificate subject, issuer, SAN, cipher, and protocol on the initial HTTPS handshake and surfaces them as findings.
+- Supports Basic, Digest (RFC 2617, qop=auth), and NTLM Type-1 HTTP authentication.
+- Loads user-supplied test databases at runtime via `-Userdbs`.
+- Emits scan results as text, CSV, JSON, XML, HTML (using the upstream Nikto placeholder templates), or SQL.
 
 ## Quick start
 
@@ -39,6 +43,9 @@ nikto --host http://example.com
 # JSON report to a file, with only the "Software Identification" tuning category
 nikto --host http://example.com -Tuning b -Format json --output scan.json
 
+# HTML report using the upstream Nikto templates
+nikto --host http://example.com -Format htm --output scan.html
+
 # Scan IPv4 only, no DNS lookup, 16 parallel in-flight requests per host
 nikto --host 10.0.0.5 -ipv4 --nolookup --max-concurrent-requests 16
 
@@ -47,6 +54,15 @@ nikto --host https://legacy.example.com --ssl
 
 # Multiple targets, multiple report formats simultaneously
 nikto --host host1,host2,host3 -Format txt,json,html --output report
+
+# HTTP authentication — Basic, Digest, or NTLM (auto-detected from challenge)
+nikto --host https://internal.example.com -id admin:s3cret
+
+# Merge a custom user test database on top of the shipped signatures
+nikto --host http://example.com -Userdbs ./udb_tests
+
+# Run only a subset of plugins
+nikto --host http://example.com -Plugins "@@DEFAULT;-tests;shellshock;springboot"
 ```
 
 ### CLI flags
@@ -64,7 +80,8 @@ Every Perl-Nikto flag is preserved. Common ones:
 | `-output` | Write the report to this file |
 | `-evasion` | IDS evasion transforms `1`–`9`, `A` |
 | `-Add-header` | Extra request header, repeatable |
-| `-id` | Basic auth `user:pass[:realm]` |
+| `-id` | HTTP auth `user:pass[:realm]` — scheme chosen from the `WWW-Authenticate` challenge (Basic / Digest / NTLM) |
+| `-Userdbs` | Merge an additional user test CSV on top of the embedded database |
 | `-useproxy` | Proxy URL override |
 | `-404string` / `-404code` | Force a custom 404 heuristic |
 | `-vhost` | Virtual host header |
@@ -86,6 +103,7 @@ Nikto's test database matches responses with a tiny DSL. The Rust port implement
 - `BODY:` / `!BODY:` — match or negate a regex against the response body.
 - `HEADER:` / `!HEADER:` — match or negate `name:value` against response headers.
 - `COOKIE:` / `!COOKIE:` — match or negate a stored cookie value.
+- `@LFI()` — placeholder expanded at runtime into `(BODY:<nix-canary>|BODY:<win-canary>)` using `@LFIMATCHNIX` / `@LFIMATCHWIN` from `db_variables`.
 - `&&` joins matchers (logical AND). Regex alternation (`|`) and case-insensitive flags (`(?i)`) work inside each matcher's pattern.
 
 Example (from the db_tests shipped in the signature DB):
@@ -93,6 +111,70 @@ Example (from the db_tests shipped in the signature DB):
 ```
 CODE:200&&BODY:phpinfo\(\)&&!HEADER:x-powered-by:cloudflare
 ```
+
+## Template variables
+
+Test URIs and payloads are expanded through a variable engine that fans out into every concrete candidate before the request is sent:
+
+| Variable | Source | Semantics |
+| --- | --- | --- |
+| `@IP`, `@HOSTNAME`, `@PORT` | target `Mark` | single scalar substitution |
+| `@JUNK(n)` | runtime | n random alphanumeric bytes |
+| `@LFI(...)` | `db_variables` | see below |
+| `@CGIDIRS`, `@ADMIN`, `@USERS`, `@PASSWORDFILES`, `@PHPMYADMIN`, … | `db_variables` | fan out — one test per value |
+
+`@LFI(...)` accepts any combination of `nix`, `win`, `abs`, `url`:
+
+- `nix` / `win` — target that platform (omit both to follow the server's detected platform).
+- `abs` — use the absolute target path (`/etc/hosts`, `\Windows\win.ini`) with no traversal.
+- `url` — percent-encode the final path.
+
+Depth and target paths come from `@LFIDEPTH`, `@LFITGTNIX`, `@LFITGTWIN`, `@LFIPATHNIX`, `@LFIPATHWIN` in [program/databases/db_variables](program/databases/db_variables). On a target with an unknown platform, `@LFI()` fans out into both the nix and the win payload, so a single test row becomes two in-flight requests.
+
+## Plugins
+
+The port ships 25 scan plugins and 6 report sinks, all statically registered at startup. Selection works with the upstream `-Plugins` selector syntax (`@@ALL`, `@@DEFAULT`, `@@EXTRAS`, comma/semicolon lists, `-name` to exclude).
+
+**Scan plugins**
+
+| Plugin | Hook | Purpose |
+| --- | --- | --- |
+| `tests` | Scan (99) | Runs the full `db_tests` signature database with DSL evaluation, variable fan-out, and evasion transforms |
+| `headers` | Postfetch (20) | Reports missing recommended security headers from `db_headers_suggested` |
+| `outdated` | Postfetch (30) | Matches `Server:` banner against `db_outdated` |
+| `msgs` | Postfetch (35) | Matches server banner against `db_server_msgs` |
+| `auth` | Postfetch (40) | Parses `WWW-Authenticate`, matches realm against `db_realms`, surfaces default credentials |
+| `content_search` | Postfetch (45) | Applies `db_content_search` regexes to every response body |
+| `cookies` | Postfetch (50) | Detects internal IP addresses leaked via `Set-Cookie` |
+| `paths` | Postfetch (50) | Harvests `href` / `src` / `action` targets from the root page |
+| `robots` | Recon (49) | Fetches `/robots.txt` and reports Disallow entries |
+| `cgi` | Recon (50) | Probes every directory in `@CGIDIRS` |
+| `favicon` | Recon (55) | MD5-matches `/favicon.ico` against `db_favicon` |
+| `ssl` | Recon (10) | Surfaces cert subject / issuer / SAN / cipher / protocol captured during the initial TLS handshake |
+| `options` | Scan (50) | Calls `OPTIONS /` and matches returned methods against `db_options` |
+| `optionsbleed` | Scan (75) | CVE-2017-9798 probe via Allow-header drift + non-printable byte detection |
+| `put_del_test` | Scan (65) | Attempts PUT → GET confirm → DELETE cleanup with a random test file |
+| `multiple_index` | Scan (55) | Brute-forces `db_multiple_index` for overlapping default documents |
+| `negotiate` | Scan (60) | Detects Apache mod_negotiation via `Content-Location` / `300 Multiple Choices` |
+| `sitefiles` | Scan (60) | Probes 17 common leftover / backup / dev files (`.git/HEAD`, `.env`, `backup.*`, `WEB-INF/web.xml`, …) |
+| `shellshock` | Scan (70) | CVE-2014-6271 via injected `User-Agent` / `Referer` / `Cookie` canary across 7 CGI endpoints |
+| `springboot` | Scan (70) | Probes 14 Spring Boot actuator endpoints under `/` and `/actuator/` |
+| `ms10_070` | Scan (70) | ASP.NET padding oracle on `/ScriptResource.axd` |
+| `apacheusers` | Scan (60) | mod_userdir enumeration via `/~user/` for every name in `@USERS` |
+| `fileops` | Postfetch (50) | Persists raw responses under `--Save` |
+| `dictionary_attack` | Recon (20, extras) | Probes paths from `db_dictionary` |
+| `siebel` | Scan (80, extras) | Siebel-specific checks |
+
+**Report sinks** (`-Format`):
+
+| Format | Notes |
+| --- | --- |
+| `txt` | Streaming plain text |
+| `csv` | One finding per row, quoted and escaped |
+| `json` | Structured document with scan summary + per-host findings |
+| `xml` | `<niktoscan>` / `<scandetails>` / `<item>` |
+| `htm` | Uses the upstream placeholder templates from [program/templates/](program/templates/) — conditional SSL / Reference rows handled |
+| `sql` | `INSERT` statements matching [documentation/nikto_schema_mysql.sql](documentation/nikto_schema_mysql.sql) / [postgresql](documentation/nikto_schema_postgresql.sql) |
 
 ## Tuning categories
 
@@ -119,12 +201,15 @@ Pass a string of category letters to `-Tuning` to restrict the test set. Add `x`
 
 ## Architecture notes
 
-- **HTTP**: `hyper` at the client layer on top of `tokio::net::TcpStream`, with `openssl::ssl::SslConnector` constructed directly so the scanner can send non-standard methods (`PROPFIND`, `SEARCH`, …), keep raw paths, and negotiate legacy cipher suites (`SECLEVEL=0`, full `ALL` list) against old servers. Certificate chain, cipher, and protocol version are extracted for the `ssl` plugin.
-- **Plugins**: a compile-time `Plugin` trait with five hook points (`Start`, `Recon`, `Scan`, `Prefetch`, `Postfetch`) that mirror Perl Nikto's lifecycle. Plugins are statically registered at startup and iterated in weight order per hook.
-- **Databases**: 14 upstream CSV files are compiled once by `build.rs` into a single `bincode` blob. First access deserializes the blob through an `Arc<Databases>` shared across all scans. User databases passed via `-Userdbs` are parsed at runtime through the same schema.
-- **DSL**: the parser walks tokens with depth tracking for brackets so that `&&` inside character classes doesn't split the expression. Regexes compile through the `regex` crate.
+- **HTTP**: direct TCP via `tokio::net::TcpStream`, HTTP/1.x framed by hand so the scanner can send non-standard methods (`PROPFIND`, `SEARCH`, …), keep raw paths, and inject malformed bytes where upstream Nikto does. TLS runs through `openssl::ssl::SslConnector` built directly with `SECLEVEL=0` and `ALL` ciphers — legacy SSLv3 / TLS 1.0 handshakes that `rustls` refuses still work here, which is the whole point of a fingerprinting scanner.
+- **TLS metadata**: every HTTPS response carries an attached `SslInfo` struct populated from the live handshake — cipher, protocol version, cert subject, issuer, subjectAltName list, not-before / not-after. The scan loop stores it on the per-host `Mark` and the `ssl` plugin surfaces it to every report sink.
+- **Plugins**: a compile-time `Plugin` trait with five hook points (`Start`, `Recon`, `Scan`, `Prefetch`, `Postfetch`) that mirror Perl Nikto's lifecycle. Plugins are statically registered at startup and iterated in ascending weight order per hook.
+- **Authentication**: `http/auth.rs` implements Basic (trivial), Digest (RFC 2617 with `qop=auth`, nonce, cnonce, nc, opaque — MD5 algorithm), and NTLM Type-1 negotiation. The scheme is chosen from the server's `WWW-Authenticate` challenge.
+- **Databases**: 14 upstream CSV files are compiled once by `build.rs` into a single `bincode` blob. First access deserializes the blob into an `Arc<Databases>` shared across all scans. User databases passed via `-Userdbs` are parsed at runtime by the same schema through [crates/nikto-core/src/db/csv_loader.rs](crates/nikto-core/src/db/csv_loader.rs) and merged on top of the shipped rows.
+- **Variable expansion**: `vars.rs` drives an iterate-until-stable expander that fans out each `@VAR` into every concrete candidate. `@LFI(...)` is a full port of the Perl `lfi_function` logic — platform negotiation, traversal depth, absolute vs relative paths, URL encoding, and double-separator collapsing — plus `expand_lfi_dsl` for `@LFI()` tokens embedded in DSL matchers.
+- **DSL**: the parser walks tokens with depth tracking for brackets so that `&&` inside a character class or group doesn't split the expression. Regexes compile through the `regex` crate.
 - **Concurrency**: `tokio` runtime. Multiple hosts scan in parallel (`--max-concurrent-hosts`) and within each host a `Semaphore` caps the number of in-flight tests (`--max-concurrent-requests`). The Perl original is serial — expect a significant speedup on high-latency targets.
-- **Reports**: one `ReportSink` trait, six implementations (`text`, `csv`, `json`, `xml`, `html`, `sql`). `-Format txt,json,html` emits all three simultaneously.
+- **Reports**: one `ReportSink` trait, six implementations (`text`, `csv`, `json`, `xml`, `html`, `sql`). The HTML sink loads the six upstream placeholder templates from `program/templates/` at compile time (`include_str!`) and substitutes `#TEMPL_*#` markers per host / per finding, with conditional row handling for missing SSL or reference fields.
 
 ## Developing
 
@@ -135,7 +220,9 @@ cargo check --workspace
 # Full build (vendored OpenSSL compile, one-time)
 cargo build --workspace --release
 
-# Unit tests (DSL parser, config, variable expansion, DB round-trip)
+# Unit tests: DSL parser, config, LFI variable expansion (6 cases), DB
+# round-trip, Digest/NTLM auth header construction, and DSL operator
+# coverage. Currently 15 tests across the workspace, all passing.
 cargo test --workspace
 
 # Smoke tests

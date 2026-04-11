@@ -45,8 +45,10 @@ impl Plugin for TestsPlugin {
             if !tuning.allows(&row.tuning) {
                 continue;
             }
-            // Parse the DSL. If it fails, skip the row.
-            let dsl_ast = match dsl::parse(&row.dsl) {
+            // Parse the DSL. @LFI() tokens need to be expanded to real
+            // body/header matchers before the parser sees them.
+            let dsl_src = vars::expand_lfi_dsl(&row.dsl, &dbs);
+            let dsl_ast = match dsl::parse(&dsl_src) {
                 Ok(d) => d,
                 Err(_) => continue,
             };
