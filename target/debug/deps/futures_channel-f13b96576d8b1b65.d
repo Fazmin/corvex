@@ -1,0 +1,10 @@
+D:\LocalWorkSpace\nikto-rust\target\debug\deps\futures_channel-f13b96576d8b1b65.d: C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\lib.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\lock.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\mpsc\mod.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\mpsc\queue.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\mpsc\sink_impl.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\oneshot.rs
+
+D:\LocalWorkSpace\nikto-rust\target\debug\deps\libfutures_channel-f13b96576d8b1b65.rmeta: C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\lib.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\lock.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\mpsc\mod.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\mpsc\queue.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\mpsc\sink_impl.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\oneshot.rs
+
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\lib.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\lock.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\mpsc\mod.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\mpsc\queue.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\mpsc\sink_impl.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-channel-0.3.32\src\oneshot.rs:

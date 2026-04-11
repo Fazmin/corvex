@@ -1,0 +1,12 @@
+D:\LocalWorkSpace\nikto-rust\target\debug\deps\dns_lookup-93bfaa6f0d8363d6.d: C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\lib.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\addrinfo.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\err.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\hostname.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\lookup.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\nameinfo.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\types.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\win.rs
+
+D:\LocalWorkSpace\nikto-rust\target\debug\deps\libdns_lookup-93bfaa6f0d8363d6.rmeta: C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\lib.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\addrinfo.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\err.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\hostname.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\lookup.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\nameinfo.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\types.rs C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\win.rs
+
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\lib.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\addrinfo.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\err.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\hostname.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\lookup.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\nameinfo.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\types.rs:
+C:\Users\Fazmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\dns-lookup-2.1.1\src\win.rs:

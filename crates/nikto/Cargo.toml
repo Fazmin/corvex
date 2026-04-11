@@ -1,0 +1,20 @@
+[package]
+name = "nikto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Rust port of Nikto - web vulnerability scanner"
+
+[[bin]]
+name = "nikto"
+path = "src/main.rs"
+
+[dependencies]
+nikto-core.workspace = true
+nikto-plugins.workspace = true
+tokio.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

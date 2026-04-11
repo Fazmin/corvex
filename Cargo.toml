@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nikto",
+    "crates/nikto-core",
+    "crates/nikto-plugins",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "GPL-2.0-only"
+repository = "https://github.com/sullo/nikto"
+description = "Rust port of the Nikto web vulnerability scanner"
+
+[workspace.dependencies]
+nikto-core = { path = "crates/nikto-core" }
+nikto-plugins = { path = "crates/nikto-plugins" }
+
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+openssl = { version = "0.10", features = ["vendored"] }
+tokio-openssl = "0.6"
+
+clap = { version = "4", features = ["derive", "wrap_help"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = { version = "1.3" }
+csv = "1"
+regex = "1"
+url = "2"
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+once_cell = "1"
+md-5 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+futures = "0.3"
+hostname = "0.4"
+dns-lookup = "2"
+indexmap = { version = "2", features = ["serde"] }
+xml-rs = "0.8"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
