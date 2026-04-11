@@ -1,4 +1,51 @@
+# --- Rust / Cargo -----------------------------------------------------------
+/target/
+**/target/
+**/*.rs.bk
+*.pdb
+
+# Coverage / profiling artifacts
+*.profraw
+*.profdata
+lcov.info
+tarpaulin-report.*
+flamegraph.svg
+perf.data*
+
+# OpenSSL vendored source build scratch (from openssl-src)
+**/openssl-build/
+
+# --- Environment ------------------------------------------------------------
+.env
+.env.*
+.envrc
+
+# --- IDE / editor -----------------------------------------------------------
+.vscode/
+.idea/
+*.iml
+.cursor/
+.claude/
+*.swp
+*.swo
+*~
+
+# --- OS ---------------------------------------------------------------------
 .DS_Store
-tests/udb_*
+Thumbs.db
+desktop.ini
+
+# --- Nikto local overrides --------------------------------------------------
+# Upstream convention: the copied-from-default local config is never tracked.
 nikto.conf
-.cursor
+tests/udb_*
+
+# --- Scan output written to the repo root -----------------------------------
+/*.json
+/*.xml
+/*.html
+/*.htm
+/*.csv
+/*.sql
+/*.log
+/scan-*.txt
