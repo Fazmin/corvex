@@ -51,6 +51,8 @@ hostname = "0.4"
 dns-lookup = "2"
 indexmap = { version = "2", features = ["serde"] }
 xml-rs = "0.8"
+scraper = "0.20"
+sha2 = "0.10"
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }
 uuid = { version = "1", features = ["v4", "serde"] }

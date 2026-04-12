@@ -1,9 +1,4 @@
 //! `ScanParams` — the JSON shape the frontend sends to `scan_start`.
-//!
-//! We keep this separate from `corvex_core::cli::Cli` because `Cli` is a
-//! clap-derived struct full of clap-specific attributes; we don't want
-//! the frontend to need to know about `help` or `short` flags. Instead
-//! we define a plain serde struct and translate it field-by-field.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -65,12 +60,21 @@ pub struct ScanParams {
     pub four04_string: Option<String>,
     #[serde(default)]
     pub four04_code: Option<u16>,
+
+    // ---- Active fuzzing flags ------------------------------------------------
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub crawl_depth: Option<u32>,
+    #[serde(default)]
+    pub max_urls: Option<u32>,
+    #[serde(default)]
+    pub exclude_pattern: Vec<String>,
 }
 
 impl ScanParams {
-    /// Project the params onto a `Cli` struct by copying every field that
-    /// the scan engine reads. Fields we don't expose are left at their
-    /// defaults.
     pub fn into_cli(self) -> Cli {
         Cli {
             help: None,
@@ -121,6 +125,18 @@ impl ScanParams {
             config: None,
             max_concurrent_requests: self.max_concurrent_requests.unwrap_or(8),
             max_concurrent_hosts: self.max_concurrent_hosts.unwrap_or(4),
+            active: self.active,
+            crawl: self.active,
+            crawl_depth: self.crawl_depth,
+            max_urls: self.max_urls,
+            scope: self.scope,
+            exclude_pattern: self.exclude_pattern,
+            openapi: None,
+            form_login: None,
+            form_login_data: Vec::new(),
+            cookie_jar: None,
+            resume: None,
+            oast: None,
         }
     }
 }

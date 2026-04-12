@@ -68,6 +68,12 @@ export interface ScanParams {
   root?: string;
   four04_string?: string;
   four04_code?: number;
+  // Active fuzzing
+  active?: boolean;
+  scope?: string;           // "domain" | "subdomains" | "folder" | "page"
+  crawl_depth?: number;
+  max_urls?: number;
+  exclude_pattern?: string[];
 }
 
 export interface ScanStats {

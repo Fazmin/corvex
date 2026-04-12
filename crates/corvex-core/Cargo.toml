@@ -36,6 +36,8 @@ futures.workspace = true
 hostname.workspace = true
 dns-lookup.workspace = true
 indexmap.workspace = true
+scraper.workspace = true
+sha2.workspace = true
 
 [build-dependencies]
 serde = { version = "1", features = ["derive"] }

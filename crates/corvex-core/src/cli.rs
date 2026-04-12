@@ -209,6 +209,56 @@ pub struct Cli {
     /// Max hosts scanned in parallel (Rust-port addition)
     #[arg(long = "max-concurrent-hosts", value_name = "N", default_value_t = 4)]
     pub max_concurrent_hosts: usize,
+
+    // ---- Active fuzzing flags ------------------------------------------------
+
+    /// Enable active fuzzing (crawler + injection probes). Implies --crawl.
+    #[arg(long = "active", default_value_t = false)]
+    pub active: bool,
+
+    /// Enable the crawler (auto-discovers pages + forms). Implicit if --active.
+    #[arg(long = "crawl", default_value_t = false)]
+    pub crawl: bool,
+
+    /// Max link-following depth for the crawler (default 3)
+    #[arg(long = "crawl-depth", value_name = "N")]
+    pub crawl_depth: Option<u32>,
+
+    /// Hard cap on URLs the crawler will visit (default 500)
+    #[arg(long = "max-urls", value_name = "N")]
+    pub max_urls: Option<u32>,
+
+    /// Scope restriction: domain | subdomains | folder | page
+    #[arg(long = "scope", value_name = "SCOPE")]
+    pub scope: Option<String>,
+
+    /// Exclude URLs matching this regex (repeatable)
+    #[arg(long = "exclude-pattern", value_name = "REGEX", action = clap::ArgAction::Append)]
+    pub exclude_pattern: Vec<String>,
+
+    /// Seed the crawl from an OpenAPI / Swagger spec file
+    #[arg(long = "openapi", value_name = "FILE")]
+    pub openapi: Option<PathBuf>,
+
+    /// POST to this URL to obtain a session cookie before scanning
+    #[arg(long = "form-login", value_name = "URL")]
+    pub form_login: Option<String>,
+
+    /// Form login POST body (key=value pairs, repeatable)
+    #[arg(long = "form-login-data", value_name = "KV", action = clap::ArgAction::Append)]
+    pub form_login_data: Vec<String>,
+
+    /// Import cookies from a Chrome / Firefox SQLite cookie DB
+    #[arg(long = "cookie-jar", value_name = "FILE")]
+    pub cookie_jar: Option<PathBuf>,
+
+    /// Resume a previously suspended scan session
+    #[arg(long = "resume", value_name = "SESSION_ID")]
+    pub resume: Option<String>,
+
+    /// Out-of-band callback host for blind vulnerability detection
+    #[arg(long = "oast", value_name = "URL")]
+    pub oast: Option<String>,
 }
 
 impl Cli {

@@ -28,6 +28,7 @@ import { Sidebar, type View } from "./components/Sidebar";
 import { HistoryView } from "./components/HistoryView";
 import { PluginsView } from "./components/PluginsView";
 import { DatabasesView } from "./components/DatabasesView";
+import { FuzzingView } from "./components/FuzzingView";
 import { SettingsView } from "./components/SettingsView";
 
 export default function App() {
@@ -59,6 +60,7 @@ export default function App() {
   const [dbs, setDbs] = useState<DbSummary | null>(null);
   const [pluginCount, setPluginCount] = useState(0);
   const [requestRate, setRequestRate] = useState<number | null>(null);
+  const [activeMode, setActiveMode] = useState(false);
   // Bumped on every scan completion so HistoryView re-fetches.
   const [historyRefresh, setHistoryRefresh] = useState(0);
 
@@ -122,7 +124,8 @@ export default function App() {
       cleanupListeners();
       setFindings([]);
       setStats(null);
-      appendLog(`→ starting scan against ${params.host}`);
+      setActiveMode(params.active ?? false);
+      appendLog(`→ starting scan against ${params.host}${params.active ? " [active]" : ""}`);
       try {
         const id = await startScan(params);
         setScanId(id);
@@ -219,6 +222,7 @@ export default function App() {
     dashboard: "Dashboard",
     history: "Scan history",
     plugins: "Plugins",
+    fuzzing: "Active Fuzzing",
     databases: "Databases",
     settings: "Settings",
   };
@@ -255,7 +259,13 @@ export default function App() {
 
           {view === "dashboard" && (
             <div className="dashboard">
-              <StatsBar stats={stats} running={running} requestRate={requestRate} />
+              <StatsBar
+              stats={stats}
+              running={running}
+              requestRate={requestRate}
+              activeMode={activeMode}
+              urlsCrawled={stats?.total_requests ? Math.min(stats.total_requests, 500) : 0}
+            />
               <ScanForm running={running} onStart={handleStart} onCancel={handleCancel} />
               <FindingsTable findings={findings} />
               <LogPanel lines={log} />
@@ -269,6 +279,11 @@ export default function App() {
           {view === "plugins" && (
             <div className="dashboard single-pane">
               <PluginsView />
+            </div>
+          )}
+          {view === "fuzzing" && (
+            <div className="dashboard single-pane">
+              <FuzzingView />
             </div>
           )}
           {view === "databases" && (

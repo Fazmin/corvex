@@ -1,8 +1,12 @@
-//! Tuning filter — Perl Corvex `-Tuning` flag.
+//! Tuning filter — `-Tuning` flag.
 //!
-//! The flag value is a string of category chars (0..9, a..f, x). When `x`
-//! appears, the remaining chars are *excluded* rather than included; the
-//! default (no `-Tuning`) is "all categories allowed".
+//! The flag value is a string of category chars (0..9, a..f, g, x). When
+//! `x` appears, the remaining chars are *excluded* rather than included;
+//! the default (no `-Tuning`) is "all categories allowed".
+//!
+//! Category `g` is reserved for the active-fuzzing engine. Including `g`
+//! (explicitly or via the `--active` flag) enables the crawler + active
+//! injection probes. Without `g`, only the signature engine runs.
 
 #[derive(Debug, Clone, Default)]
 pub struct TuningFilter {

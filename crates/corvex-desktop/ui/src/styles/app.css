@@ -887,6 +887,33 @@ button.primary:disabled {
   white-space: normal;
 }
 
+/* ---------- Findings filter chips ---------- */
+
+.filter-chips {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex: none;
+}
+
+.filter-chips .chip {
+  border: none;
+  font-family: inherit;
+}
+
+/* ---------- Active fuzzing form section ---------- */
+
+.active-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--panel-alt);
+}
+
+.active-options {
+  margin-top: 10px;
+}
+
 /* ---------- Log panel ---------- */
 
 .log-panel {

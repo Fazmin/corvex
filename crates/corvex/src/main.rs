@@ -129,6 +129,26 @@ async fn main() -> Result<()> {
     )));
     let request_sem = Arc::new(Semaphore::new(cli.max_concurrent_requests.max(1)));
 
+    // Build scope filter if --active / --crawl / --scope was given.
+    let scope = {
+        let wants_active = cli.active || cli.crawl || cli.scope.is_some();
+        if wants_active {
+            let kind = cli
+                .scope
+                .as_deref()
+                .and_then(corvex_core::scope::ScopeKind::parse)
+                .unwrap_or(corvex_core::scope::ScopeKind::Domain);
+            let excludes: Vec<regex::Regex> = cli
+                .exclude_pattern
+                .iter()
+                .filter_map(|p| regex::Regex::new(p).ok())
+                .collect();
+            Some(Arc::new(corvex_core::scope::ScopeFilter::new(kind, &host, excludes)))
+        } else {
+            None
+        }
+    };
+
     let ctx = Arc::new(ScanCtx {
         cfg: Arc::new(cfg),
         cli: Arc::new(cli),
@@ -141,6 +161,7 @@ async fn main() -> Result<()> {
         evasion,
         request_sem,
         cancel: tokio_util::sync::CancellationToken::new(),
+        scope,
     });
 
     let start = SystemTime::now();

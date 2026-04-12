@@ -86,6 +86,7 @@ pub async fn list_plugins() -> Vec<PluginSummary> {
                         HookKind::Scan => "scan",
                         HookKind::Prefetch => "prefetch",
                         HookKind::Postfetch => "postfetch",
+                        HookKind::Active => "active",
                     })
                     .collect(),
             }
@@ -228,6 +229,26 @@ pub async fn scan_start(
     let request_sem = Arc::new(Semaphore::new(cli.max_concurrent_requests.max(1)));
     let cancel = CancellationToken::new();
 
+    // Build the scope filter BEFORE moving cli into Arc.
+    let scope = {
+        let wants_active = cli.active || cli.crawl || cli.scope.is_some();
+        if wants_active {
+            let kind = cli
+                .scope
+                .as_deref()
+                .and_then(corvex_core::scope::ScopeKind::parse)
+                .unwrap_or(corvex_core::scope::ScopeKind::Domain);
+            let excludes: Vec<regex::Regex> = cli
+                .exclude_pattern
+                .iter()
+                .filter_map(|p| regex::Regex::new(p).ok())
+                .collect();
+            Some(Arc::new(corvex_core::scope::ScopeFilter::new(kind, &host_arg, excludes)))
+        } else {
+            None
+        }
+    };
+
     let ctx = Arc::new(ScanCtx {
         cfg: Arc::new(cfg),
         cli: Arc::new(cli),
@@ -240,6 +261,7 @@ pub async fn scan_start(
         evasion,
         request_sem,
         cancel: cancel.clone(),
+        scope,
     });
 
     // Register before spawning so cancel arrives in time.

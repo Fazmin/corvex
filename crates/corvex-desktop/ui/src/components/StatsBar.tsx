@@ -5,6 +5,8 @@ interface Props {
   stats: ScanStats | null;
   running: boolean;
   requestRate: number | null;
+  activeMode?: boolean;
+  urlsCrawled?: number;
 }
 
 /**
@@ -12,7 +14,7 @@ interface Props {
  * visualisation so the operator can see how the scan is progressing
  * relative to the total request volume.
  */
-export function StatsBar({ stats, running, requestRate }: Props) {
+export function StatsBar({ stats, running, requestRate, activeMode, urlsCrawled }: Props) {
   const requests = stats?.total_requests ?? 0;
   const findings = stats?.total_findings ?? 0;
   const errors = stats?.total_errors ?? 0;
@@ -114,6 +116,27 @@ export function StatsBar({ stats, running, requestRate }: Props) {
           </>
         }
       />
+      {activeMode && (
+        <StatCard
+          label="URLs Crawled"
+          value={urlsCrawled ?? 0}
+          delta={running ? "crawling" : ""}
+          percent={Math.min(((urlsCrawled ?? 0) / 500) * 100, 100)}
+          meterLeft="max-urls target"
+          meterRight={`depth ≤ 3`}
+          info={
+            <>
+              <strong>Crawler progress</strong>
+              Pages the BFS crawler has visited so far. The crawler follows
+              links within the configured <code>--scope</code> and stops at
+              either the <code>--crawl-depth</code> or{" "}
+              <code>--max-urls</code> cap — whichever hits first. Each
+              crawled page is scanned for forms and parameters that the
+              active fuzzers then probe.
+            </>
+          }
+        />
+      )}
     </div>
   );
 }

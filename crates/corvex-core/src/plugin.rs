@@ -1,5 +1,6 @@
 //! Plugin trait + registry. Mirrors Perl Corvex's hook lifecycle.
 
+use crate::crawler::CrawlGraph;
 use crate::error::Result;
 use crate::http::request::Request;
 use crate::http::response::Response;
@@ -17,6 +18,9 @@ pub enum HookKind {
     Scan,
     Prefetch,
     Postfetch,
+    /// Active fuzzing phase — runs after `Scan`, iterates the crawl
+    /// graph instead of static db_tests rows.
+    Active,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +63,17 @@ pub trait Plugin: Send + Sync {
         _res: &Response,
     ) -> Result<Vec<ReportItem>> {
         Ok(Vec::new())
+    }
+
+    /// Active fuzzing hook. Receives the full crawl graph so the plugin
+    /// can iterate targets + injection points via `FuzzRunner`.
+    async fn on_active(
+        &self,
+        _ctx: &ScanCtx,
+        _mark: Arc<Mutex<Mark>>,
+        _graph: Arc<CrawlGraph>,
+    ) -> Result<()> {
+        Ok(())
     }
 }
 

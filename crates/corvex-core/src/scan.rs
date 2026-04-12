@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::cli::Cli;
 use crate::config::Config;
+use crate::crawler::{self, CrawlGraph};
 use crate::db::Databases;
 use crate::error::{CorvexError, Result};
 use crate::evasion::EvasionSet;
@@ -17,6 +18,7 @@ use crate::http::HttpClient;
 use crate::plugin::{HookKind, PluginRegistry};
 use crate::profile;
 use crate::report::{ReportItem, ReportSink};
+use crate::scope::ScopeFilter;
 use crate::state::GlobalState;
 use crate::target::{resolve, Mark};
 use crate::tuning::TuningFilter;
@@ -35,6 +37,7 @@ pub struct ScanCtx {
     /// Cancelled by external callers (the Tauri desktop UI) to halt a
     /// scan mid-run. CLI usage leaves this untriggered.
     pub cancel: CancellationToken,
+    pub scope: Option<Arc<ScopeFilter>>,
 }
 
 impl ScanCtx {
@@ -240,6 +243,37 @@ async fn scan_one(ctx: Arc<ScanCtx>, mark: Arc<Mutex<Mark>>) -> Result<()> {
                 _ => Ok(()),
             } {
                 tracing::warn!(target: "scan", "plugin {} failed: {e}", plugin.info().name);
+            }
+        }
+    }
+
+    // Active phase — crawler + active-fuzzer plugins. Only runs when
+    // the caller set a scope (--active or --crawl on the CLI, or
+    // the desktop app checked the "Active fuzzing" box).
+    if let Some(ref scope) = ctx.scope {
+        if !ctx.is_cancelled() {
+            let seed = {
+                let m = mark.lock().await;
+                let scheme = if m.ssl { "https" } else { "http" };
+                format!("{scheme}://{}:{}{}", m.hostname, m.port, m.root)
+            };
+            let depth = ctx.cli.crawl_depth.unwrap_or(3) as usize;
+            let max = ctx.cli.max_urls.unwrap_or(500) as usize;
+            let graph = match crawler::run(&ctx, mark.clone(), &seed, scope, depth, max).await {
+                Ok(g) => Arc::new(g),
+                Err(e) => {
+                    tracing::warn!(target: "scan", "crawler failed: {e}");
+                    Arc::new(CrawlGraph::default())
+                }
+            };
+
+            for plugin in ctx.plugins.for_hook(HookKind::Active) {
+                if ctx.is_cancelled() {
+                    break;
+                }
+                if let Err(e) = plugin.on_active(&ctx, mark.clone(), graph.clone()).await {
+                    tracing::warn!(target: "scan", "active plugin {} failed: {e}", plugin.info().name);
+                }
             }
         }
     }

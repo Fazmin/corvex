@@ -4,13 +4,14 @@ import {
   ChevronRightIcon,
   DashboardIcon,
   DatabasesIcon,
+  FuzzingIcon,
   HistoryIcon,
   NewScanIcon,
   PluginsIcon,
   SettingsIcon,
 } from "./Icons";
 
-export type View = "dashboard" | "history" | "plugins" | "databases" | "settings";
+export type View = "dashboard" | "history" | "plugins" | "databases" | "fuzzing" | "settings";
 
 interface Props {
   view: View;
@@ -61,6 +62,11 @@ export function Sidebar({
       icon: <PluginsIcon size={collapsed ? 22 : 18} />,
       label: "Plugins",
       count: pluginCount,
+    },
+    {
+      view: "fuzzing",
+      icon: <FuzzingIcon size={collapsed ? 22 : 18} />,
+      label: "Fuzzing",
     },
     {
       view: "databases",

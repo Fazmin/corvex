@@ -24,6 +24,11 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
   const [id, setId] = useState("");
   const [useragent, setUseragent] = useState("");
   const [evasion, setEvasion] = useState("");
+  // Active fuzzing
+  const [active, setActive] = useState(false);
+  const [scope, setScope] = useState("domain");
+  const [crawlDepth, setCrawlDepth] = useState(3);
+  const [maxUrls, setMaxUrls] = useState(500);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +46,10 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
       id: id || undefined,
       useragent: useragent || undefined,
       evasion: evasion || undefined,
+      active,
+      scope: active ? scope : undefined,
+      crawl_depth: active ? crawlDepth : undefined,
+      max_urls: active ? maxUrls : undefined,
     });
   };
 
@@ -99,6 +108,63 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
       <TuningPicker value={tuning} onChange={setTuning} />
 
       <PluginPicker value={plugins} onChange={setPlugins} />
+
+      {/* ---- Active Fuzzing Section ---- */}
+      <div className="field active-section">
+        <div className="label-row">
+          <label className="checkbox" style={{ margin: 0 }}>
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+            />
+            Active fuzzing
+          </label>
+          <InfoTip label="Active fuzzing help">
+            <strong>Active fuzzing engine</strong>
+            When enabled, the scanner crawls the target to discover pages
+            and forms, then injects payloads into every parameter to probe
+            for XSS, SQLi, LFI, command injection, CRLF, open redirects
+            and more. This is <em>invasive</em> — only use against targets
+            you own or have explicit permission to test.
+          </InfoTip>
+        </div>
+        {active && (
+          <div className="active-options">
+            <div className="row">
+              <div>
+                <label>Scope</label>
+                <select value={scope} onChange={(e) => setScope(e.target.value)}>
+                  <option value="domain">Domain</option>
+                  <option value="subdomains">Subdomains</option>
+                  <option value="folder">Folder</option>
+                  <option value="page">Page only</option>
+                </select>
+              </div>
+              <div>
+                <label>Crawl depth</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={crawlDepth}
+                  onChange={(e) => setCrawlDepth(parseInt(e.target.value) || 3)}
+                />
+              </div>
+            </div>
+            <div className="field">
+              <label>Max URLs</label>
+              <input
+                type="number"
+                min={10}
+                max={10000}
+                value={maxUrls}
+                onChange={(e) => setMaxUrls(parseInt(e.target.value) || 500)}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="row">
         <div>

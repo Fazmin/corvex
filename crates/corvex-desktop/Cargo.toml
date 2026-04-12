@@ -29,3 +29,4 @@ uuid.workspace = true
 futures.workspace = true
 rusqlite.workspace = true
 anyhow.workspace = true
+regex.workspace = true

@@ -2,17 +2,21 @@
 
 pub mod cli;
 pub mod config;
+pub mod crawler;
 pub mod db;
 pub mod dsl;
 pub mod error;
 pub mod evasion;
+pub mod forms;
 pub mod fourohfour;
+pub mod fuzzer;
 pub mod http;
 pub mod mutate;
 pub mod plugin;
 pub mod profile;
 pub mod report;
 pub mod scan;
+pub mod scope;
 pub mod state;
 pub mod target;
 pub mod tuning;
