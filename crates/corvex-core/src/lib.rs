@@ -16,6 +16,7 @@ pub mod plugin;
 pub mod profile;
 pub mod report;
 pub mod scan;
+pub mod sqli;
 pub mod scope;
 pub mod state;
 pub mod target;

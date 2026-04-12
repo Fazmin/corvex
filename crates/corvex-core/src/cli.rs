@@ -259,6 +259,51 @@ pub struct Cli {
     /// Out-of-band callback host for blind vulnerability detection
     #[arg(long = "oast", value_name = "URL")]
     pub oast: Option<String>,
+
+    // ---- SQL injection flags ------------------------------------------------
+
+    /// SQLi testing level (1-5). Higher levels test more injection points.
+    /// 1=GET/POST params, 2=+cookies, 3=+User-Agent/Referer, 4=+other headers, 5=all
+    #[arg(long = "sqli-level", value_name = "N", default_value_t = 1)]
+    pub sqli_level: u8,
+
+    /// SQLi risk level (1-3). Controls payload destructiveness.
+    /// 1=safe/read-only, 2=+OR-based, 3=+UPDATE/INSERT/file-write/os-cmd
+    #[arg(long = "sqli-risk", value_name = "N", default_value_t = 1)]
+    pub sqli_risk: u8,
+
+    /// SQLi techniques to test. String of chars: B=boolean, E=error, U=union, S=stacked, T=time
+    #[arg(long = "sqli-techniques", value_name = "BEUST", default_value = "BEUST")]
+    pub sqli_techniques: String,
+
+    /// Force a specific DBMS for SQLi (mysql, postgresql, mssql, oracle, sqlite, mariadb, db2, firebird)
+    #[arg(long = "sqli-dbms", value_name = "DBMS")]
+    pub sqli_dbms: Option<String>,
+
+    /// Seconds for time-based blind SQLi delay (default 5)
+    #[arg(long = "sqli-time-delay", value_name = "SECS", default_value_t = 5)]
+    pub sqli_time_delay: u32,
+
+    /// SQL payload tamper modules (comma-separated). Run --list-tampers to see all.
+    #[arg(long = "tamper", value_name = "MODULES")]
+    pub tamper: Option<String>,
+
+    /// Second-order SQLi: check injection results on this URL
+    #[arg(long = "sqli-second-url", value_name = "URL")]
+    pub sqli_second_url: Option<String>,
+
+    /// Force injection prefix (e.g. ")" or "1 AND")
+    #[arg(long = "sqli-prefix", value_name = "PREFIX")]
+    pub sqli_prefix: Option<String>,
+
+    /// Force injection suffix (e.g. "-- -" or "#")
+    #[arg(long = "sqli-suffix", value_name = "SUFFIX")]
+    pub sqli_suffix: Option<String>,
+
+    /// Post-detection enumeration targets (comma-separated):
+    /// dbs,tables,columns,users,dump,passwords,file-read,file-write,os-cmd
+    #[arg(long = "sqli-enumerate", value_name = "WHAT")]
+    pub sqli_enumerate: Option<String>,
 }
 
 impl Cli {

@@ -35,6 +35,7 @@ pub mod shellshock;
 pub mod siebel;
 pub mod sitefiles;
 pub mod springboot;
+pub mod sqli_plugin;
 pub mod ssl;
 pub mod tests_plugin;
 
@@ -68,6 +69,8 @@ pub fn register_all() -> PluginRegistry {
         Arc::new(springboot::SpringbootPlugin::default()),
         Arc::new(siebel::SiebelPlugin::default()),
         Arc::new(dictionary_attack::DictionaryAttackPlugin::default()),
+        // Active SQL injection scanner — weight 50 in the Active hook.
+        Arc::new(sqli_plugin::SqliPlugin::default()),
         // The big one — runs db_tests. Weight 99 = last.
         Arc::new(tests_plugin::TestsPlugin::default()),
     ];

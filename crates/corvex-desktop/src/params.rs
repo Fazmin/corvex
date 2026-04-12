@@ -72,6 +72,22 @@ pub struct ScanParams {
     pub max_urls: Option<u32>,
     #[serde(default)]
     pub exclude_pattern: Vec<String>,
+
+    // ---- SQL injection flags ------------------------------------------------
+    #[serde(default)]
+    pub sqli_level: Option<u8>,
+    #[serde(default)]
+    pub sqli_risk: Option<u8>,
+    #[serde(default)]
+    pub sqli_techniques: Option<String>,
+    #[serde(default)]
+    pub sqli_dbms: Option<String>,
+    #[serde(default)]
+    pub sqli_time_delay: Option<u32>,
+    #[serde(default)]
+    pub tamper: Option<String>,
+    #[serde(default)]
+    pub sqli_enumerate: Option<String>,
 }
 
 impl ScanParams {
@@ -137,6 +153,16 @@ impl ScanParams {
             cookie_jar: None,
             resume: None,
             oast: None,
+            sqli_level: self.sqli_level.unwrap_or(1),
+            sqli_risk: self.sqli_risk.unwrap_or(1),
+            sqli_techniques: self.sqli_techniques.unwrap_or_else(|| "BEUST".to_string()),
+            sqli_dbms: self.sqli_dbms,
+            sqli_time_delay: self.sqli_time_delay.unwrap_or(5),
+            tamper: self.tamper,
+            sqli_second_url: None,
+            sqli_prefix: None,
+            sqli_suffix: None,
+            sqli_enumerate: self.sqli_enumerate,
         }
     }
 }

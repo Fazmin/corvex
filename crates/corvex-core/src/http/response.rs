@@ -1,10 +1,12 @@
 //! An HTTP response, parsed from the wire.
 
+use std::time::Duration;
+
 use indexmap::IndexMap;
 
 use crate::http::tls::SslInfo;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Response {
     pub status: u16,
     pub status_text: String,
@@ -14,6 +16,23 @@ pub struct Response {
     pub error: Option<String>,
     /// TLS information for HTTPS responses; None for plaintext requests.
     pub tls: Option<SslInfo>,
+    /// Wall-clock time from first byte sent to last byte received.
+    pub elapsed: Duration,
+}
+
+impl Default for Response {
+    fn default() -> Self {
+        Self {
+            status: 0,
+            status_text: String::new(),
+            version: String::new(),
+            headers: IndexMap::new(),
+            body: Vec::new(),
+            error: None,
+            tls: None,
+            elapsed: Duration::ZERO,
+        }
+    }
 }
 
 impl Response {
@@ -51,6 +70,7 @@ impl Response {
             body: body.to_vec(),
             error: None,
             tls: None,
+            elapsed: Duration::ZERO,
         })
     }
 

@@ -7,7 +7,7 @@
 use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use openssl::ssl::Ssl;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -38,10 +38,15 @@ impl HttpClient {
     /// the full parsed response. Counters are updated.
     pub async fn send(&self, req: &Request) -> Result<Response> {
         let dur = Duration::from_secs(req.timeout_secs.max(1));
+        let start = Instant::now();
         let res = timeout(dur, self.do_send(req)).await;
+        let elapsed = start.elapsed();
         self.state.incr_request();
         match res {
-            Ok(Ok(resp)) => Ok(resp),
+            Ok(Ok(mut resp)) => {
+                resp.elapsed = elapsed;
+                Ok(resp)
+            }
             Ok(Err(e)) => {
                 self.state.incr_error();
                 Err(e)
