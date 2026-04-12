@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>corvex-rust</title>
+    <script>
+      // Apply saved theme before React mounts to avoid a flash.
+      (function () {
+        try {
+          const saved = localStorage.getItem("corvexTheme");
+          const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const effective =
+            saved === "light" || saved === "dark" ? saved : sysDark ? "dark" : "light";
+          document.documentElement.setAttribute("data-theme", effective);
+        } catch (_) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

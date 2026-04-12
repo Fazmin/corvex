@@ -1,4 +1,0 @@
-cargo:rerun-if-changed=build.rs
-cargo:rerun-if-changed=src/db/types.rs
-cargo:rerun-if-changed=D:\LocalWorkSpace\nikto-rust\crates\nikto-core\..\..\program\databases
-cargo:warning=nikto-core: compiled 7236 tests, 1257 outdated, 362 favicons, 260 server_msgs, 170 realms, 48 vars, 31 content, 135 common hdrs, 5 sugg hdrs, 20 indexes, 12 options, 20 UAs, 1825 dict, 40 404 sigs

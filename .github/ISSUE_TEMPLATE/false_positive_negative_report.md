@@ -1,6 +1,6 @@
 ---
 name: False positive / negative Report
-about: Report a false positive / negative found by Nikto
+about: Report a false positive / negative found by Corvex
 title: 'False Positive/Negative: '
 labels: bug
 assignees: ''
@@ -16,7 +16,7 @@ Post any useful information like the ID of the test causing the false positive.
 Run:
 
 ```
-./nikto.pl -host targethost -Save false_positive
+./corvex.pl -host targethost -Save false_positive
 ```
 
 This saves all positive responses to a new `false_positive` directory. Afterwards look

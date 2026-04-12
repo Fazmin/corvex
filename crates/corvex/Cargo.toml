@@ -1,0 +1,21 @@
+[package]
+name = "corvex"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Rust port of Corvex - web vulnerability scanner"
+
+[[bin]]
+name = "corvex"
+path = "src/main.rs"
+
+[dependencies]
+corvex-core.workspace = true
+corvex-plugins.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

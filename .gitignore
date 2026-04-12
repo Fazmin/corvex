@@ -35,9 +35,9 @@ perf.data*
 Thumbs.db
 desktop.ini
 
-# --- Nikto local overrides --------------------------------------------------
+# --- Corvex local overrides --------------------------------------------------
 # Upstream convention: the copied-from-default local config is never tracked.
-nikto.conf
+corvex.conf
 tests/udb_*
 
 # --- Scan output written to the repo root -----------------------------------

@@ -1,25 +1,25 @@
-# nikto-rust
+# corvex-rust
 
-A Rust port of the Nikto web server vulnerability scanner. Same tuned signature database, same CLI shape, new engine: `tokio` for concurrency, `hyper` for raw HTTP/1.x, `openssl` directly for legacy TLS fingerprinting.
+A Rust port of the Corvex web server vulnerability scanner. Same tuned signature database, same CLI shape, new engine: `tokio` for concurrency, `hyper` for raw HTTP/1.x, `openssl` directly for legacy TLS fingerprinting.
 
 ## What it does
 
-- Probes a target web server with Nikto's full signature database (7,236 tests + 1,257 outdated-software fingerprints + 362 favicon hashes + 260 server-banner rules + 170 auth realms + 40 404-page signatures + 1,825 dictionary entries).
-- Expands Nikto's full `@LFI(nix|win|abs|url)` template family for local-file-inclusion tests, plus `@JUNK(n)`, `@IP`, `@HOSTNAME`, and every variable from `db_variables` (`@CGIDIRS`, `@USERS`, `@ADMIN`, …).
+- Probes a target web server with Corvex's full signature database (7,236 tests + 1,257 outdated-software fingerprints + 362 favicon hashes + 260 server-banner rules + 170 auth realms + 40 404-page signatures + 1,825 dictionary entries).
+- Expands Corvex's full `@LFI(nix|win|abs|url)` template family for local-file-inclusion tests, plus `@JUNK(n)`, `@IP`, `@HOSTNAME`, and every variable from `db_variables` (`@CGIDIRS`, `@USERS`, `@ADMIN`, …).
 - Runs a full plugin suite: shellshock (CVE-2014-6271), Spring Boot actuator enumeration, Optionsbleed (CVE-2017-9798), MS10-070 ASP.NET padding oracle, PUT/DELETE verification, mod_userdir enumeration, mod_negotiation detection, exposed site files (`.git/`, `.env`, `backup.*`, `WEB-INF/`, …), CGI directory probing, favicon fingerprinting, robots.txt harvesting, HTML path extraction, cookie leak analysis, HTTP auth realm matching with default-credential lookup, and of course the full `db_tests` test runner.
 - Extracts TLS certificate subject, issuer, SAN, cipher, and protocol on the initial HTTPS handshake and surfaces them as findings.
 - Supports Basic, Digest (RFC 2617, qop=auth), and NTLM Type-1 HTTP authentication.
 - Loads user-supplied test databases at runtime via `-Userdbs`.
-- Emits scan results as text, CSV, JSON, XML, HTML (using the upstream Nikto placeholder templates), or SQL.
+- Emits scan results as text, CSV, JSON, XML, HTML (using the upstream Corvex placeholder templates), or SQL.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/fazminnizam/nikto-rust
-cd nikto-rust
+git clone https://github.com/fazminnizam/corvex-rust
+cd corvex-rust
 cargo build --release
 
-./target/release/nikto --host http://www.example.com
+./target/release/corvex --host http://www.example.com
 ```
 
 Prebuilt OpenSSL is not required — the workspace enables the `vendored` feature and builds OpenSSL from source. On Windows, this needs Strawberry Perl and NASM on `PATH`; on Linux/macOS, a C toolchain is enough.
@@ -28,46 +28,46 @@ Prebuilt OpenSSL is not required — the workspace enables the `vendored` featur
 
 This is a three-crate Cargo workspace:
 
-- [crates/nikto-core](crates/nikto-core) — engine library: config, CLI model, HTTP client, TLS, DSL parser + evaluator, variable expansion, scan loop, plugin trait, report trait, target resolution, tuning / mutate / evasion.
-- [crates/nikto-plugins](crates/nikto-plugins) — every scan plugin (one file per `nikto_*.plugin`) plus the six report sinks under [crates/nikto-plugins/src/report](crates/nikto-plugins/src/report).
-- [crates/nikto](crates/nikto) — the thin `nikto` binary that wires `nikto-core` and `nikto-plugins` together.
+- [crates/corvex-core](crates/corvex-core) — engine library: config, CLI model, HTTP client, TLS, DSL parser + evaluator, variable expansion, scan loop, plugin trait, report trait, target resolution, tuning / mutate / evasion.
+- [crates/corvex-plugins](crates/corvex-plugins) — every scan plugin (one file per `corvex_*.plugin`) plus the six report sinks under [crates/corvex-plugins/src/report](crates/corvex-plugins/src/report).
+- [crates/corvex](crates/corvex) — the thin `corvex` binary that wires `corvex-core` and `corvex-plugins` together.
 
-The 14 database files under [program/databases](program/databases) are read once at **build time** by [crates/nikto-core/build.rs](crates/nikto-core/build.rs), serialized with `bincode`, and embedded into the binary via `include_bytes!`. The binary is self-contained — no external files required to run.
+The 14 database files under [program/databases](program/databases) are read once at **build time** by [crates/corvex-core/build.rs](crates/corvex-core/build.rs), serialized with `bincode`, and embedded into the binary via `include_bytes!`. The binary is self-contained — no external files required to run.
 
 ## Running
 
 ```bash
 # Text report to stdout
-nikto --host http://example.com
+corvex --host http://example.com
 
 # JSON report to a file, with only the "Software Identification" tuning category
-nikto --host http://example.com -Tuning b -Format json --output scan.json
+corvex --host http://example.com -Tuning b -Format json --output scan.json
 
-# HTML report using the upstream Nikto templates
-nikto --host http://example.com -Format htm --output scan.html
+# HTML report using the upstream Corvex templates
+corvex --host http://example.com -Format htm --output scan.html
 
 # Scan IPv4 only, no DNS lookup, 16 parallel in-flight requests per host
-nikto --host 10.0.0.5 -ipv4 --nolookup --max-concurrent-requests 16
+corvex --host 10.0.0.5 -ipv4 --nolookup --max-concurrent-requests 16
 
 # Run against HTTPS and force a cipher-permissive handshake
-nikto --host https://legacy.example.com --ssl
+corvex --host https://legacy.example.com --ssl
 
 # Multiple targets, multiple report formats simultaneously
-nikto --host host1,host2,host3 -Format txt,json,html --output report
+corvex --host host1,host2,host3 -Format txt,json,html --output report
 
 # HTTP authentication — Basic, Digest, or NTLM (auto-detected from challenge)
-nikto --host https://internal.example.com -id admin:s3cret
+corvex --host https://internal.example.com -id admin:s3cret
 
 # Merge a custom user test database on top of the shipped signatures
-nikto --host http://example.com -Userdbs ./udb_tests
+corvex --host http://example.com -Userdbs ./udb_tests
 
 # Run only a subset of plugins
-nikto --host http://example.com -Plugins "@@DEFAULT;-tests;shellshock;springboot"
+corvex --host http://example.com -Plugins "@@DEFAULT;-tests;shellshock;springboot"
 ```
 
 ### CLI flags
 
-Every Perl-Nikto flag is preserved. Common ones:
+Every Perl-Corvex flag is preserved. Common ones:
 
 | Flag | Purpose |
 | --- | --- |
@@ -93,11 +93,11 @@ Every Perl-Nikto flag is preserved. Common ones:
 | `--list-plugins` | Print the plugin registry |
 | `--Version` | Print version and exit |
 
-Run `nikto --Help` for the complete list.
+Run `corvex --Help` for the complete list.
 
 ## DSL
 
-Nikto's test database matches responses with a tiny DSL. The Rust port implements the full operator set from the upstream docs:
+Corvex's test database matches responses with a tiny DSL. The Rust port implements the full operator set from the upstream docs:
 
 - `CODE:` / `!CODE:` — match or negate HTTP status codes (regex).
 - `BODY:` / `!BODY:` — match or negate a regex against the response body.
@@ -172,9 +172,9 @@ The port ships 25 scan plugins and 6 report sinks, all statically registered at 
 | `txt` | Streaming plain text |
 | `csv` | One finding per row, quoted and escaped |
 | `json` | Structured document with scan summary + per-host findings |
-| `xml` | `<niktoscan>` / `<scandetails>` / `<item>` |
+| `xml` | `<corvexscan>` / `<scandetails>` / `<item>` |
 | `htm` | Uses the upstream placeholder templates from [program/templates/](program/templates/) — conditional SSL / Reference rows handled |
-| `sql` | `INSERT` statements matching [documentation/nikto_schema_mysql.sql](documentation/nikto_schema_mysql.sql) / [postgresql](documentation/nikto_schema_postgresql.sql) |
+| `sql` | `INSERT` statements matching [documentation/corvex_schema_mysql.sql](documentation/corvex_schema_mysql.sql) / [postgresql](documentation/corvex_schema_postgresql.sql) |
 
 ## Tuning categories
 
@@ -201,11 +201,11 @@ Pass a string of category letters to `-Tuning` to restrict the test set. Add `x`
 
 ## Architecture notes
 
-- **HTTP**: direct TCP via `tokio::net::TcpStream`, HTTP/1.x framed by hand so the scanner can send non-standard methods (`PROPFIND`, `SEARCH`, …), keep raw paths, and inject malformed bytes where upstream Nikto does. TLS runs through `openssl::ssl::SslConnector` built directly with `SECLEVEL=0` and `ALL` ciphers — legacy SSLv3 / TLS 1.0 handshakes that `rustls` refuses still work here, which is the whole point of a fingerprinting scanner.
+- **HTTP**: direct TCP via `tokio::net::TcpStream`, HTTP/1.x framed by hand so the scanner can send non-standard methods (`PROPFIND`, `SEARCH`, …), keep raw paths, and inject malformed bytes where upstream Corvex does. TLS runs through `openssl::ssl::SslConnector` built directly with `SECLEVEL=0` and `ALL` ciphers — legacy SSLv3 / TLS 1.0 handshakes that `rustls` refuses still work here, which is the whole point of a fingerprinting scanner.
 - **TLS metadata**: every HTTPS response carries an attached `SslInfo` struct populated from the live handshake — cipher, protocol version, cert subject, issuer, subjectAltName list, not-before / not-after. The scan loop stores it on the per-host `Mark` and the `ssl` plugin surfaces it to every report sink.
-- **Plugins**: a compile-time `Plugin` trait with five hook points (`Start`, `Recon`, `Scan`, `Prefetch`, `Postfetch`) that mirror Perl Nikto's lifecycle. Plugins are statically registered at startup and iterated in ascending weight order per hook.
+- **Plugins**: a compile-time `Plugin` trait with five hook points (`Start`, `Recon`, `Scan`, `Prefetch`, `Postfetch`) that mirror Perl Corvex's lifecycle. Plugins are statically registered at startup and iterated in ascending weight order per hook.
 - **Authentication**: `http/auth.rs` implements Basic (trivial), Digest (RFC 2617 with `qop=auth`, nonce, cnonce, nc, opaque — MD5 algorithm), and NTLM Type-1 negotiation. The scheme is chosen from the server's `WWW-Authenticate` challenge.
-- **Databases**: 14 upstream CSV files are compiled once by `build.rs` into a single `bincode` blob. First access deserializes the blob into an `Arc<Databases>` shared across all scans. User databases passed via `-Userdbs` are parsed at runtime by the same schema through [crates/nikto-core/src/db/csv_loader.rs](crates/nikto-core/src/db/csv_loader.rs) and merged on top of the shipped rows.
+- **Databases**: 14 upstream CSV files are compiled once by `build.rs` into a single `bincode` blob. First access deserializes the blob into an `Arc<Databases>` shared across all scans. User databases passed via `-Userdbs` are parsed at runtime by the same schema through [crates/corvex-core/src/db/csv_loader.rs](crates/corvex-core/src/db/csv_loader.rs) and merged on top of the shipped rows.
 - **Variable expansion**: `vars.rs` drives an iterate-until-stable expander that fans out each `@VAR` into every concrete candidate. `@LFI(...)` is a full port of the Perl `lfi_function` logic — platform negotiation, traversal depth, absolute vs relative paths, URL encoding, and double-separator collapsing — plus `expand_lfi_dsl` for `@LFI()` tokens embedded in DSL matchers.
 - **DSL**: the parser walks tokens with depth tracking for brackets so that `&&` inside a character class or group doesn't split the expression. Regexes compile through the `regex` crate.
 - **Concurrency**: `tokio` runtime. Multiple hosts scan in parallel (`--max-concurrent-hosts`) and within each host a `Semaphore` caps the number of in-flight tests (`--max-concurrent-requests`). The Perl original is serial — expect a significant speedup on high-latency targets.
@@ -226,14 +226,14 @@ cargo build --workspace --release
 cargo test --workspace
 
 # Smoke tests
-./target/debug/nikto --dbcheck
-./target/debug/nikto --list-plugins
-./target/debug/nikto --Version
+./target/debug/corvex --dbcheck
+./target/debug/corvex --list-plugins
+./target/debug/corvex --Version
 ```
 
 Environment knobs:
 
-- Set `RUST_LOG=nikto_core=debug,tests_plugin=info` to see per-plugin progress.
+- Set `RUST_LOG=corvex_core=debug,tests_plugin=info` to see per-plugin progress.
 - `OPENSSL_NO_VENDOR=1` switches to your system OpenSSL instead of the bundled build.
 
 ## Authorized use only
@@ -248,6 +248,6 @@ This program is free software: you can redistribute it and/or modify it under th
 
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. The full license text is available at https://www.gnu.org/licenses/gpl-3.0.txt.
 
-The signature databases under [program/databases](program/databases) are not licensed under the GPL and retain the distribution terms of the upstream Nikto project. They may only be distributed as part of this package, for use with this scanner.
+The signature databases under [program/databases](program/databases) are not licensed under the GPL and retain the distribution terms of the upstream Corvex project. They may only be distributed as part of this package, for use with this scanner.
 
 LibWhisker is referenced for historical lineage — its license is preserved in [COPYING.LibWhisker](COPYING.LibWhisker).
