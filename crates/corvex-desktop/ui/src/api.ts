@@ -74,6 +74,14 @@ export interface ScanParams {
   crawl_depth?: number;
   max_urls?: number;
   exclude_pattern?: string[];
+  // SQL injection
+  sqli_level?: number;      // 1-5
+  sqli_risk?: number;       // 1-3
+  sqli_techniques?: string; // "BEUST"
+  sqli_dbms?: string;       // "mysql" | "postgresql" | "mssql" | etc.
+  sqli_time_delay?: number;
+  tamper?: string;           // comma-separated tamper module names
+  sqli_enumerate?: string;   // "dbs,tables,columns,users,dump,passwords"
 }
 
 export interface ScanStats {
