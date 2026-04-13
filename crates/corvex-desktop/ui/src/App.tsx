@@ -61,6 +61,8 @@ export default function App() {
   const [pluginCount, setPluginCount] = useState(0);
   const [requestRate, setRequestRate] = useState<number | null>(null);
   const [activeMode, setActiveMode] = useState(false);
+  const [scanMaxUrls, setScanMaxUrls] = useState(500);
+  const [scanCrawlDepth, setScanCrawlDepth] = useState(3);
   // Bumped on every scan completion so HistoryView re-fetches.
   const [historyRefresh, setHistoryRefresh] = useState(0);
 
@@ -125,6 +127,8 @@ export default function App() {
       setFindings([]);
       setStats(null);
       setActiveMode(params.active ?? false);
+      setScanMaxUrls(params.max_urls ?? 500);
+      setScanCrawlDepth(params.crawl_depth ?? 3);
       appendLog(`→ starting scan against ${params.host}${params.active ? " [active]" : ""}`);
       try {
         const id = await startScan(params);
@@ -264,7 +268,8 @@ export default function App() {
               running={running}
               requestRate={requestRate}
               activeMode={activeMode}
-              urlsCrawled={stats?.total_requests ? Math.min(stats.total_requests, 500) : 0}
+              maxUrls={scanMaxUrls}
+              crawlDepth={scanCrawlDepth}
             />
               <ScanForm running={running} onStart={handleStart} onCancel={handleCancel} />
               <FindingsTable findings={findings} />
