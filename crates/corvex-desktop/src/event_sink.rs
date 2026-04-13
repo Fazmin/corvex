@@ -46,6 +46,9 @@ pub struct FindingPayload {
     pub message: String,
     pub refs: String,
     pub plugin: String,
+    pub severity: String,
+    pub cve: Option<String>,
+    pub cvss: Option<f32>,
 }
 
 impl FindingPayload {
@@ -59,6 +62,9 @@ impl FindingPayload {
             message: item.message.clone(),
             refs: item.refs.clone(),
             plugin: item.plugin.clone(),
+            severity: item.severity.to_string(),
+            cve: item.cve.clone(),
+            cvss: item.cvss,
         }
     }
 }

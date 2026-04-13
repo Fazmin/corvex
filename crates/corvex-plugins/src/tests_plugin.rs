@@ -6,7 +6,7 @@ use corvex_core::dsl::{self, DslEvaluator};
 use corvex_core::error::Result;
 use corvex_core::http::request::Request;
 use corvex_core::plugin::{HookKind, Plugin, PluginInfo};
-use corvex_core::report::ReportItem;
+use corvex_core::report::{ReportItem, Severity};
 use corvex_core::scan::ScanCtx;
 use corvex_core::target::Mark;
 use corvex_core::vars;
@@ -22,6 +22,31 @@ static INFO: PluginInfo = PluginInfo {
     extra: false,
     hooks: &[HookKind::Scan],
 };
+
+/// Map a tuning category string to a severity level.
+/// Tuning categories: 0=File Upload, 1=Interesting Files, 2=Misconfig,
+/// 3=Info Disc, 4=XSS/Injection, 5=RFI, 6=DoS, 7=RFR, 8=RCE, 9=SQLi,
+/// a=Auth Bypass, b=Software ID, c=Remote Inclusion, d=WebService,
+/// e=Admin Console, f=XML Injection.
+fn severity_from_tuning(tuning: &str) -> Severity {
+    // Pick the highest-severity category present in the tuning string.
+    let mut best = Severity::Info;
+    for c in tuning.chars() {
+        let s = match c {
+            '8' => Severity::Critical,                  // RCE
+            '9' | '4' | 'f' => Severity::High,          // SQLi, XSS/Injection, XML Injection
+            '0' | '5' | '6' | 'a' | 'c' => Severity::High, // File Upload, RFI, DoS, Auth Bypass, Remote Inclusion
+            '2' | '7' | 'e' => Severity::Medium,        // Misconfig, RFR, Admin Console
+            '1' | '3' | 'd' => Severity::Low,           // Interesting Files, Info Disc, WebService
+            'b' => Severity::Info,                       // Software ID
+            _ => Severity::Info,
+        };
+        if s > best {
+            best = s;
+        }
+    }
+    best
+}
 
 #[derive(Default)]
 pub struct TestsPlugin;
@@ -110,6 +135,8 @@ impl Plugin for TestsPlugin {
                         refs: row.references.clone(),
                         data: row.data.clone(),
                         plugin: INFO.name.to_string(),
+                        severity: severity_from_tuning(&row.tuning),
+                        ..Default::default()
                     };
                     ctx.emit(mark.clone(), vec![item]).await;
                 }

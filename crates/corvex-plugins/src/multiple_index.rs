@@ -62,6 +62,7 @@ impl Plugin for MultipleIndexPlugin {
                     refs: String::new(),
                     data: found.join("\n"),
                     plugin: INFO.name.to_string(),
+                    ..Default::default()
                 }],
             )
             .await;

@@ -51,7 +51,7 @@ impl ReportSink for SqlSink {
     fn item(&mut self, mark: &Mark, item: &ReportItem) -> Result<()> {
         writeln!(
             self.out,
-            "INSERT INTO corvex_table (scanid, testid, ip, hostname, port, tls, refs, httpmethod, uri, message) VALUES ('{}','{}','{}','{}',{},{},'{}','{}','{}','{}');",
+            "INSERT INTO corvex_table (scanid, testid, ip, hostname, port, tls, refs, httpmethod, uri, message, severity, cve, cvss) VALUES ('{}','{}','{}','{}',{},{},'{}','{}','{}','{}','{}','{}',{});",
             self.scan_id,
             sq(&item.corvex_id),
             sq(&mark.ip.map(|i| i.to_string()).unwrap_or_default()),
@@ -62,6 +62,9 @@ impl ReportSink for SqlSink {
             sq(&item.method),
             sq(&item.uri),
             sq(&item.message),
+            sq(&item.severity.to_string()),
+            sq(item.cve.as_deref().unwrap_or("")),
+            item.cvss.map(|v| format!("{v:.1}")).unwrap_or_else(|| "NULL".to_string()),
         )?;
         Ok(())
     }

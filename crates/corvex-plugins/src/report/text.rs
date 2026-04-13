@@ -54,9 +54,12 @@ impl ReportSink for TextSink {
     fn item(&mut self, _mark: &Mark, item: &ReportItem) -> Result<()> {
         writeln!(
             self.out,
-            "+ {}: {} {} - {}",
-            item.corvex_id, item.method, item.uri, item.message
+            "+ [{}] {}: {} {} - {}",
+            item.severity, item.corvex_id, item.method, item.uri, item.message
         )?;
+        if let Some(cve) = &item.cve {
+            writeln!(self.out, "  CVE: {cve}")?;
+        }
         if !item.refs.is_empty() {
             writeln!(self.out, "  See: {}", item.refs)?;
         }

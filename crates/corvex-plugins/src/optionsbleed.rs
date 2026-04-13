@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use corvex_core::error::Result;
 use corvex_core::http::request::Request;
 use corvex_core::plugin::{HookKind, Plugin, PluginInfo};
-use corvex_core::report::ReportItem;
+use corvex_core::report::{ReportItem, Severity};
 use corvex_core::scan::ScanCtx;
 use corvex_core::target::Mark;
 use std::collections::HashSet;
@@ -63,6 +63,9 @@ impl Plugin for OptionsbleedPlugin {
                             refs: "CVE-2017-9798".into(),
                             data: String::new(),
                             plugin: INFO.name.to_string(),
+                            severity: Severity::High,
+                            cve: Some("CVE-2017-9798".into()),
+                            cvss: Some(7.5),
                         }],
                     )
                     .await;
@@ -84,6 +87,9 @@ impl Plugin for OptionsbleedPlugin {
                     refs: "CVE-2017-9798".into(),
                     data: seen.into_iter().collect::<Vec<_>>().join("\n"),
                     plugin: INFO.name.to_string(),
+                    severity: Severity::Medium,
+                    cve: Some("CVE-2017-9798".into()),
+                    cvss: Some(7.5),
                 }],
             )
             .await;

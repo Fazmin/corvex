@@ -60,6 +60,7 @@ impl Plugin for MsgsPlugin {
                     refs: row.reference.clone(),
                     data: String::new(),
                     plugin: INFO.name.to_string(),
+                    ..Default::default()
                 });
             }
         }

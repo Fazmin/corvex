@@ -104,6 +104,8 @@ export interface HostPayload {
   banner: string | null;
 }
 
+export type SeverityLevel = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+
 export interface FindingPayload {
   host: string;
   port: number;
@@ -113,6 +115,9 @@ export interface FindingPayload {
   message: string;
   refs: string;
   plugin: string;
+  severity: SeverityLevel;
+  cve: string | null;
+  cvss: number | null;
 }
 
 export interface SummaryPayload {

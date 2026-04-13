@@ -183,6 +183,7 @@ impl ReportSink for HtmlSink {
         vars.insert("URI", he(&item.uri));
         vars.insert("HTTP_METHOD", he(&item.method));
         vars.insert("MSG", he(&item.message));
+        vars.insert("SEVERITY", he(&item.severity.to_string()));
 
         let scheme = if mark.ssl { "https" } else { "http" };
         let link = format!(
@@ -195,6 +196,10 @@ impl ReportSink for HtmlSink {
         if !item.refs.is_empty() {
             vars.insert("REFERENCES", he(&item.refs));
             active_rows.push("REFERENCES");
+        }
+        if let Some(cve) = &item.cve {
+            vars.insert("CVE", he(cve));
+            active_rows.push("CVE");
         }
 
         let rendered = substitute(TMPL_ITEM, &vars);

@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use corvex_core::error::Result;
 use corvex_core::http::request::Request;
 use corvex_core::plugin::{HookKind, Plugin, PluginInfo};
-use corvex_core::report::ReportItem;
+use corvex_core::report::{ReportItem, Severity};
 use corvex_core::scan::ScanCtx;
 use corvex_core::target::Mark;
 use rand::Rng;
@@ -75,6 +75,8 @@ impl Plugin for PutDelPlugin {
             refs: String::new(),
             data: String::new(),
             plugin: INFO.name.to_string(),
+            severity: Severity::High,
+            ..Default::default()
         }];
 
         // Confirm with GET
@@ -92,6 +94,8 @@ impl Plugin for PutDelPlugin {
                     refs: String::new(),
                     data: String::new(),
                     plugin: INFO.name.to_string(),
+                    severity: Severity::High,
+                    ..Default::default()
                 });
             }
         }
@@ -111,6 +115,8 @@ impl Plugin for PutDelPlugin {
                     refs: String::new(),
                     data: String::new(),
                     plugin: INFO.name.to_string(),
+                    severity: Severity::High,
+                    ..Default::default()
                 });
             }
         }

@@ -1,6 +1,6 @@
 # Corvex
 
-Corvex is a Rust web vulnerability scanner with three engines: a **signature engine** that probes targets against a 7,236-test database, an **active fuzzing engine** that crawls the target, extracts forms and parameters, and injects payloads to detect injection vulnerabilities in real time, and a **SQL injection engine** with five detection techniques, 8 DBMS backends, ~50 WAF-bypass tamper modules, and full exploitation capabilities. Built on `tokio` for concurrency and raw HTTP/1.x framing with direct OpenSSL handshakes for legacy TLS fingerprinting.
+Corvex is a Rust web vulnerability scanner with three engines: a **signature engine** that probes targets against a 7,236-test database, an **active fuzzing engine** that crawls the target, extracts forms and parameters, and injects payloads to detect injection vulnerabilities in real time, and a **SQL injection engine** with five detection techniques, 8 DBMS backends, ~50 WAF-bypass tamper modules, and full exploitation capabilities. Built on `tokio` for concurrency and raw HTTP/1.x framing with direct OpenSSL handshakes, SNI support, TLS 1.3 ciphersuites, and ALPN negotiation.
 
 ## What it does
 
@@ -13,7 +13,7 @@ Corvex is a Rust web vulnerability scanner with three engines: a **signature eng
 
 ### Active fuzzing engine
 
-- **HTML crawler** with BFS link following, respecting scope (domain / subdomains / folder / page), configurable depth (`--crawl-depth`) and URL cap (`--max-urls`). Skips non-HTML responses and soft-404 pages.
+- **HTML crawler** with BFS link following, respecting scope (domain / subdomains / folder / page), configurable depth (`--crawl-depth`) and URL cap (`--max-urls`). Skips non-HTML responses and soft-404 pages. Live crawl progress tracked via `urls_crawled` counter visible in both the CLI output and the desktop app's stat cards.
 - **Form extractor** parses every `<form>` on discovered pages, collecting method, action, and all input/select/textarea fields with their types and default values.
 - **Injection-point framework** turns crawled URLs + forms into `FuzzTarget`s with typed `InjectionPoint`s (query param, POST body field, header, cookie, path segment). The `FuzzRunner` iterates one-parameter-at-a-time, sending mutated requests through the same `nfetch` pipeline so cookies, auth, evasion, and cancellation all work uniformly.
 - Active fuzzing is **opt-in** via `--active` or `-Tuning g`. The default `@@DEFAULT` profile stays signature-only so existing workflows are unaffected.
@@ -26,22 +26,23 @@ The SQL injection engine activates as part of the active fuzzing phase and provi
 
 | Technique | How it works |
 | --- | --- |
-| **Error-based** | Injects boundary probes (`'`, `"`, `\`, `)`, ...`) and scans responses for 48 DBMS error patterns. At level >= 2, extracts data via `EXTRACTVALUE`, `UPDATEXML`, `CAST`, `CONVERT`. |
-| **Boolean-based blind** | Injects true/false SQL conditions (`AND 1=1` vs `AND 1=2`) and compares responses using trigram page-ratio analysis. Double-confirms with a secondary boolean pair. |
-| **Time-based blind** | Injects `SLEEP()`, `WAITFOR DELAY`, `pg_sleep()`, `DBMS_PIPE.RECEIVE_MESSAGE` payloads and measures response time against a baseline median. Confirms with a doubled delay. |
-| **UNION query-based** | Detects column count via `ORDER BY` binary search, finds visible columns via marker injection, then extracts `version()`, `database()`, `current_user()` through the visible column. |
-| **Stacked queries** | Tests semicolon-separated statement support via time-based confirmation. Primarily effective against MSSQL and PostgreSQL. Requires risk >= 2. |
+| **Error-based** | Injects boundary probes (`'`, `"`, `\`, `)`, ...`) and scans responses for 48 DBMS error patterns. At level >= 2, extracts data via `EXTRACTVALUE`, `UPDATEXML`, `CAST`, `CONVERT`. Fastest technique — typically 1-3 requests per parameter. |
+| **Boolean-based blind** | Injects true/false SQL conditions (`AND 1=1` vs `AND 1=2`) and compares responses using trigram page-ratio analysis. Double-confirms with a secondary boolean pair to reduce false positives. ~3-6 requests per parameter. |
+| **Time-based blind** | Injects `SLEEP()`, `WAITFOR DELAY`, `pg_sleep()`, `DBMS_PIPE.RECEIVE_MESSAGE` payloads and measures response time against a baseline median (3 samples). Confirms with a doubled delay. Request timeout auto-extended. |
+| **UNION query-based** | Detects column count via `ORDER BY` binary search (up to 50 columns), finds visible columns via marker injection, then extracts `version()`, `database()`, `current_user()` through the visible column. Most powerful for direct data extraction. |
+| **Stacked queries** | Tests semicolon-separated statement support via time-based confirmation. Primarily effective against MSSQL and PostgreSQL. Enables INSERT/UPDATE and OS command execution. Requires risk >= 2. |
 
 Techniques run in priority order (Error -> Boolean -> Time -> UNION -> Stacked) and short-circuit when a parameter is confirmed at high confidence.
 
 #### DBMS support (8)
 
 MySQL, PostgreSQL, Microsoft SQL Server, Oracle, SQLite, MariaDB, IBM DB2, and Firebird. Each backend has tailored:
-- Error message fingerprinting patterns
+- Error message fingerprinting patterns (48 regex patterns total)
 - Sleep/delay function syntax
 - String concatenation and quoting syntax
 - `information_schema` / catalog query equivalents
 - File I/O and OS command execution vectors
+- UNION FROM clause requirements (Oracle: `DUAL`, DB2: `SYSIBM.SYSDUMMY1`, Firebird: `RDB$DATABASE`)
 
 Auto-detection via error fingerprinting, or force a specific backend with `--sqli-dbms`.
 
@@ -101,9 +102,11 @@ When `--oast` is set, injects DNS callback payloads for out-of-band blind confir
 ### Shared infrastructure
 
 - Supports Basic, Digest (RFC 2617, qop=auth), and NTLM Type-1 HTTP authentication.
+- TLS with SNI (Server Name Indication), TLS 1.3 ciphersuites, and ALPN `http/1.1` negotiation for compatibility with modern CDN/WAF-fronted servers.
 - Loads user-supplied test databases at runtime via `-Userdbs`.
 - Emits scan results as text, CSV, JSON, XML, HTML (using placeholder templates), or SQL.
-- **Tauri v2 desktop app** with a React + TypeScript frontend, live findings streaming, collapsible sidebar, light/dark/system theme, configurable font size, scan history persisted in SQLite, full plugin/database/settings views, and integrated SQL injection configuration panel.
+- Structured error reporting: DNS failures, TLS handshake errors, HTTP timeouts, and connection resets are logged with full context so users can diagnose connectivity issues from the log panel.
+- **Tauri v2 desktop app** with a React + TypeScript frontend, live findings streaming, 5-column stat dashboard (requests, findings, errors, elapsed, URLs crawled) with real-time crawler progress tracking, collapsible sidebar, light/dark/system theme, globally-responsive font scaling (12/14/16/19px), scan history persisted in SQLite, 5-tab fuzzing reference panel (modules, techniques, tamper, DBMS, enumerate), and integrated SQL injection configuration.
 
 ## Quick start
 
@@ -123,7 +126,7 @@ cargo build --release
   --sqli-level 3 --sqli-risk 2 --sqli-techniques BEUST
 ```
 
-Prebuilt OpenSSL is not required — the workspace enables the `vendored` feature and builds OpenSSL from source. On Windows, this needs Strawberry Perl and NASM on `PATH`; on Linux/macOS, a C toolchain is enough.
+Prebuilt OpenSSL is not required — the workspace enables the `vendored` feature and builds OpenSSL from source. On Windows, this needs **Strawberry Perl** (not MSYS2 perl) and NASM on `PATH`; on Linux/macOS, a C toolchain is enough. When building from Git Bash on Windows, ensure Strawberry Perl is found first: `PATH="/c/Strawberry/perl/bin:$PATH" cargo build`.
 
 ## Desktop app
 
@@ -133,16 +136,26 @@ cd crates/corvex-desktop/ui && npm install && cd ../../..
 cargo tauri dev --manifest-path crates/corvex-desktop/Cargo.toml
 ```
 
-Features: frameless window with custom titlebar, collapsible sidebar with SVG icons, live findings table (click to expand details), four stat cards with percentile meters and info tooltips, tracing log panel, scan history in SQLite, settings page with theme and font size controls, and a full SQL injection configuration panel (level, risk, technique selection, DBMS targeting, tamper modules, enumeration options) integrated into the active fuzzing section.
+Features:
+- Frameless window with custom titlebar and window controls
+- Collapsible sidebar with SVG icons (224px expanded / 64px collapsed)
+- **5-column stat dashboard** (Requests, Findings, Errors, Elapsed, URLs Crawled) — the crawl card shows real-time progress against the user's `--max-urls` cap and `--crawl-depth` setting
+- Live findings table with expandable detail rows, 4-way filter (All / Signature / Active / Fingerprint)
+- Tracing log panel with structured error messages (DNS, TLS, HTTP errors surfaced with context)
+- Scan history persisted in SQLite with CRUD operations
+- **5-tab fuzzing reference panel**: Modules (22 fuzzers), Techniques (5 detection methods with how-it-works detail), Tamper (50 WAF-bypass modules), DBMS (8 backends with error patterns / sleep functions / catalogs), Enumerate (8 extraction targets with DBMS-specific queries)
+- **SQL injection configuration panel** in the scan form: level (1-5), risk (1-3), technique checkboxes (B/E/U/S/T), DBMS dropdown, time delay, tamper modules, enumerate checkboxes — all with detailed info tooltips
+- Settings page with theme (light / dark / system) and **globally-responsive font scaling** (Small 12px / Medium 14px / Large 16px / Extra large 19px) — all text, tooltips, code elements, sidebar, stat cards, tables, and form labels scale immediately
+- Light and dark themes with 30+ CSS custom properties
 
 ## Crate layout
 
 Four-crate Cargo workspace:
 
-- [crates/corvex-core](crates/corvex-core) — engine library: config, CLI, HTTP client, TLS, DSL parser + evaluator, variable expansion, crawler, form extractor, fuzzer framework, scope filter, scan loop, plugin trait, report trait, target resolution, tuning / mutate / evasion, and the SQL injection engine (DBMS fingerprinting, 5 detection techniques, payload generation, ~50 tamper modules, enumeration, exploitation).
+- [crates/corvex-core](crates/corvex-core) — engine library: config, CLI, HTTP client (SNI + TLS 1.3 + ALPN), DSL parser + evaluator, variable expansion, crawler (with live `urls_crawled` counter), form extractor, fuzzer framework, scope filter, scan loop, plugin trait, report trait, target resolution, tuning / mutate / evasion, and the SQL injection engine (DBMS fingerprinting, 5 detection techniques, payload generation, ~50 tamper modules, enumeration, exploitation).
 - [crates/corvex-plugins](crates/corvex-plugins) — 26 scan plugins + 6 report sinks.
 - [crates/corvex](crates/corvex) — the `corvex` CLI binary.
-- [crates/corvex-desktop](crates/corvex-desktop) — Tauri v2 desktop GUI.
+- [crates/corvex-desktop](crates/corvex-desktop) — Tauri v2 desktop GUI with React + TypeScript frontend.
 
 The 14 database files under [program/databases](program/databases) are compiled at build time into a single `bincode` blob and embedded via `include_bytes!`. The binary is self-contained.
 
@@ -216,6 +229,9 @@ corvex --host http://example.com -Tuning b -Format json --output scan.json
 
 # Active scan: crawl + fuzz with domain scope
 corvex --host http://example.com --active --scope domain --crawl-depth 4
+
+# Active scan with limited crawl (10 URLs max)
+corvex --host http://example.com --active --scope domain --max-urls 10
 
 # Active scan seeded from an OpenAPI spec
 corvex --host http://api.example.com --active --openapi ./openapi.json
@@ -293,10 +309,11 @@ Corvex's test database matches responses with a tiny DSL:
 
 ## Architecture
 
-- **HTTP**: direct TCP via `tokio::net::TcpStream`, HTTP/1.x framed by hand. TLS via `openssl::ssl::SslConnector` with `SECLEVEL=0` and `ALL` ciphers for legacy fingerprinting. Response timing captured for time-based blind injection detection.
+- **HTTP**: direct TCP via `tokio::net::TcpStream`, HTTP/1.x framed by hand. TLS via `openssl::ssl::SslConnector` with SNI hostname set via `ssl.set_hostname()`, TLS 1.3 ciphersuites via `set_ciphersuites()`, ALPN `http/1.1` negotiation, and `SECLEVEL=0` with `ALL:COMPLEMENTOFALL` ciphers for legacy fingerprinting. Response timing captured via `Instant` for time-based blind injection detection.
 - **TLS metadata**: `SslInfo` captured from the live handshake (cipher, protocol, cert chain). Stored on the per-host `Mark` and surfaced by the `ssl` plugin.
+- **Error reporting**: DNS resolution failures, TLS handshake errors, HTTP request failures, and timeouts are logged at `ERROR`/`DEBUG` level with full context (target, error message, URI). These surface in the desktop app's log panel so users can diagnose connectivity issues.
 - **Plugins**: compile-time `Plugin` trait with six hook points (`Start`, `Recon`, `Scan`, `Prefetch`, `Postfetch`, `Active`). Ascending weight order per hook. 26 plugins registered.
-- **Active engine**: the `Active` hook runs after `Scan`. The crawler produces a `CrawlGraph` of discovered pages + forms. Each active plugin receives the graph and drives a `FuzzRunner` that iterates injection points one parameter at a time.
+- **Active engine**: the `Active` hook runs after `Scan`. The crawler produces a `CrawlGraph` of discovered pages + forms, incrementing `GlobalState::urls_crawled` for each page visited. Each active plugin receives the graph and drives a `FuzzRunner` that iterates injection points one parameter at a time.
 - **SQL injection engine**: lives in `corvex-core/src/sqli/` with 8 submodules. DBMS fingerprinting via 48 error regex patterns across 8 backends. Five detection technique modules run in priority order with short-circuit on high-confidence findings. ~50 tamper modules for WAF bypass. Enumeration engine with boolean binary-search and UNION extraction. Exploitation module with file I/O and OS command execution (risk-gated).
 - **Scope**: `ScopeFilter` constrains the crawler and active plugins to the target domain, subdomains, folder, or page. `--exclude-pattern` regex blocklists layer on top.
 - **Form extraction**: `scraper`-based parser extracts `<form>` elements with all fields, producing `FormDescriptor`s that the fuzzer framework converts into `FuzzTarget`s with typed `InjectionPoint`s.
@@ -304,7 +321,7 @@ Corvex's test database matches responses with a tiny DSL:
 - **Databases**: 14 CSV files compiled to bincode at build time. User DBs merged at runtime via `-Userdbs`.
 - **Concurrency**: `tokio` runtime. Multiple hosts in parallel; per-host semaphore for in-flight requests.
 - **Reports**: `ReportSink` trait with text, CSV, JSON, XML, HTML (template-based), and SQL implementations.
-- **Desktop**: Tauri v2 + React. `TauriEventSink` streams findings live. SQLite history. Tracing log bridge. Settings (theme + font size). SQL injection configuration panel with level/risk/technique/DBMS/tamper/enumerate controls.
+- **Desktop**: Tauri v2 + React. `TauriEventSink` streams findings live. `ScanStats` polls `GlobalState` including `urls_crawled` for real-time crawler progress. SQLite history. Tracing log bridge. Globally-responsive font scaling via `--font-base` CSS variable (all text, tooltips, code, tables, sidebar, stat cards scale together). SQL injection configuration panel with level/risk/technique/DBMS/tamper/enumerate controls. 5-tab fuzzing reference panel with detailed technique/tamper/DBMS/enumerate documentation.
 
 ## Developing
 
@@ -321,6 +338,7 @@ cargo test --workspace     # 50 tests currently passing
 Environment:
 
 - `RUST_LOG=corvex_core=debug,tests_plugin=info` for per-plugin tracing.
+- `RUST_LOG=http=debug,scan=debug` to see HTTP errors and scan-level failures.
 - `OPENSSL_NO_VENDOR=1` to use system OpenSSL instead of the vendored build.
 
 ## Authorized use only

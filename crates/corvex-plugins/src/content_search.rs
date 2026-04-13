@@ -62,6 +62,7 @@ impl Plugin for ContentSearchPlugin {
                     refs: row.references.clone(),
                     data: String::new(),
                     plugin: INFO.name.to_string(),
+                    ..Default::default()
                 });
             }
         }

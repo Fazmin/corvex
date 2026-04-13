@@ -74,6 +74,7 @@ impl Plugin for PathsPlugin {
                 refs: String::new(),
                 data: sample.join("\n"),
                 plugin: INFO.name.to_string(),
+                ..Default::default()
             }]);
         }
         Ok(Vec::new())

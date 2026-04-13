@@ -40,7 +40,7 @@ impl ReportSink for CsvSink {
         if !self.header_written {
             writeln!(
                 self.out,
-                "hostname,ip,port,ssl,corvex_id,method,uri,message,references"
+                "hostname,ip,port,ssl,severity,corvex_id,method,uri,message,references,cve,cvss"
             )?;
             self.header_written = true;
         }
@@ -50,16 +50,19 @@ impl ReportSink for CsvSink {
     fn item(&mut self, mark: &Mark, item: &ReportItem) -> Result<()> {
         writeln!(
             self.out,
-            "{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{}",
             escape(&mark.hostname),
             escape(&mark.ip.map(|i| i.to_string()).unwrap_or_default()),
             mark.port,
             mark.ssl,
+            escape(&item.severity.to_string()),
             escape(&item.corvex_id),
             escape(&item.method),
             escape(&item.uri),
             escape(&item.message),
             escape(&item.refs),
+            escape(item.cve.as_deref().unwrap_or("")),
+            item.cvss.map(|v| format!("{v:.1}")).unwrap_or_default(),
         )?;
         Ok(())
     }

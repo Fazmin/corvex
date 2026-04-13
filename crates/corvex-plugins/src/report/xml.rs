@@ -59,11 +59,22 @@ impl ReportSink for XmlSink {
     }
 
     fn item(&mut self, _mark: &Mark, item: &ReportItem) -> Result<()> {
-        writeln!(
+        write!(
             self.out,
-            "    <item id=\"{}\" method=\"{}\"><description>{}</description><uri>{}</uri><references>{}</references></item>",
+            "    <item id=\"{}\" method=\"{}\" severity=\"{}\"",
             xe(&item.corvex_id),
             xe(&item.method),
+            xe(&item.severity.to_string()),
+        )?;
+        if let Some(cve) = &item.cve {
+            write!(self.out, " cve=\"{}\"", xe(cve))?;
+        }
+        if let Some(cvss) = item.cvss {
+            write!(self.out, " cvss=\"{cvss:.1}\"")?;
+        }
+        writeln!(
+            self.out,
+            "><description>{}</description><uri>{}</uri><references>{}</references></item>",
             xe(&item.message),
             xe(&item.uri),
             xe(&item.refs),

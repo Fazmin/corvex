@@ -740,11 +740,12 @@ button.primary:disabled {
 }
 
 .findings-table col.col-toggle   { width: 26px; }
+.findings-table col.col-severity { width: 82px; }
 .findings-table col.col-id       { width: 88px; }
-.findings-table col.col-method   { width: 90px; }
-.findings-table col.col-uri      { width: 22%; }
+.findings-table col.col-method   { width: 80px; }
+.findings-table col.col-uri      { width: 20%; }
 .findings-table col.col-message  { width: auto; }
-.findings-table col.col-plugin   { width: 110px; }
+.findings-table col.col-plugin   { width: 100px; }
 
 .findings-table th,
 .findings-table td {
@@ -978,6 +979,43 @@ button.primary:disabled {
   font-weight: 500;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+}
+
+/* ---------- Severity badge ---------- */
+
+.severity-badge {
+  display: inline-block;
+  font-size: calc(var(--font-base) - 4px);
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+.cvss-score {
+  margin-left: 8px;
+  font-weight: 600;
+  font-size: calc(var(--font-base) - 2px);
+  color: var(--text);
+}
+
+.cve-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.cve-link:hover {
+  text-decoration: underline;
+}
+
+.severity-chips {
+  margin-top: 4px;
+}
+
+.severity-chips .chip {
+  border-width: 2px;
 }
 
 /* ---------- Info tooltip ---------- */

@@ -69,6 +69,7 @@ impl Plugin for RobotsPlugin {
                 refs: String::new(),
                 data: entries.join("\n"),
                 plugin: INFO.name.to_string(),
+                ..Default::default()
             }],
         )
         .await;

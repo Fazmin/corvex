@@ -14,7 +14,7 @@ use corvex_core::crawler::CrawlGraph;
 use corvex_core::error::Result;
 use corvex_core::fuzzer::param::FuzzTarget;
 use corvex_core::plugin::{HookKind, Plugin, PluginInfo};
-use corvex_core::report::ReportItem;
+use corvex_core::report::{ReportItem, Severity};
 use corvex_core::scan::ScanCtx;
 use corvex_core::sqli::config::SqliConfig;
 use corvex_core::sqli::dbms::Dbms;
@@ -35,6 +35,8 @@ fn sqli_item(method: &str, uri: &str, message: String, refs: &str) -> Vec<Report
         refs: refs.to_string(),
         data: String::new(),
         plugin: "sqli".to_string(),
+        severity: Severity::Critical,
+        ..Default::default()
     }]
 }
 
