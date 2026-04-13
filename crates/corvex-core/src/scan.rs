@@ -248,8 +248,15 @@ pub async fn run(ctx: Arc<ScanCtx>, mut marks: Vec<Mark>) -> Result<()> {
                 });
             }
             if !findings.is_empty() {
-                let mark_clone = mark.clone();
-                let mark_arc = Arc::new(Mutex::new(mark_clone));
+                // Create a lightweight Mark just for emitting port scan findings
+                let tmp_mark = Mark::new(
+                    mark.ident.clone(),
+                    mark.hostname.clone(),
+                    mark.port,
+                    mark.ssl,
+                    mark.root.clone(),
+                );
+                let mark_arc = Arc::new(Mutex::new(tmp_mark));
                 ctx.emit(mark_arc, findings).await;
             }
         }

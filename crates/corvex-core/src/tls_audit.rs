@@ -8,7 +8,7 @@ use openssl::ssl::{SslConnector, SslMethod, SslVersion, SslVerifyMode};
 use std::net::IpAddr;
 use tokio::task;
 
-use crate::error::{CorvexError, Result};
+use crate::error::Result;
 
 /// A TLS vulnerability finding.
 #[derive(Debug, Clone)]
