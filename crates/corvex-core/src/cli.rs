@@ -304,6 +304,38 @@ pub struct Cli {
     /// dbs,tables,columns,users,dump,passwords,file-read,file-write,os-cmd
     #[arg(long = "sqli-enumerate", value_name = "WHAT")]
     pub sqli_enumerate: Option<String>,
+
+    // ---- Port scanning flags ---------------------------------------------------
+
+    /// Enable port scanning before web tests
+    #[arg(long = "portscan", default_value_t = false)]
+    pub portscan: bool,
+
+    /// Port range to scan (default "1-1000", supports "80,443,8080" or "1-65535")
+    #[arg(long = "ports-range", value_name = "RANGE", default_value = "1-1000")]
+    pub ports_range: String,
+
+    /// Concurrent port scan connections (default 200)
+    #[arg(long = "portscan-threads", value_name = "N", default_value_t = 200)]
+    pub portscan_threads: usize,
+
+    /// Enable service banner grabbing on open ports
+    #[arg(long = "service-detect", default_value_t = true)]
+    pub service_detect: bool,
+
+    // ---- DNS enumeration flags ------------------------------------------------
+
+    /// Enable DNS subdomain brute-force discovery
+    #[arg(long = "dns-brute", default_value_t = false)]
+    pub dns_brute: bool,
+
+    /// Custom subdomain wordlist file (one prefix per line)
+    #[arg(long = "dns-wordlist", value_name = "FILE")]
+    pub dns_wordlist: Option<PathBuf>,
+
+    /// Parallel DNS resolution threads for brute-force (default 50)
+    #[arg(long = "dns-threads", value_name = "N", default_value_t = 50)]
+    pub dns_threads: usize,
 }
 
 impl Cli {

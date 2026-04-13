@@ -22,6 +22,7 @@ pub struct Databases {
     pub useragents: UseragentsDb,
     pub dictionary: DictionaryDb,
     pub fourohfour: FourOhFourDb,
+    pub subdomains: SubdomainsDb,
 }
 
 // db_tests --------------------------------------------------------------------
@@ -179,6 +180,13 @@ pub struct UseragentsDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DictionaryDb {
     pub entries: Vec<String>,
+}
+
+// db_subdomains ---------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubdomainsDb {
+    pub prefixes: Vec<String>,
 }
 
 // db_404_strings --------------------------------------------------------------

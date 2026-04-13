@@ -24,6 +24,11 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
   const [id, setId] = useState("");
   const [useragent, setUseragent] = useState("");
   const [evasion, setEvasion] = useState("");
+  // Port scanning
+  const [portscan, setPortscan] = useState(false);
+  const [portsRange, setPortsRange] = useState("1-1000");
+  // DNS enumeration
+  const [dnsBrute, setDnsBrute] = useState(false);
   // Active fuzzing
   const [active, setActive] = useState(false);
   const [scope, setScope] = useState("domain");
@@ -54,6 +59,9 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
       id: id || undefined,
       useragent: useragent || undefined,
       evasion: evasion || undefined,
+      portscan: portscan || undefined,
+      ports_range: portscan ? portsRange : undefined,
+      dns_brute: dnsBrute || undefined,
       active,
       scope: active ? scope : undefined,
       crawl_depth: active ? crawlDepth : undefined,
@@ -125,6 +133,54 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
       <TuningPicker value={tuning} onChange={setTuning} />
 
       <PluginPicker value={plugins} onChange={setPlugins} />
+
+      {/* ---- Port Scanning Section ---- */}
+      <div className="field">
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={portscan}
+            onChange={(e) => setPortscan(e.target.checked)}
+          />
+          Port scanning
+        </label>
+        <InfoTip label="Port scanning help">
+          <strong>Port Scanner</strong>
+          TCP connect scan before web tests. Discovers open ports, identifies
+          services via banner grabbing, and auto-adds HTTP services as scan targets.
+          Non-HTTP services (FTP, SSH, SMTP, etc.) are tested for common vulnerabilities.
+        </InfoTip>
+      </div>
+      {portscan && (
+        <div className="field indent">
+          <label>Port range</label>
+          <input
+            type="text"
+            value={portsRange}
+            onChange={(e) => setPortsRange(e.target.value)}
+            placeholder="1-1000"
+          />
+        </div>
+      )}
+
+      {/* ---- DNS Enumeration Section ---- */}
+      <div className="field">
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={dnsBrute}
+            onChange={(e) => setDnsBrute(e.target.checked)}
+          />
+          DNS subdomain brute-force
+        </label>
+        <InfoTip label="DNS enumeration help">
+          <strong>DNS Enumeration</strong>
+          DNS record lookups (A, AAAA, MX, NS, TXT, CNAME, SOA), SPF
+          analysis, and zone transfer checks always run automatically.
+          Enable this toggle to also brute-force subdomain discovery
+          using a built-in wordlist of common prefixes.
+        </InfoTip>
+      </div>
 
       {/* ---- Active Fuzzing Section ---- */}
       <div className="field active-section">

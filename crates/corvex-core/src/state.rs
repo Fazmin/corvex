@@ -13,6 +13,8 @@ pub struct GlobalState {
     pub total_errors: AtomicU64,
     pub total_findings: AtomicU64,
     pub urls_crawled: AtomicU64,
+    pub ports_scanned: AtomicU64,
+    pub open_ports_found: AtomicU64,
 }
 
 impl GlobalState {

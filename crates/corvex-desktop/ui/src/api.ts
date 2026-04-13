@@ -74,6 +74,11 @@ export interface ScanParams {
   crawl_depth?: number;
   max_urls?: number;
   exclude_pattern?: string[];
+  // Port scanning
+  portscan?: boolean;
+  ports_range?: string;
+  // DNS enumeration
+  dns_brute?: boolean;
   // SQL injection
   sqli_level?: number;      // 1-5
   sqli_risk?: number;       // 1-3

@@ -35,6 +35,7 @@ time.workspace = true
 futures.workspace = true
 hostname.workspace = true
 dns-lookup.workspace = true
+hickory-resolver.workspace = true
 indexmap.workspace = true
 scraper.workspace = true
 sha2.workspace = true

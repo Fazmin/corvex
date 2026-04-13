@@ -49,6 +49,7 @@ time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 futures = "0.3"
 hostname = "0.4"
 dns-lookup = "2"
+hickory-resolver = "0.25"
 indexmap = { version = "2", features = ["serde"] }
 xml-rs = "0.8"
 scraper = "0.20"

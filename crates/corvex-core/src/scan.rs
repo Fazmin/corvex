@@ -16,8 +16,9 @@ use crate::fourohfour::FourOhFourCache;
 use crate::http::request::Request;
 use crate::http::HttpClient;
 use crate::plugin::{HookKind, PluginRegistry};
+use crate::portscan;
 use crate::profile;
-use crate::report::{ReportItem, ReportSink};
+use crate::report::{ReportItem, ReportSink, Severity};
 use crate::scope::ScopeFilter;
 use crate::state::GlobalState;
 use crate::target::{resolve, Mark};
@@ -140,6 +141,133 @@ pub async fn run(ctx: Arc<ScanCtx>, mut marks: Vec<Mark>) -> Result<()> {
                 mark.test_ok = false;
                 mark.errmsg = Some(e.to_string());
             }
+        }
+    }
+
+    // ---- Port scanning pre-phase ----
+    if ctx.cli.portscan {
+        let mut new_marks: Vec<Mark> = Vec::new();
+        let port_list = portscan::parse_port_range(&ctx.cli.ports_range);
+        tracing::info!(
+            target: "scan",
+            "port scanning {} ports on {} hosts (threads: {})",
+            port_list.len(),
+            marks.len(),
+            ctx.cli.portscan_threads,
+        );
+
+        for mark in &marks {
+            if !mark.test_ok {
+                continue;
+            }
+            let ip = match mark.ip {
+                Some(ip) => ip,
+                None => continue,
+            };
+
+            let result = portscan::tcp_scan(
+                ip,
+                &mark.hostname,
+                &port_list,
+                ctx.cli.portscan_threads,
+                3000, // 3s connect timeout
+                ctx.cli.service_detect,
+            )
+            .await;
+
+            ctx.state.ports_scanned.fetch_add(
+                port_list.len() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            ctx.state.open_ports_found.fetch_add(
+                result.open_ports.len() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+
+            tracing::info!(
+                target: "scan",
+                "found {} open ports on {}",
+                result.open_ports.len(),
+                mark.hostname,
+            );
+
+            // For each discovered HTTP/HTTPS port that isn't already a target,
+            // create a new Mark.
+            for op in &result.open_ports {
+                if op.port == mark.port {
+                    continue; // Already targeting this port
+                }
+                if let Some(ref svc) = op.service {
+                    if portscan::is_http_service(&svc.name) {
+                        let ssl = svc.tls || op.port == 443 || op.port == 8443;
+                        let new_mark = Mark::new(
+                            format!("{}:{}", mark.hostname, op.port),
+                            mark.hostname.clone(),
+                            op.port,
+                            ssl,
+                            "/".to_string(),
+                        );
+                        new_marks.push(new_mark);
+                    }
+                }
+            }
+
+            // Emit port scan findings
+            // Store the result so plugins can use it later
+            let mut findings: Vec<ReportItem> = Vec::new();
+            for op in &result.open_ports {
+                let svc_name = op
+                    .service
+                    .as_ref()
+                    .map(|s| s.name.as_str())
+                    .unwrap_or("unknown");
+                let banner_str = op
+                    .service
+                    .as_ref()
+                    .map(|s| s.banner.as_str())
+                    .unwrap_or("");
+                findings.push(ReportItem {
+                    corvex_id: format!("PORT-{}", op.port),
+                    method: "TCP".into(),
+                    uri: format!(":{}", op.port),
+                    message: format!(
+                        "Open port {}: {} {}",
+                        op.port,
+                        svc_name,
+                        if banner_str.is_empty() {
+                            String::new()
+                        } else {
+                            format!("({})", banner_str.chars().take(80).collect::<String>())
+                        }
+                    ),
+                    refs: String::new(),
+                    data: String::new(),
+                    plugin: "portscan".to_string(),
+                    severity: Severity::Info,
+                    ..Default::default()
+                });
+            }
+            if !findings.is_empty() {
+                let mark_clone = mark.clone();
+                let mark_arc = Arc::new(Mutex::new(mark_clone));
+                ctx.emit(mark_arc, findings).await;
+            }
+        }
+
+        // Add newly discovered HTTP targets
+        if !new_marks.is_empty() {
+            tracing::info!(
+                target: "scan",
+                "port scan discovered {} additional HTTP targets",
+                new_marks.len()
+            );
+            // Resolve DNS for new marks
+            for m in new_marks.iter_mut() {
+                if let Some(existing) = marks.iter().find(|em| em.hostname == m.hostname) {
+                    m.ip = existing.ip;
+                }
+            }
+            marks.extend(new_marks);
         }
     }
 

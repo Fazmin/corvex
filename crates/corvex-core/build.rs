@@ -42,13 +42,14 @@ fn main() -> Result<()> {
         useragents: load_useragents(&db_dir.join("db_useragents"))?,
         dictionary: load_dictionary(&db_dir.join("db_dictionary"))?,
         fourohfour: load_fourohfour(&db_dir.join("db_404_strings"))?,
+        subdomains: load_subdomains(&db_dir.join("db_subdomains"))?,
     };
 
     let bytes = bincode::serialize(&db).context("bincode serialize databases")?;
     std::fs::write(out_dir.join("databases.bin"), &bytes)?;
 
     println!(
-        "cargo:warning=corvex-core: compiled {} tests, {} outdated, {} favicons, {} server_msgs, {} realms, {} vars, {} content, {} common hdrs, {} sugg hdrs, {} indexes, {} options, {} UAs, {} dict, {} 404 sigs",
+        "cargo:warning=corvex-core: compiled {} tests, {} outdated, {} favicons, {} server_msgs, {} realms, {} vars, {} content, {} common hdrs, {} sugg hdrs, {} indexes, {} options, {} UAs, {} dict, {} 404 sigs, {} subdomains",
         db.tests.rows.len(),
         db.outdated.rows.len(),
         db.favicon.rows.len(),
@@ -63,6 +64,7 @@ fn main() -> Result<()> {
         db.useragents.agents.len(),
         db.dictionary.entries.len(),
         db.fourohfour.signatures.len(),
+        db.subdomains.prefixes.len(),
     );
 
     Ok(())
@@ -335,6 +337,18 @@ fn load_fourohfour(path: &Path) -> Result<FourOhFourDb> {
         signatures.push(t);
     }
     Ok(FourOhFourDb { signatures })
+}
+
+fn load_subdomains(path: &Path) -> Result<SubdomainsDb> {
+    let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut prefixes = Vec::new();
+    for line in BufReader::new(f).lines() {
+        let line = line?;
+        let t = line.trim().to_string();
+        if t.is_empty() || t.starts_with('#') { continue; }
+        prefixes.push(t);
+    }
+    Ok(SubdomainsDb { prefixes })
 }
 
 // Silence unused-import warnings in the #[path] include.

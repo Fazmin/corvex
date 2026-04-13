@@ -14,7 +14,9 @@ use std::sync::Arc;
 pub mod apacheusers;
 pub mod auth;
 pub mod cgi;
+pub mod compliance;
 pub mod content_search;
+pub mod dns_enum;
 pub mod cookies;
 pub mod dictionary_attack;
 pub mod favicon;
@@ -24,8 +26,10 @@ pub mod ms10_070;
 pub mod msgs;
 pub mod multiple_index;
 pub mod negotiate;
+pub mod netservices;
 pub mod options;
 pub mod optionsbleed;
+pub mod os_fingerprint;
 pub mod outdated;
 pub mod paths;
 pub mod put_del_test;
@@ -38,6 +42,7 @@ pub mod springboot;
 pub mod sqli_plugin;
 pub mod ssl;
 pub mod tests_plugin;
+pub mod tls_audit;
 
 /// Register every built-in scan plugin.
 pub fn register_all() -> PluginRegistry {
@@ -45,6 +50,12 @@ pub fn register_all() -> PluginRegistry {
 
     // Ordered roughly by weight (lower weights run first within a hook).
     let plugins: Vec<Arc<dyn Plugin>> = vec![
+        // DNS enumeration — weight 5, runs first in Recon.
+        Arc::new(dns_enum::DnsEnumPlugin::default()),
+        // TLS deep audit — weight 12, Recon.
+        Arc::new(tls_audit::TlsAuditPlugin::default()),
+        // OS fingerprinting — weight 15, Recon.
+        Arc::new(os_fingerprint::OsFingerprintPlugin::default()),
         Arc::new(headers::HeadersPlugin::default()),
         Arc::new(msgs::MsgsPlugin::default()),
         Arc::new(outdated::OutdatedPlugin::default()),
@@ -69,6 +80,10 @@ pub fn register_all() -> PluginRegistry {
         Arc::new(springboot::SpringbootPlugin::default()),
         Arc::new(siebel::SiebelPlugin::default()),
         Arc::new(dictionary_attack::DictionaryAttackPlugin::default()),
+        // Compliance audit — weight 25 in Postfetch hook.
+        Arc::new(compliance::CompliancePlugin::default()),
+        // Network service checks — weight 40 in Scan hook.
+        Arc::new(netservices::NetServicesPlugin::default()),
         // Active SQL injection scanner — weight 50 in the Active hook.
         Arc::new(sqli_plugin::SqliPlugin::default()),
         // The big one — runs db_tests. Weight 99 = last.

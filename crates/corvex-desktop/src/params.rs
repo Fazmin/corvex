@@ -73,6 +73,16 @@ pub struct ScanParams {
     #[serde(default)]
     pub exclude_pattern: Vec<String>,
 
+    // ---- Port scanning flags ----------------------------------------------------
+    #[serde(default)]
+    pub portscan: bool,
+    #[serde(default)]
+    pub ports_range: Option<String>,
+
+    // ---- DNS enumeration flags ------------------------------------------------
+    #[serde(default)]
+    pub dns_brute: bool,
+
     // ---- SQL injection flags ------------------------------------------------
     #[serde(default)]
     pub sqli_level: Option<u8>,
@@ -153,6 +163,13 @@ impl ScanParams {
             cookie_jar: None,
             resume: None,
             oast: None,
+            portscan: self.portscan,
+            ports_range: self.ports_range.unwrap_or_else(|| "1-1000".to_string()),
+            portscan_threads: 200,
+            service_detect: true,
+            dns_brute: self.dns_brute,
+            dns_wordlist: None,
+            dns_threads: 50,
             sqli_level: self.sqli_level.unwrap_or(1),
             sqli_risk: self.sqli_risk.unwrap_or(1),
             sqli_techniques: self.sqli_techniques.unwrap_or_else(|| "BEUST".to_string()),
