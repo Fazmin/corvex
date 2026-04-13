@@ -139,11 +139,20 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
           </label>
           <InfoTip label="Active fuzzing help">
             <strong>Active fuzzing engine</strong>
-            When enabled, the scanner crawls the target to discover pages
-            and forms, then injects payloads into every parameter to probe
-            for XSS, SQLi, LFI, command injection, CRLF, open redirects
-            and more. This is <em>invasive</em> — only use against targets
-            you own or have explicit permission to test.
+            When enabled, the scanner crawls the target using BFS link
+            following to discover pages, forms, and query parameters.
+            Every discovered parameter becomes an injection point tested
+            by the active plugin suite.
+            <br /><br />
+            The <strong>SQL Injection engine</strong> below runs 5 detection
+            techniques (error, boolean-blind, time-blind, UNION, stacked
+            queries) across 8 DBMS backends with ~50 WAF-bypass tamper
+            modules, plus database enumeration and exploitation.
+            <br /><br />
+            This is <em>invasive</em> — only use against targets you own
+            or have explicit written permission to test. The scanner will
+            send hundreds to thousands of requests depending on the number
+            of parameters discovered.
           </InfoTip>
         </div>
         {active && (
@@ -188,11 +197,19 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
                 </label>
                 <InfoTip label="SQLi help">
                   <strong>SQL Injection Engine</strong>
-                  Configures the active SQLi scanner that tests every discovered
-                  parameter for injection vulnerabilities. Supports error-based,
-                  boolean-blind, time-blind, UNION query, and stacked query
-                  techniques across MySQL, PostgreSQL, MSSQL, Oracle, SQLite,
-                  MariaDB, DB2, and Firebird.
+                  The SQLi engine tests every discovered parameter for injection
+                  vulnerabilities by sending crafted SQL payloads and analyzing
+                  how the application responds. It runs five detection techniques
+                  in priority order (Error, Boolean, Time, Union, Stacked) and
+                  short-circuits when a parameter is confirmed injectable.
+                  <br /><br />
+                  Supports <strong>8 DBMS backends</strong>: MySQL, PostgreSQL,
+                  MSSQL, Oracle, SQLite, MariaDB, DB2, and Firebird — each with
+                  tailored payloads, error fingerprints, and catalog queries.
+                  <br /><br />
+                  Includes <strong>~50 tamper modules</strong> for WAF/IDS bypass
+                  and <strong>post-exploitation</strong> capabilities including
+                  database enumeration, file read/write, and OS command execution.
                 </InfoTip>
               </div>
 
@@ -202,11 +219,19 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
                     <label>Level (1-5)</label>
                     <InfoTip label="Level help">
                       <strong>Testing level</strong>
-                      <br />1 = GET/POST params only
-                      <br />2 = + Cookie params
-                      <br />3 = + User-Agent, Referer
-                      <br />4 = + other headers
-                      <br />5 = all injection points
+                      Controls which injection points are tested. Higher levels
+                      generate more requests but find injections in less obvious
+                      locations.
+                      <dl>
+                        <dt>1</dt><dd>GET and POST parameters only (fastest, least noise)</dd>
+                        <dt>2</dt><dd>+ Cookie values — tests each cookie as an injection point</dd>
+                        <dt>3</dt><dd>+ User-Agent and Referer headers — catches header-based SQLi</dd>
+                        <dt>4</dt><dd>+ All other HTTP headers (Host, Accept, X-Forwarded-For, etc.)</dd>
+                        <dt>5</dt><dd>+ URL path segments — tests each /segment/ as an injection point</dd>
+                      </dl>
+                      <br />
+                      Start with level 1-2 for most targets. Use level 3+ when
+                      you suspect header-based injection or need comprehensive coverage.
                     </InfoTip>
                   </div>
                   <input
@@ -222,9 +247,24 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
                     <label>Risk (1-3)</label>
                     <InfoTip label="Risk help">
                       <strong>Payload risk</strong>
-                      <br />1 = safe, read-only queries
-                      <br />2 = + OR-based (may alter results)
-                      <br />3 = + UPDATE/INSERT/file-write/OS-cmd
+                      Controls how aggressive and potentially destructive the
+                      injected payloads are. Higher risk may modify data on the
+                      target.
+                      <dl>
+                        <dt>1</dt><dd><strong>Safe</strong> — read-only queries
+                          only: AND-based conditions, ORDER BY probes, SELECT
+                          statements. No risk of data modification.</dd>
+                        <dt>2</dt><dd><strong>Moderate</strong> — adds OR-based
+                          payloads (e.g. <code>OR 1=1</code>) which may alter query
+                          results and return unintended data. Also enables
+                          stacked queries detection.</dd>
+                        <dt>3</dt><dd><strong>Dangerous</strong> — adds
+                          UPDATE/INSERT/DELETE payloads, file write operations
+                          (<code>INTO OUTFILE</code>, <code>COPY TO</code>), and
+                          OS command execution (<code>xp_cmdshell</code>,
+                          <code>COPY TO PROGRAM</code>). Use only on targets you
+                          own.</dd>
+                      </dl>
                     </InfoTip>
                   </div>
                   <input
@@ -242,17 +282,53 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
                   <label>Techniques</label>
                   <InfoTip label="Techniques help">
                     <strong>Detection techniques</strong>
-                    <br />B = Boolean-based blind
-                    <br />E = Error-based
-                    <br />U = UNION query
-                    <br />S = Stacked queries
-                    <br />T = Time-based blind
-                    <br />Combine letters to enable multiple.
+                    Each technique detects SQL injection differently. They run
+                    in priority order and short-circuit once a parameter is
+                    confirmed.
+                    <dl>
+                      <dt>E &mdash; Error</dt>
+                      <dd>Injects boundary characters (<code>'</code>,
+                        <code>"</code>, <code>\</code>) and scans responses for
+                        database error messages (48 patterns across 8 DBMS).
+                        Fastest technique — typically 1-3 requests per parameter.
+                        Can extract data via EXTRACTVALUE, UPDATEXML, or CAST
+                        errors.</dd>
+                      <dt>B &mdash; Boolean</dt>
+                      <dd>Sends true/false condition pairs
+                        (<code>AND 1=1</code> vs <code>AND 1=2</code>) and
+                        compares response bodies using trigram page-ratio
+                        analysis. Detects blind injection when the page content
+                        changes based on the condition. Confirms with a second
+                        boolean pair to reduce false positives.</dd>
+                      <dt>T &mdash; Time</dt>
+                      <dd>Injects time-delay payloads
+                        (<code>SLEEP()</code>, <code>WAITFOR DELAY</code>,
+                        <code>pg_sleep()</code>) and measures response time
+                        against a baseline. Works when there is no visible
+                        output difference at all. Confirms by doubling the
+                        delay and checking proportional increase. Slowest
+                        technique — use a higher time delay on laggy targets.</dd>
+                      <dt>U &mdash; Union</dt>
+                      <dd>Determines the column count via binary-search
+                        <code>ORDER BY</code>, then injects
+                        <code>UNION SELECT</code> with marker strings to find
+                        which column is reflected in the response. Once a
+                        visible column is found, extracts version, database
+                        name, and current user directly. Most powerful for
+                        data extraction.</dd>
+                      <dt>S &mdash; Stacked</dt>
+                      <dd>Tests whether the database supports multiple
+                        statements separated by semicolons
+                        (<code>; WAITFOR DELAY</code>,
+                        <code>; SELECT pg_sleep()</code>). Primarily effective
+                        against MSSQL and PostgreSQL. Enables INSERT/UPDATE
+                        and OS command execution. Requires risk &ge; 2.</dd>
+                    </dl>
                   </InfoTip>
                 </div>
-                <div style={{ display: "flex", gap: 4 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px 8px" }}>
                   {["B", "E", "U", "S", "T"].map((t) => (
-                    <label key={t} className="checkbox" style={{ margin: 0, fontSize: "var(--font-base)" }}>
+                    <label key={t} className="checkbox" style={{ margin: 0, fontSize: "var(--font-base)", whiteSpace: "nowrap" }}>
                       <input
                         type="checkbox"
                         checked={sqliTechniques.includes(t)}
@@ -272,7 +348,27 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
 
               <div className="row">
                 <div>
-                  <label>DBMS</label>
+                  <div className="label-row">
+                    <label>DBMS</label>
+                    <InfoTip label="DBMS help">
+                      <strong>Target database backend</strong>
+                      <strong>Auto-detect</strong> fingerprints the DBMS from
+                      error messages (48 regex patterns). Force a specific
+                      backend to skip fingerprinting and use only that DBMS's
+                      payloads — faster and less noisy when you already know
+                      the stack.
+                      <dl>
+                        <dt>MySQL</dt><dd>SLEEP(), EXTRACTVALUE, UPDATEXML, information_schema, LOAD_FILE</dd>
+                        <dt>PostgreSQL</dt><dd>pg_sleep(), CAST errors, pg_database, pg_read_file, COPY TO PROGRAM</dd>
+                        <dt>MSSQL</dt><dd>WAITFOR DELAY, CONVERT errors, sysdatabases, xp_cmdshell, OPENROWSET</dd>
+                        <dt>Oracle</dt><dd>DBMS_PIPE.RECEIVE_MESSAGE, ORA-xxxxx errors, all_tables, UTL_FILE</dd>
+                        <dt>SQLite</dt><dd>RANDOMBLOB delay, sqlite_master, PRAGMA table_info</dd>
+                        <dt>MariaDB</dt><dd>Same as MySQL with MariaDB-specific error patterns</dd>
+                        <dt>DB2</dt><dd>SQLCODE errors, syscat.tables, SYSIBM.SYSDUMMY1</dd>
+                        <dt>Firebird</dt><dd>Dynamic SQL Error, RDB$RELATIONS, RDB$RELATION_FIELDS</dd>
+                      </dl>
+                    </InfoTip>
+                  </div>
                   <select value={sqliDbms} onChange={(e) => setSqliDbms(e.target.value)}>
                     <option value="">Auto-detect</option>
                     <option value="mysql">MySQL</option>
@@ -286,7 +382,23 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
                   </select>
                 </div>
                 <div>
-                  <label>Time delay (s)</label>
+                  <div className="label-row">
+                    <label>Time delay (s)</label>
+                    <InfoTip label="Time delay help">
+                      <strong>Time-based detection delay</strong>
+                      Seconds injected into SLEEP/WAITFOR payloads. The engine
+                      measures whether the response takes at least this long
+                      compared to the baseline.
+                      <br /><br />
+                      <strong>Default: 5</strong> works for most targets.
+                      Increase to 8-10 on high-latency or slow targets to
+                      avoid false positives. Decrease to 2-3 for faster scans
+                      on low-latency targets (but risk more false positives).
+                      <br /><br />
+                      The request timeout is automatically extended to
+                      accommodate the injected delay.
+                    </InfoTip>
+                  </div>
                   <input
                     type="number"
                     min={1}
@@ -301,12 +413,43 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
                 <div className="label-row">
                   <label>Tamper modules</label>
                   <InfoTip label="Tamper help">
-                    <strong>WAF/IDS bypass</strong>
-                    Comma-separated list of payload transform modules.
-                    Examples: <code>space2comment</code>, <code>randomcase</code>,
-                    <code>between</code>, <code>base64encode</code>,
-                    <code>apostrophemask</code>.
-                    50 modules available.
+                    <strong>WAF/IDS bypass (50 modules)</strong>
+                    Transforms applied to each SQL payload before injection to
+                    evade web application firewalls and input filters. Modules
+                    are chained left-to-right.
+                    <dl>
+                      <dt>Space</dt>
+                      <dd><code>space2comment</code> (spaces to <code>/**/</code>),
+                        <code>space2hash</code> (<code>#\n</code>),
+                        <code>space2dash</code>, <code>space2plus</code>,
+                        <code>space2randomblank</code></dd>
+                      <dt>Encode</dt>
+                      <dd><code>charencode</code> (URL-encode),
+                        <code>chardoubleencode</code>,
+                        <code>base64encode</code>,
+                        <code>charunicodeencode</code>,
+                        <code>overlongutf8</code>,
+                        <code>unmagicquotes</code></dd>
+                      <dt>Keywords</dt>
+                      <dd><code>randomcase</code> (rAnDoM casing),
+                        <code>randomcomments</code> (<code>SEL/**/ECT</code>),
+                        <code>versionedkeywords</code>
+                        (<code>/*!50000 UNION*/</code>),
+                        <code>nonrecursivereplacement</code>
+                        (<code>SELSELECTECT</code>)</dd>
+                      <dt>Logic</dt>
+                      <dd><code>between</code> (<code>&gt;</code> to
+                        <code>NOT BETWEEN</code>),
+                        <code>equaltolike</code> (<code>=</code> to
+                        <code>LIKE</code>),
+                        <code>symboliclogical</code> (<code>AND</code>/<code>OR</code>
+                        to <code>&amp;&amp;</code>/<code>||</code>)</dd>
+                      <dt>Special</dt>
+                      <dd><code>apostrophemask</code> (fullwidth <code>'</code>),
+                        <code>appendnullbyte</code>,
+                        <code>sp_password</code> (hide from MSSQL logs),
+                        <code>sleep2getlock</code></dd>
+                    </dl>
                   </InfoTip>
                 </div>
                 <input
@@ -322,11 +465,42 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
                   <label>Enumerate</label>
                   <InfoTip label="Enumerate help">
                     <strong>Post-detection enumeration</strong>
-                    Select what to extract after confirming an injectable parameter.
-                    Higher options require higher risk levels.
+                    After confirming an injectable parameter, the engine can
+                    extract data from the backend database. Extraction method
+                    depends on the technique that found the injection.
+                    <dl>
+                      <dt>Databases</dt>
+                      <dd>List all database/schema names
+                        (<code>information_schema</code>, <code>pg_database</code>,
+                        <code>sysdatabases</code>)</dd>
+                      <dt>Tables</dt>
+                      <dd>List tables in the current database</dd>
+                      <dt>Columns</dt>
+                      <dd>List columns for each discovered table</dd>
+                      <dt>Users</dt>
+                      <dd>Enumerate database user accounts</dd>
+                      <dt>Passwords</dt>
+                      <dd>Extract password hashes from system tables
+                        (<code>mysql.user</code>, <code>pg_shadow</code>,
+                        <code>sys.sql_logins</code>)</dd>
+                      <dt>Dump</dt>
+                      <dd>Dump full table contents (row by row)</dd>
+                      <dt>File read</dt>
+                      <dd>Read files from the server via
+                        <code>LOAD_FILE()</code>, <code>pg_read_file()</code>,
+                        or <code>OPENROWSET</code>. Requires risk 3.</dd>
+                      <dt>OS cmd</dt>
+                      <dd>Execute OS commands via
+                        <code>xp_cmdshell</code>,
+                        <code>COPY TO PROGRAM</code>, or UDF injection.
+                        Requires risk 3.</dd>
+                    </dl>
+                    For blind techniques (boolean/time), extraction uses
+                    character-by-character binary search (~8 requests per
+                    character). UNION-based extraction is much faster.
                   </InfoTip>
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px 8px" }}>
                   {[
                     { value: "dbs", label: "Databases" },
                     { value: "tables", label: "Tables" },

@@ -24,8 +24,12 @@ pub fn permissive_connector() -> Result<SslConnector> {
     let mut builder = SslConnector::builder(SslMethod::tls())
         .map_err(|e| CorvexError::Tls(format!("SslConnector::builder: {e}")))?;
     builder.set_verify(SslVerifyMode::NONE);
-    // Allow everything the local OpenSSL build supports.
-    let _ = builder.set_cipher_list("ALL:@SECLEVEL=0");
+    // Allow everything the local OpenSSL build supports — both TLS 1.2
+    // cipher suites (set_cipher_list) and TLS 1.3 suites (set_ciphersuites).
+    let _ = builder.set_cipher_list("ALL:COMPLEMENTOFALL:@SECLEVEL=0");
+    let _ = builder.set_ciphersuites("TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256");
+    // Explicitly enable ALPN so servers that gate on it don't reject us.
+    let _ = builder.set_alpn_protos(b"\x08http/1.1");
     Ok(builder.build())
 }
 

@@ -13,9 +13,9 @@ export type FontSize = "small" | "medium" | "large" | "xlarge";
 /** px values applied as the global `--font-base` CSS variable. */
 const SIZE_PX: Record<FontSize, string> = {
   small: "12px",
-  medium: "13px",
-  large: "15px",
-  xlarge: "17px",
+  medium: "14px",
+  large: "16px",
+  xlarge: "19px",
 };
 
 export const FONT_SIZE_LABELS: Record<FontSize, string> = {

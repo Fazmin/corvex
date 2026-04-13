@@ -6,7 +6,8 @@ interface Props {
   running: boolean;
   requestRate: number | null;
   activeMode?: boolean;
-  urlsCrawled?: number;
+  maxUrls?: number;
+  crawlDepth?: number;
 }
 
 /**
@@ -14,7 +15,7 @@ interface Props {
  * visualisation so the operator can see how the scan is progressing
  * relative to the total request volume.
  */
-export function StatsBar({ stats, running, requestRate, activeMode, urlsCrawled }: Props) {
+export function StatsBar({ stats, running, requestRate, activeMode, maxUrls, crawlDepth }: Props) {
   const requests = stats?.total_requests ?? 0;
   const findings = stats?.total_findings ?? 0;
   const errors = stats?.total_errors ?? 0;
@@ -34,7 +35,7 @@ export function StatsBar({ stats, running, requestRate, activeMode, urlsCrawled 
   const rateLabel = requestRate !== null ? `${requestRate.toFixed(1)}/s` : "—";
 
   return (
-    <div className="stats-grid">
+    <div className={`stats-grid${activeMode ? " stats-grid-5" : ""}`}>
       <StatCard
         label="Requests"
         value={requests}
@@ -119,11 +120,11 @@ export function StatsBar({ stats, running, requestRate, activeMode, urlsCrawled 
       {activeMode && (
         <StatCard
           label="URLs Crawled"
-          value={urlsCrawled ?? 0}
+          value={stats?.urls_crawled ?? 0}
           delta={running ? "crawling" : ""}
-          percent={Math.min(((urlsCrawled ?? 0) / 500) * 100, 100)}
-          meterLeft="max-urls target"
-          meterRight={`depth ≤ 3`}
+          percent={Math.min(((stats?.urls_crawled ?? 0) / (maxUrls || 500)) * 100, 100)}
+          meterLeft={`max ${maxUrls || 500} urls`}
+          meterRight={`depth ≤ ${crawlDepth || 3}`}
           info={
             <>
               <strong>Crawler progress</strong>

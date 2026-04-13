@@ -2,7 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(cargo --version)",
-      "Bash(rustc --version)"
+      "Bash(rustc --version)",
+      "Bash(npm run:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "Bash(RUST_LOG=scan=debug,http=debug target/debug/corvex.exe --host https://www.stateandmain.ca/ --timeout 10)",
+      "Bash(target/debug/corvex.exe --host https://www.stateandmain.ca/ --timeout 10)",
+      "Bash(target/debug/corvex.exe --host https://www.stateandmain.ca/ --timeout 15)",
+      "Bash(curl -sI https://www.stateandmain.ca/)",
+      "Bash(target/debug/corvex.exe --host https://www.stateandmain.ca/ --timeout 15 --useragent \"Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/131.0.0.0 Safari/537.36\")",
+      "Bash(RUST_LOG=http=trace target/debug/corvex.exe --host https://www.stateandmain.ca/ --timeout 15)",
+      "Bash(target/debug/corvex.exe --host https://example.com --timeout 15)"
     ]
   }
 }

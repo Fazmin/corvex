@@ -131,6 +131,12 @@ pub async fn run(ctx: Arc<ScanCtx>, mut marks: Vec<Mark>) -> Result<()> {
         match resolve(&mark.hostname).await {
             Ok(ip) => mark.ip = Some(ip),
             Err(e) => {
+                tracing::error!(
+                    target: "scan",
+                    "DNS resolution failed for {}: {}",
+                    mark.hostname,
+                    e
+                );
                 mark.test_ok = false;
                 mark.errmsg = Some(e.to_string());
             }
@@ -192,6 +198,12 @@ async fn scan_one(ctx: Arc<ScanCtx>, mark: Arc<Mutex<Mark>>) -> Result<()> {
         Ok(r) => r,
         Err(e) => {
             let mut m = mark.lock().await;
+            tracing::error!(
+                target: "scan",
+                "initial fetch failed for {}: {}",
+                m.ident,
+                e
+            );
             m.errmsg = Some(e.to_string());
             m.test_ok = false;
             return Ok(());

@@ -92,6 +92,7 @@ export interface ScanStats {
   hosts_completed: number;
   elapsed_secs: number;
   cancelled: boolean;
+  urls_crawled: number;
 }
 
 export interface HostPayload {

@@ -115,6 +115,7 @@ pub async fn run(
             query_params,
         });
 
+        ctx.state.incr_urls_crawled();
         tracing::debug!(target: "crawler", depth, urls = graph.pages.len(), "crawled {url}");
 
         // Follow links if we haven't exceeded depth.

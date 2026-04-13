@@ -93,7 +93,7 @@
      inline style on documentElement so the user can pick a global
      scale. Form inputs, table cells, and anything else that uses
      `font-size: var(--font-base)` will track this value. */
-  --font-base: 13px;
+  --font-base: 14px;
 }
 
 html,

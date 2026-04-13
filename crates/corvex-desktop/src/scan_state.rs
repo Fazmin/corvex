@@ -31,6 +31,7 @@ pub struct ScanStats {
     pub hosts_completed: u64,
     pub elapsed_secs: u64,
     pub cancelled: bool,
+    pub urls_crawled: u64,
 }
 
 impl ScanRegistry {
@@ -63,6 +64,7 @@ impl ScanRegistry {
             hosts_completed: scan.state.hosts_completed.load(Ordering::Relaxed),
             elapsed_secs: scan.state.elapsed_secs(),
             cancelled: scan.cancel.is_cancelled(),
+            urls_crawled: scan.state.urls_crawled.load(Ordering::Relaxed),
         })
     }
 }

@@ -12,6 +12,7 @@ pub struct GlobalState {
     pub total_requests: AtomicU64,
     pub total_errors: AtomicU64,
     pub total_findings: AtomicU64,
+    pub urls_crawled: AtomicU64,
 }
 
 impl GlobalState {
@@ -35,6 +36,10 @@ impl GlobalState {
 
     pub fn incr_finding(&self) {
         self.total_findings.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn incr_urls_crawled(&self) {
+        self.urls_crawled.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn finalize(&self) {

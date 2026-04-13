@@ -49,10 +49,20 @@ impl HttpClient {
             }
             Ok(Err(e)) => {
                 self.state.incr_error();
+                tracing::debug!(
+                    target: "http",
+                    "request failed: {} {} → {}",
+                    req.method, req.uri, e
+                );
                 Err(e)
             }
             Err(_) => {
                 self.state.incr_error();
+                tracing::debug!(
+                    target: "http",
+                    "request timeout after {}s: {} {}",
+                    req.timeout_secs, req.method, req.uri
+                );
                 Err(CorvexError::Http(format!(
                     "timeout after {}s: {} {}",
                     req.timeout_secs, req.method, req.uri
@@ -75,14 +85,23 @@ impl HttpClient {
 
         if req.ssl {
             let connector = tls::permissive_connector()?;
-            let ssl = Ssl::new(connector.context())
+            let mut ssl = Ssl::new(connector.context())
                 .map_err(|e| CorvexError::Tls(e.to_string()))?;
+            // SNI: most modern servers require the hostname in the TLS
+            // ClientHello to serve the correct certificate.
+            let _ = ssl.set_hostname(&req.host);
             let mut stream = SslStream::new(ssl, tcp)
                 .map_err(|e| CorvexError::Tls(e.to_string()))?;
             Pin::new(&mut stream)
                 .connect()
                 .await
-                .map_err(|e| CorvexError::Tls(format!("handshake: {e}")))?;
+                .map_err(|e| CorvexError::Tls(format!("handshake with {}: {e}", req.host)))?;
+            tracing::trace!(
+                target: "http",
+                "TLS handshake OK with {} ({})",
+                req.host,
+                stream.ssl().version_str()
+            );
 
             // Capture handshake metadata before we drain the socket.
             let info = {

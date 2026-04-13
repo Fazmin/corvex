@@ -11,9 +11,9 @@ const FONT_SIZES: FontSize[] = ["small", "medium", "large", "xlarge"];
 
 const FONT_PREVIEW_PX: Record<FontSize, string> = {
   small: "12px",
-  medium: "13px",
-  large: "15px",
-  xlarge: "17px",
+  medium: "14px",
+  large: "16px",
+  xlarge: "19px",
 };
 
 export function SettingsView() {
