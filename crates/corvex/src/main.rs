@@ -149,6 +149,40 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Initialize vulnerability database if SCA features are requested.
+    let vulndb = {
+        use corvex_core::vulndb::{self, update::UpdateMode, VulnDb};
+        let db_path = cli.vulndb_path.clone().unwrap_or_else(|| {
+            vulndb::default_db_path().unwrap_or_else(|_| std::path::PathBuf::from("vulndb.sqlite"))
+        });
+        let needs_vulndb = cli.scan_dir.is_some()
+            || cli.sbom_input.is_some()
+            || cli.binary_scan.is_some()
+            || cli.vulndb_export.is_some()
+            || cli.vulndb_import.is_some();
+
+        if needs_vulndb {
+            match VulnDb::open(&db_path) {
+                Ok(db) => {
+                    let mode = UpdateMode::parse(&cli.vulndb_update)
+                        .unwrap_or(UpdateMode::Daily);
+                    let api_key = cli.nvd_api_key.clone()
+                        .or_else(|| std::env::var("NVD_API_KEY").ok());
+                    if let Err(e) = vulndb::update::run_update(&db, mode, api_key).await {
+                        eprintln!("- WARNING: vulndb update failed: {e}");
+                    }
+                    Some(Arc::new(db))
+                }
+                Err(e) => {
+                    eprintln!("- WARNING: failed to open vulndb: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
+
     let ctx = Arc::new(ScanCtx {
         cfg: Arc::new(cfg),
         cli: Arc::new(cli),
@@ -162,6 +196,7 @@ async fn main() -> Result<()> {
         request_sem,
         cancel: tokio_util::sync::CancellationToken::new(),
         scope,
+        vulndb,
     });
 
     let start = SystemTime::now();

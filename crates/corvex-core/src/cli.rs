@@ -336,6 +336,114 @@ pub struct Cli {
     /// Parallel DNS resolution threads for brute-force (default 50)
     #[arg(long = "dns-threads", value_name = "N", default_value_t = 50)]
     pub dns_threads: usize,
+
+    // ---- Vulnerability database flags ----------------------------------------
+
+    /// Vulnerability database update mode: now, daily, never, latest (default: daily)
+    #[arg(long = "vulndb-update", value_name = "MODE", default_value = "daily")]
+    pub vulndb_update: String,
+
+    /// Custom path for the vulnerability database file
+    #[arg(long = "vulndb-path", value_name = "PATH")]
+    pub vulndb_path: Option<PathBuf>,
+
+    /// NVD API key (or set NVD_API_KEY env var)
+    #[arg(long = "nvd-api-key", value_name = "KEY")]
+    pub nvd_api_key: Option<String>,
+
+    /// Export vulnerability database to JSON file
+    #[arg(long = "vulndb-export", value_name = "FILE")]
+    pub vulndb_export: Option<PathBuf>,
+
+    /// Import vulnerability database from JSON file
+    #[arg(long = "vulndb-import", value_name = "FILE")]
+    pub vulndb_import: Option<PathBuf>,
+
+    // ---- SCA (Software Composition Analysis) flags ---------------------------
+
+    /// Scan a directory for dependency manifest files
+    #[arg(long = "scan-dir", value_name = "PATH")]
+    pub scan_dir: Option<PathBuf>,
+
+    /// Parse an SBOM file (CycloneDX or SPDX) for component analysis
+    #[arg(long = "sbom-input", value_name = "FILE")]
+    pub sbom_input: Option<PathBuf>,
+
+    /// Generate an SBOM from scan results
+    #[arg(long = "sbom-output", value_name = "FILE")]
+    pub sbom_output: Option<PathBuf>,
+
+    /// SBOM output format: cyclonedx-json, cyclonedx-xml, spdx-json, spdx-tv
+    #[arg(long = "sbom-format", value_name = "FMT", default_value = "cyclonedx-json")]
+    pub sbom_format: String,
+
+    /// Filter CVEs by minimum EPSS probability (0.0-1.0)
+    #[arg(long = "epss-threshold", value_name = "PROB")]
+    pub epss_threshold: Option<f32>,
+
+    /// Filter CVEs by minimum EPSS percentile (0-100)
+    #[arg(long = "epss-percentile", value_name = "N")]
+    pub epss_percentile: Option<f32>,
+
+    /// Include available fix information in output
+    #[arg(long = "show-fixes", default_value_t = false)]
+    pub show_fixes: bool,
+
+    // ---- Binary analysis flags -----------------------------------------------
+
+    /// Scan a binary file or directory for vulnerable components
+    #[arg(long = "binary-scan", value_name = "PATH")]
+    pub binary_scan: Option<PathBuf>,
+
+    /// Recursively scan directories for binary analysis
+    #[arg(long = "binary-recursive", default_value_t = false)]
+    pub binary_recursive: bool,
+
+    /// Extract and scan archive files (ZIP, TAR, DEB, RPM)
+    #[arg(long = "binary-extract", default_value_t = false)]
+    pub binary_extract: bool,
+
+    // ---- VEX / Triage flags --------------------------------------------------
+
+    /// Import a VEX document for triage filtering
+    #[arg(long = "vex-input", value_name = "FILE")]
+    pub vex_input: Option<PathBuf>,
+
+    /// Export a VEX document from triage data
+    #[arg(long = "vex-output", value_name = "FILE")]
+    pub vex_output: Option<PathBuf>,
+
+    /// VEX output format: cyclonedx, openvex
+    #[arg(long = "vex-format", value_name = "FMT", default_value = "cyclonedx")]
+    pub vex_format: String,
+
+    /// Show only CVEs with these triage statuses (comma-separated)
+    #[arg(long = "triage-filter", value_name = "LIST")]
+    pub triage_filter: Option<String>,
+
+    /// Set triage status for a CVE (CVE-ID=STATUS), repeatable
+    #[arg(long = "triage-set", value_name = "CVE=STATUS", action = clap::ArgAction::Append)]
+    pub triage_set: Vec<String>,
+
+    // ---- Report merging flags ------------------------------------------------
+
+    /// Save scan report with a tag for later merging
+    #[arg(long = "save-report", value_name = "TAG")]
+    pub save_report: Option<String>,
+
+    /// Merge saved reports by tags (comma-separated)
+    #[arg(long = "merge-reports", value_name = "TAGS")]
+    pub merge_reports: Option<String>,
+
+    /// Diff two saved reports by tags (TAG1,TAG2)
+    #[arg(long = "diff-reports", value_name = "TAGS")]
+    pub diff_reports: Option<String>,
+
+    // ---- Config generation flags ---------------------------------------------
+
+    /// Generate a template config file in the given format: toml, yaml
+    #[arg(long = "generate-config", value_name = "FMT")]
+    pub generate_config: Option<String>,
 }
 
 impl Cli {

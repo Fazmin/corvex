@@ -87,6 +87,17 @@ export interface ScanParams {
   sqli_time_delay?: number;
   tamper?: string;           // comma-separated tamper module names
   sqli_enumerate?: string;   // "dbs,tables,columns,users,dump,passwords"
+  // SCA (Software Composition Analysis)
+  scan_dir?: string;          // path to directory with dependency manifests
+  sbom_input?: string;        // path to SBOM file (CycloneDX/SPDX)
+  sbom_output?: string;       // generate SBOM at this path
+  sbom_format?: string;       // "cyclonedx-json" | "cyclonedx-xml" | "spdx-json" | "spdx-tv"
+  epss_threshold?: number;    // 0.0-1.0 EPSS probability filter
+  show_fixes?: boolean;       // include fix info in output
+  // Binary analysis
+  binary_scan?: string;       // path to binary file or directory
+  binary_recursive?: boolean; // recursive directory scanning
+  binary_extract?: boolean;   // extract and scan archives
 }
 
 export interface ScanStats {
@@ -123,6 +134,11 @@ export interface FindingPayload {
   severity: SeverityLevel;
   cve: string | null;
   cvss: number | null;
+  epss_score: number | null;
+  epss_percentile: number | null;
+  fix_version: string | null;
+  component: string | null;
+  component_version: string | null;
 }
 
 export interface SummaryPayload {
@@ -157,6 +173,26 @@ export function cancelScan(id: string): Promise<boolean> {
 
 export function scanStats(id: string): Promise<ScanStats | null> {
   return invoke<ScanStats | null>("scan_stats", { id });
+}
+
+// ---- Vulnerability Database ------------------------------------------------
+
+export interface VulnDbInfo {
+  available: boolean;
+  cve_count: number;
+  cpe_match_count: number;
+  epss_count: number;
+  fix_count: number;
+  last_nvd_update: string;
+  last_epss_update: string;
+}
+
+export function vulndbSummary(): Promise<VulnDbInfo> {
+  return invoke<VulnDbInfo>("vulndb_summary");
+}
+
+export function vulndbUpdate(mode: string): Promise<string> {
+  return invoke<string>("vulndb_update", { mode });
 }
 
 // ---- Event subscriptions ---------------------------------------------------

@@ -26,3 +26,4 @@ base64.workspace = true
 rand.workspace = true
 time.workspace = true
 indexmap.workspace = true
+uuid.workspace = true

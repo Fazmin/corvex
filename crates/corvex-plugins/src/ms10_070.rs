@@ -74,6 +74,7 @@ impl Plugin for Ms10_070Plugin {
                     severity: Severity::High,
                     cve: Some("CVE-2010-3332".into()),
                     cvss: Some(5.0),
+                    ..Default::default()
                 }],
             )
             .await;

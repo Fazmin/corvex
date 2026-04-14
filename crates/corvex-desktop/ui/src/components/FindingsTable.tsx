@@ -284,6 +284,40 @@ function FindingRow({ finding, isOpen, onToggle }: RowProps) {
                     </dd>
                   </>
                 )}
+                {finding.component && (
+                  <>
+                    <dt>Component</dt>
+                    <dd>
+                      <code>{finding.component}</code>
+                      {finding.component_version && (
+                        <span className="muted"> @{finding.component_version}</span>
+                      )}
+                    </dd>
+                  </>
+                )}
+                {finding.epss_score != null && (
+                  <>
+                    <dt>EPSS</dt>
+                    <dd>
+                      {(finding.epss_score * 100).toFixed(2)}% probability
+                      {finding.epss_percentile != null && (
+                        <span className="muted">
+                          {" "}({(finding.epss_percentile * 100).toFixed(1)}th percentile)
+                        </span>
+                      )}
+                    </dd>
+                  </>
+                )}
+                {finding.fix_version && (
+                  <>
+                    <dt>Fix</dt>
+                    <dd>
+                      <span className="badge" style={{ background: "var(--success)", color: "#fff" }}>
+                        {finding.fix_version}
+                      </span>
+                    </dd>
+                  </>
+                )}
                 {finding.refs && (
                   <>
                     <dt>References</dt>

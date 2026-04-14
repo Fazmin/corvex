@@ -310,6 +310,7 @@ mod tests {
             useragents: crate::db::types::UseragentsDb { agents: vec![] },
             dictionary: crate::db::types::DictionaryDb { entries: vec![] },
             fourohfour: crate::db::types::FourOhFourDb { signatures: vec![] },
+            subdomains: crate::db::types::SubdomainsDb { prefixes: vec![] },
         }
     }
 

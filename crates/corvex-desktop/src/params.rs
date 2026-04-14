@@ -98,6 +98,28 @@ pub struct ScanParams {
     pub tamper: Option<String>,
     #[serde(default)]
     pub sqli_enumerate: Option<String>,
+
+    // ---- SCA (Software Composition Analysis) flags ---------------------------
+    #[serde(default)]
+    pub scan_dir: Option<String>,
+    #[serde(default)]
+    pub sbom_input: Option<String>,
+    #[serde(default)]
+    pub sbom_output: Option<String>,
+    #[serde(default)]
+    pub sbom_format: Option<String>,
+    #[serde(default)]
+    pub epss_threshold: Option<f32>,
+    #[serde(default)]
+    pub show_fixes: bool,
+
+    // ---- Binary analysis flags -----------------------------------------------
+    #[serde(default)]
+    pub binary_scan: Option<String>,
+    #[serde(default)]
+    pub binary_recursive: bool,
+    #[serde(default)]
+    pub binary_extract: bool,
 }
 
 impl ScanParams {
@@ -180,6 +202,34 @@ impl ScanParams {
             sqli_prefix: None,
             sqli_suffix: None,
             sqli_enumerate: self.sqli_enumerate,
+            // SCA / VulnDB fields
+            vulndb_update: "daily".to_string(),
+            vulndb_path: None,
+            nvd_api_key: None,
+            vulndb_export: None,
+            vulndb_import: None,
+            scan_dir: self.scan_dir.map(PathBuf::from),
+            sbom_input: self.sbom_input.map(PathBuf::from),
+            sbom_output: self.sbom_output.map(PathBuf::from),
+            sbom_format: self.sbom_format.unwrap_or_else(|| "cyclonedx-json".to_string()),
+            epss_threshold: self.epss_threshold,
+            epss_percentile: None,
+            show_fixes: self.show_fixes,
+            // Binary analysis
+            binary_scan: self.binary_scan.map(PathBuf::from),
+            binary_recursive: self.binary_recursive,
+            binary_extract: self.binary_extract,
+            // VEX / Triage — not exposed in desktop UI for now
+            vex_input: None,
+            vex_output: None,
+            vex_format: "cyclonedx".to_string(),
+            triage_filter: None,
+            triage_set: Vec::new(),
+            // Report merging — not in desktop UI
+            save_report: None,
+            merge_reports: None,
+            diff_reports: None,
+            generate_config: None,
         }
     }
 }

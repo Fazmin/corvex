@@ -23,6 +23,7 @@ use crate::scope::ScopeFilter;
 use crate::state::GlobalState;
 use crate::target::{resolve, Mark};
 use crate::tuning::TuningFilter;
+use crate::vulndb::VulnDb;
 
 pub struct ScanCtx {
     pub cfg: Arc<Config>,
@@ -39,6 +40,8 @@ pub struct ScanCtx {
     /// scan mid-run. CLI usage leaves this untriggered.
     pub cancel: CancellationToken,
     pub scope: Option<Arc<ScopeFilter>>,
+    /// Optional vulnerability database for SCA lookups.
+    pub vulndb: Option<Arc<VulnDb>>,
 }
 
 impl ScanCtx {

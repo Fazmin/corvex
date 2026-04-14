@@ -35,6 +35,7 @@ pub mod paths;
 pub mod put_del_test;
 pub mod report;
 pub mod robots;
+pub mod sca_plugin;
 pub mod shellshock;
 pub mod siebel;
 pub mod sitefiles;
@@ -50,6 +51,8 @@ pub fn register_all() -> PluginRegistry {
 
     // Ordered roughly by weight (lower weights run first within a hook).
     let plugins: Vec<Arc<dyn Plugin>> = vec![
+        // SCA — weight 3, runs first in Start hook.
+        Arc::new(sca_plugin::ScaPlugin::default()),
         // DNS enumeration — weight 5, runs first in Recon.
         Arc::new(dns_enum::DnsEnumPlugin::default()),
         // TLS deep audit — weight 12, Recon.
@@ -115,6 +118,7 @@ pub fn build_sinks(
             ReportFormat::Xml => Box::new(report::xml::XmlSink::new(output)),
             ReportFormat::Html => Box::new(report::html::HtmlSink::new(output)),
             ReportFormat::Sql => Box::new(report::sql::SqlSink::new(output)),
+            ReportFormat::Markdown => Box::new(report::markdown::MarkdownSink::new(output)),
         };
         sinks.push(sink);
     }

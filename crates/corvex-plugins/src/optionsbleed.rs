@@ -66,6 +66,7 @@ impl Plugin for OptionsbleedPlugin {
                             severity: Severity::High,
                             cve: Some("CVE-2017-9798".into()),
                             cvss: Some(7.5),
+                            ..Default::default()
                         }],
                     )
                     .await;
@@ -90,6 +91,7 @@ impl Plugin for OptionsbleedPlugin {
                     severity: Severity::Medium,
                     cve: Some("CVE-2017-9798".into()),
                     cvss: Some(7.5),
+                    ..Default::default()
                 }],
             )
             .await;

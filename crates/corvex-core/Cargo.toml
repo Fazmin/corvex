@@ -39,6 +39,17 @@ hickory-resolver.workspace = true
 indexmap.workspace = true
 scraper.workspace = true
 sha2.workspace = true
+xml-rs.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+reqwest.workspace = true
+quick-xml.workspace = true
+toml_crate.workspace = true
+serde_yaml.workspace = true
+zip.workspace = true
+tar.workspace = true
+flate2.workspace = true
+walkdir.workspace = true
 
 [build-dependencies]
 serde = { version = "1", features = ["derive"] }

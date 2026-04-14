@@ -116,6 +116,70 @@ pub async fn db_summary() -> DbSummary {
     }
 }
 
+/// Vulnerability database summary (CVE count, last update, etc.).
+#[derive(Debug, Clone, Serialize)]
+pub struct VulnDbInfo {
+    pub available: bool,
+    pub cve_count: u64,
+    pub cpe_match_count: u64,
+    pub epss_count: u64,
+    pub fix_count: u64,
+    pub last_nvd_update: String,
+    pub last_epss_update: String,
+}
+
+#[tauri::command]
+pub async fn vulndb_summary() -> VulnDbInfo {
+    match corvex_core::vulndb::VulnDb::open_default() {
+        Ok(db) => match db.summary() {
+            Ok(s) => VulnDbInfo {
+                available: true,
+                cve_count: s.cve_count,
+                cpe_match_count: s.cpe_match_count,
+                epss_count: s.epss_count,
+                fix_count: s.fix_count,
+                last_nvd_update: s.last_nvd_update,
+                last_epss_update: s.last_epss_update,
+            },
+            Err(_) => VulnDbInfo {
+                available: false,
+                cve_count: 0,
+                cpe_match_count: 0,
+                epss_count: 0,
+                fix_count: 0,
+                last_nvd_update: String::new(),
+                last_epss_update: String::new(),
+            },
+        },
+        Err(_) => VulnDbInfo {
+            available: false,
+            cve_count: 0,
+            cpe_match_count: 0,
+            epss_count: 0,
+            fix_count: 0,
+            last_nvd_update: String::new(),
+            last_epss_update: String::new(),
+        },
+    }
+}
+
+/// Update the vulnerability database (NVD + EPSS).
+#[tauri::command]
+pub async fn vulndb_update(mode: String) -> AppResult<String> {
+    use corvex_core::vulndb::{self, update::UpdateMode, VulnDb};
+    let db_path = vulndb::default_db_path()
+        .map_err(|e| AppError::Other(e))?;
+    let db = VulnDb::open(&db_path)
+        .map_err(|e| AppError::Other(e))?;
+    let update_mode = UpdateMode::parse(&mode).unwrap_or(UpdateMode::Daily);
+    let api_key = std::env::var("NVD_API_KEY").ok();
+    vulndb::update::run_update(&db, update_mode, api_key)
+        .await
+        .map_err(|e| AppError::Other(e))?;
+    let summary = db.summary().map_err(|e| AppError::Other(e))?;
+    Ok(format!("{} CVEs loaded", summary.cve_count))
+}
+
 #[tauri::command]
 pub fn version_info() -> VersionInfo {
     VersionInfo {
@@ -249,6 +313,22 @@ pub async fn scan_start(
         }
     };
 
+    // Initialize vulnerability database if SCA features are requested.
+    let vulndb = if cli.scan_dir.is_some()
+        || cli.sbom_input.is_some()
+        || cli.binary_scan.is_some()
+    {
+        match corvex_core::vulndb::VulnDb::open_default() {
+            Ok(db) => Some(Arc::new(db)),
+            Err(e) => {
+                tracing::warn!(target: "vulndb", "failed to open vulndb: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let ctx = Arc::new(ScanCtx {
         cfg: Arc::new(cfg),
         cli: Arc::new(cli),
@@ -262,6 +342,7 @@ pub async fn scan_start(
         request_sem,
         cancel: cancel.clone(),
         scope,
+        vulndb,
     });
 
     // Register before spawning so cancel arrives in time.

@@ -212,6 +212,7 @@ impl Plugin for SslPlugin {
                     severity: Severity::High,
                     cve: Some("CVE-2014-3566".into()),
                     cvss: Some(3.4),
+                    ..Default::default()
                 });
             }
             if upper.contains("TLSV1.0") || (upper == "TLSV1" && !upper.contains("TLSV1.")) {

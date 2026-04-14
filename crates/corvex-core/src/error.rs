@@ -25,6 +25,18 @@ pub enum CorvexError {
     #[error("plugin `{name}`: {msg}")]
     Plugin { name: String, msg: String },
 
+    #[error("vulndb: {0}")]
+    VulnDb(String),
+
+    #[error("sca: {0}")]
+    Sca(String),
+
+    #[error("binary: {0}")]
+    Binary(String),
+
+    #[error("vex: {0}")]
+    Vex(String),
+
     #[error("{0}")]
     Other(String),
 }

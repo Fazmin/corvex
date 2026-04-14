@@ -49,6 +49,11 @@ pub struct FindingPayload {
     pub severity: String,
     pub cve: Option<String>,
     pub cvss: Option<f32>,
+    pub epss_score: Option<f32>,
+    pub epss_percentile: Option<f32>,
+    pub fix_version: Option<String>,
+    pub component: Option<String>,
+    pub component_version: Option<String>,
 }
 
 impl FindingPayload {
@@ -65,6 +70,11 @@ impl FindingPayload {
             severity: item.severity.to_string(),
             cve: item.cve.clone(),
             cvss: item.cvss,
+            epss_score: item.epss_score,
+            epss_percentile: item.epss_percentile,
+            fix_version: item.fix_version.clone(),
+            component: item.component.clone(),
+            component_version: item.component_version.clone(),
         }
     }
 }

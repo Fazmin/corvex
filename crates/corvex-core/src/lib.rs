@@ -27,7 +27,12 @@ pub mod tls_audit;
 pub mod state;
 pub mod target;
 pub mod tuning;
+pub mod binary;
+pub mod merge;
+pub mod sca;
 pub mod vars;
+pub mod vex;
+pub mod vulndb;
 
 pub use error::{CorvexError, Result};
 

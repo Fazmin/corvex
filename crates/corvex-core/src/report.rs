@@ -59,6 +59,7 @@ pub enum ReportFormat {
     Html,
     Xml,
     Sql,
+    Markdown,
 }
 
 impl ReportFormat {
@@ -70,6 +71,7 @@ impl ReportFormat {
             "htm" | "html" => Some(Self::Html),
             "xml" => Some(Self::Xml),
             "sql" | "sqld" | "sqlg" => Some(Self::Sql),
+            "md" | "markdown" => Some(Self::Markdown),
             _ => None,
         }
     }
@@ -82,6 +84,7 @@ impl ReportFormat {
             Self::Html => "html",
             Self::Xml => "xml",
             Self::Sql => "sql",
+            Self::Markdown => "md",
         }
     }
 }
@@ -104,6 +107,24 @@ pub struct ReportItem {
     /// CVSS 3.x score (0.0–10.0), if known.
     #[serde(default)]
     pub cvss: Option<f32>,
+    /// EPSS probability score (0.0–1.0), if known.
+    #[serde(default)]
+    pub epss_score: Option<f32>,
+    /// EPSS percentile (0.0–1.0), if known.
+    #[serde(default)]
+    pub epss_percentile: Option<f32>,
+    /// Fixed version string, if a fix is available.
+    #[serde(default)]
+    pub fix_version: Option<String>,
+    /// Triage status for this finding.
+    #[serde(default)]
+    pub triage_status: Option<String>,
+    /// Component name (for SCA findings).
+    #[serde(default)]
+    pub component: Option<String>,
+    /// Component version (for SCA findings).
+    #[serde(default)]
+    pub component_version: Option<String>,
 }
 
 pub trait ReportSink: Send {

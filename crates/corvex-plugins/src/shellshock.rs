@@ -81,6 +81,7 @@ impl Plugin for ShellshockPlugin {
                     severity: Severity::Critical,
                     cve: Some("CVE-2014-6271".into()),
                     cvss: Some(10.0),
+                    ..Default::default()
                 });
                 break; // one hit is enough
             }
