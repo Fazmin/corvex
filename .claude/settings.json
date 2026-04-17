@@ -13,7 +13,9 @@
       "Bash(curl -sI https://www.stateandmain.ca/)",
       "Bash(target/debug/corvex.exe --host https://www.stateandmain.ca/ --timeout 15 --useragent \"Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/131.0.0.0 Safari/537.36\")",
       "Bash(RUST_LOG=http=trace target/debug/corvex.exe --host https://www.stateandmain.ca/ --timeout 15)",
-      "Bash(target/debug/corvex.exe --host https://example.com --timeout 15)"
+      "Bash(target/debug/corvex.exe --host https://example.com --timeout 15)",
+      "Bash(PERL=\"C:/Strawberry/perl/bin/perl.exe\" cargo check --workspace)",
+      "Bash(PERL=\"C:/Strawberry/perl/bin/perl.exe\" cargo test --package corvex-core --lib)"
     ]
   }
 }

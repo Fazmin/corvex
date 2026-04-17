@@ -5,6 +5,7 @@ members = [
     "crates/corvex-core",
     "crates/corvex-plugins",
     "crates/corvex-desktop",
+    "crates/vulndb-builder",
 ]
 
 [workspace.package]

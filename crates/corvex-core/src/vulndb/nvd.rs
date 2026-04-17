@@ -1,7 +1,7 @@
 //! NVD (National Vulnerability Database) API v2.0 client.
 //!
 //! Fetches CVE data from the NVD REST API with proper pagination,
-//! rate limiting, and incremental update support.
+//! rate limiting, retry on transient errors, and incremental update support.
 
 use crate::vulndb::models::{CpeMatch, CveRecord, CveReference};
 use serde::Deserialize;
@@ -14,6 +14,9 @@ const NVD_API_BASE: &str = "https://services.nvd.nist.gov/rest/json/cves/2.0";
 
 /// Results per page (NVD max is 2000).
 const RESULTS_PER_PAGE: u32 = 2000;
+
+/// Maximum retry attempts per page request.
+const MAX_RETRIES: u32 = 5;
 
 /// Rate limiter for NVD API requests.
 pub struct RateLimiter {
@@ -64,6 +67,117 @@ impl NvdClient {
         }
     }
 
+    /// Fetch a single page from the NVD API with retry logic.
+    /// Retries up to MAX_RETRIES times on transient failures (rate limits,
+    /// timeouts, malformed responses) with exponential backoff.
+    async fn fetch_page(&self, url: &str) -> Result<NvdResponse, String> {
+        let mut last_err = String::new();
+
+        for attempt in 1..=MAX_RETRIES {
+            self.rate_limiter.wait().await;
+
+            let result = self
+                .client
+                .get(url)
+                .header("Accept", "application/json")
+                .send()
+                .await;
+
+            let resp = match result {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = format!("request failed: {e}");
+                    tracing::warn!(
+                        target: "vulndb",
+                        "NVD request failed (attempt {}/{}): {}",
+                        attempt, MAX_RETRIES, last_err
+                    );
+                    backoff(attempt).await;
+                    continue;
+                }
+            };
+
+            let status = resp.status();
+
+            // Rate limited (403) or server error (5xx) — retry
+            if status == reqwest::StatusCode::FORBIDDEN
+                || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || status.is_server_error()
+            {
+                last_err = format!("HTTP {status}");
+                tracing::warn!(
+                    target: "vulndb",
+                    "NVD returned {} (attempt {}/{}), backing off",
+                    status, attempt, MAX_RETRIES
+                );
+                // Longer backoff for rate limits
+                let wait = if status == reqwest::StatusCode::FORBIDDEN
+                    || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                {
+                    Duration::from_secs(30 * attempt as u64)
+                } else {
+                    Duration::from_secs(5 * (1 << attempt.min(4)) as u64)
+                };
+                tokio::time::sleep(wait).await;
+                continue;
+            }
+
+            if !status.is_success() {
+                return Err(format!("NVD API returned status {status}"));
+            }
+
+            // Read the body as text first so we can log it on parse failure
+            let body_text = match resp.text().await {
+                Ok(t) => t,
+                Err(e) => {
+                    last_err = format!("failed to read response body: {e}");
+                    tracing::warn!(
+                        target: "vulndb",
+                        "NVD body read failed (attempt {}/{}): {}",
+                        attempt, MAX_RETRIES, last_err
+                    );
+                    backoff(attempt).await;
+                    continue;
+                }
+            };
+
+            match serde_json::from_str::<NvdResponse>(&body_text) {
+                Ok(parsed) => return Ok(parsed),
+                Err(e) => {
+                    let snippet = if body_text.len() > 200 {
+                        format!("{}...", &body_text[..200])
+                    } else {
+                        body_text.clone()
+                    };
+                    last_err = format!("JSON parse error: {e}");
+                    tracing::warn!(
+                        target: "vulndb",
+                        "NVD JSON parse failed (attempt {}/{}): {} — body starts with: {}",
+                        attempt, MAX_RETRIES, e, snippet
+                    );
+                    backoff(attempt).await;
+                    continue;
+                }
+            }
+        }
+
+        Err(format!(
+            "NVD fetch failed after {MAX_RETRIES} retries: {last_err}"
+        ))
+    }
+
+    /// Build the URL for a page request.
+    fn build_url(&self, start_index: u32, extra_params: &str) -> String {
+        let mut url = format!(
+            "{}?resultsPerPage={}&startIndex={}{}",
+            NVD_API_BASE, RESULTS_PER_PAGE, start_index, extra_params
+        );
+        if let Some(ref key) = self.api_key {
+            url.push_str(&format!("&apiKey={}", key));
+        }
+        url
+    }
+
     /// Fetch all CVEs, calling `on_batch` for each page of results.
     /// Returns total number of CVEs fetched.
     pub async fn fetch_all<F>(&self, mut on_batch: F) -> Result<u64, String>
@@ -74,17 +188,7 @@ impl NvdClient {
         let mut fetched: u64 = 0;
 
         loop {
-            self.rate_limiter.wait().await;
-
-            let mut url = format!(
-                "{}?resultsPerPage={}&startIndex={}",
-                NVD_API_BASE, RESULTS_PER_PAGE, start_index
-            );
-
-            // Add API key if available.
-            if let Some(ref key) = self.api_key {
-                url.push_str(&format!("&apiKey={}", key));
-            }
+            let url = self.build_url(start_index, "");
 
             tracing::info!(
                 target: "vulndb",
@@ -92,22 +196,7 @@ impl NvdClient {
                 start_index, fetched
             );
 
-            let resp = self
-                .client
-                .get(&url)
-                .header("Accept", "application/json")
-                .send()
-                .await
-                .map_err(|e| format!("NVD request failed: {e}"))?;
-
-            if !resp.status().is_success() {
-                return Err(format!("NVD API returned status {}", resp.status()));
-            }
-
-            let body: NvdResponse = resp
-                .json()
-                .await
-                .map_err(|e| format!("NVD JSON parse failed: {e}"))?;
+            let body = self.fetch_page(&url).await?;
 
             let total_results = body.total_results;
             let batch_len = body.vulnerabilities.len() as u64;
@@ -144,17 +233,13 @@ impl NvdClient {
             .format(&time::format_description::well_known::Iso8601::DEFAULT)
             .unwrap_or_default();
 
+        let extra = format!(
+            "&lastModStartDate={}&lastModEndDate={}",
+            last_modified, end_date
+        );
+
         loop {
-            self.rate_limiter.wait().await;
-
-            let mut url = format!(
-                "{}?resultsPerPage={}&startIndex={}&lastModStartDate={}&lastModEndDate={}",
-                NVD_API_BASE, RESULTS_PER_PAGE, start_index, last_modified, end_date
-            );
-
-            if let Some(ref key) = self.api_key {
-                url.push_str(&format!("&apiKey={}", key));
-            }
+            let url = self.build_url(start_index, &extra);
 
             tracing::info!(
                 target: "vulndb",
@@ -162,22 +247,7 @@ impl NvdClient {
                 start_index, last_modified
             );
 
-            let resp = self
-                .client
-                .get(&url)
-                .header("Accept", "application/json")
-                .send()
-                .await
-                .map_err(|e| format!("NVD request failed: {e}"))?;
-
-            if !resp.status().is_success() {
-                return Err(format!("NVD API returned status {}", resp.status()));
-            }
-
-            let body: NvdResponse = resp
-                .json()
-                .await
-                .map_err(|e| format!("NVD JSON parse failed: {e}"))?;
+            let body = self.fetch_page(&url).await?;
 
             let total_results = body.total_results;
             let batch_len = body.vulnerabilities.len() as u64;
@@ -197,6 +267,13 @@ impl NvdClient {
 
         Ok(fetched)
     }
+}
+
+/// Exponential backoff sleep.
+async fn backoff(attempt: u32) {
+    let secs = 5 * (1u64 << attempt.min(4)); // 10, 20, 40, 80, 80
+    tracing::info!(target: "vulndb", "retrying in {}s...", secs);
+    tokio::time::sleep(Duration::from_secs(secs)).await;
 }
 
 // ---- NVD API v2.0 JSON response models ----

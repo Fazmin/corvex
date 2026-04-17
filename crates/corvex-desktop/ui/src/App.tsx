@@ -29,6 +29,7 @@ import { HistoryView } from "./components/HistoryView";
 import { PluginsView } from "./components/PluginsView";
 import { DatabasesView } from "./components/DatabasesView";
 import { FuzzingView } from "./components/FuzzingView";
+import { ScaView } from "./components/ScaView";
 import { SettingsView } from "./components/SettingsView";
 
 export default function App() {
@@ -228,6 +229,7 @@ export default function App() {
     plugins: "Plugins",
     fuzzing: "Active Fuzzing",
     databases: "Databases",
+    sca: "Software Composition Analysis",
     settings: "Settings",
   };
 
@@ -294,6 +296,11 @@ export default function App() {
           {view === "databases" && (
             <div className="dashboard single-pane">
               <DatabasesView />
+            </div>
+          )}
+          {view === "sca" && (
+            <div className="dashboard single-pane">
+              <ScaView />
             </div>
           )}
           {view === "settings" && (

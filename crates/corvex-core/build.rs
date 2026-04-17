@@ -48,6 +48,57 @@ fn main() -> Result<()> {
     let bytes = bincode::serialize(&db).context("bincode serialize databases")?;
     std::fs::write(out_dir.join("databases.bin"), &bytes)?;
 
+    // ---- Embed NVD+EPSS snapshot if available ----
+    // Look for a pre-built compressed SQLite snapshot at program/vulndb/snapshot.db.zst
+    // If present, embed it; otherwise write an empty marker file.
+    let vulndb_dir = manifest_dir
+        .join("..")
+        .join("..")
+        .join("program")
+        .join("vulndb");
+    println!("cargo:rerun-if-changed={}", vulndb_dir.display());
+
+    let snapshot_candidates = [
+        vulndb_dir.join("snapshot.db.gz"),
+        vulndb_dir.join("snapshot.db"),
+    ];
+    let mut found_snapshot = false;
+    for candidate in &snapshot_candidates {
+        if candidate.exists() {
+            let data = std::fs::read(candidate).context("read vulndb snapshot")?;
+            let out_path = out_dir.join("vulndb_snapshot.bin");
+            if candidate.extension().and_then(|e| e.to_str()) == Some("gz") {
+                // Already compressed — copy as-is
+                std::fs::write(&out_path, &data)?;
+                println!(
+                    "cargo:warning=corvex-core: embedded vulndb snapshot ({} bytes, gzip) from {}",
+                    data.len(),
+                    candidate.display()
+                );
+            } else {
+                // Raw SQLite — compress with gzip for smaller binary
+                use std::io::Write;
+                let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+                encoder.write_all(&data)?;
+                let compressed = encoder.finish()?;
+                std::fs::write(&out_path, &compressed)?;
+                println!(
+                    "cargo:warning=corvex-core: embedded vulndb snapshot ({} -> {} bytes gzip) from {}",
+                    data.len(),
+                    compressed.len(),
+                    candidate.display()
+                );
+            }
+            found_snapshot = true;
+            break;
+        }
+    }
+    if !found_snapshot {
+        // Write empty marker so include_bytes! doesn't fail
+        std::fs::write(out_dir.join("vulndb_snapshot.bin"), b"")?;
+        println!("cargo:warning=corvex-core: no vulndb snapshot found (run scripts/build-vulndb-snapshot.sh to create one)");
+    }
+
     println!(
         "cargo:warning=corvex-core: compiled {} tests, {} outdated, {} favicons, {} server_msgs, {} realms, {} vars, {} content, {} common hdrs, {} sugg hdrs, {} indexes, {} options, {} UAs, {} dict, {} 404 sigs, {} subdomains",
         db.tests.rows.len(),

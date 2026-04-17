@@ -21,6 +21,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tracing;
 
+/// Embedded NVD+EPSS snapshot (gzip-compressed SQLite), built at compile time.
+/// Empty if no snapshot was available during the build.
+const VULNDB_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vulndb_snapshot.bin"));
+
+/// Whether an embedded snapshot is available.
+pub fn has_embedded_snapshot() -> bool {
+    !VULNDB_SNAPSHOT.is_empty()
+}
+
 /// The main vulnerability database handle.
 pub struct VulnDb {
     conn: Mutex<Connection>,
@@ -54,8 +63,18 @@ impl VulnDb {
     }
 
     /// Open the default vulnerability database at `~/.corvex/vulndb.sqlite`.
+    ///
+    /// If no database file exists on disk and an embedded snapshot was compiled
+    /// into the binary, the snapshot is extracted first. This makes the tool
+    /// work out-of-the-box without any network download.
     pub fn open_default() -> Result<Self, String> {
         let path = default_db_path()?;
+
+        // If no DB file on disk yet, try to seed from the embedded snapshot
+        if !path.exists() && has_embedded_snapshot() {
+            seed_from_snapshot(&path)?;
+        }
+
         Self::open(&path)
     }
 
@@ -67,6 +86,16 @@ impl VulnDb {
     /// Get the database file path.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Run VACUUM to reclaim space and compact the database file.
+    /// Useful after incremental updates that upsert many rows.
+    pub fn vacuum(&self) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        // VACUUM cannot run in WAL mode transactions, so switch to DELETE journal first
+        conn.execute_batch("PRAGMA journal_mode=DELETE; VACUUM; PRAGMA journal_mode=WAL;")
+            .map_err(|e| format!("vacuum failed: {e}"))?;
+        Ok(())
     }
 
     // ---- Metadata operations ----
@@ -427,6 +456,43 @@ pub fn default_db_path() -> Result<PathBuf, String> {
         base.join(".corvex")
     };
     Ok(dir.join("vulndb.sqlite"))
+}
+
+/// Extract the embedded NVD+EPSS snapshot to a file on disk.
+/// The snapshot is gzip-compressed SQLite embedded at compile time.
+fn seed_from_snapshot(path: &Path) -> Result<(), String> {
+    use std::io::Read;
+
+    tracing::info!(
+        target: "vulndb",
+        "seeding vulnerability database from embedded snapshot ({} bytes compressed)",
+        VULNDB_SNAPSHOT.len()
+    );
+
+    // Ensure parent directory exists
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create dir: {e}"))?;
+    }
+
+    // Decompress gzip → raw SQLite
+    let mut decoder = flate2::read::GzDecoder::new(VULNDB_SNAPSHOT);
+    let mut raw = Vec::new();
+    decoder
+        .read_to_end(&mut raw)
+        .map_err(|e| format!("decompress snapshot: {e}"))?;
+
+    std::fs::write(path, &raw)
+        .map_err(|e| format!("write snapshot to {}: {e}", path.display()))?;
+
+    tracing::info!(
+        target: "vulndb",
+        "extracted snapshot ({} bytes) to {}",
+        raw.len(),
+        path.display()
+    );
+
+    Ok(())
 }
 
 /// rusqlite optional helper

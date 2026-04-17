@@ -5504,6 +5504,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vulndb-builder"
+version = "0.1.0"
+dependencies = [
+ "corvex-core",
+ "flate2",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "walkdir"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -8,10 +8,11 @@ import {
   HistoryIcon,
   NewScanIcon,
   PluginsIcon,
+  ScaIcon,
   SettingsIcon,
 } from "./Icons";
 
-export type View = "dashboard" | "history" | "plugins" | "databases" | "fuzzing" | "settings";
+export type View = "dashboard" | "history" | "plugins" | "databases" | "fuzzing" | "sca" | "settings";
 
 interface Props {
   view: View;
@@ -73,6 +74,11 @@ export function Sidebar({
       icon: <DatabasesIcon size={collapsed ? 22 : 18} />,
       label: "Databases",
       count: testsCount.toLocaleString(),
+    },
+    {
+      view: "sca",
+      icon: <ScaIcon size={collapsed ? 22 : 18} />,
+      label: "SCA",
     },
   ];
 

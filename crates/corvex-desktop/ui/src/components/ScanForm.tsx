@@ -42,18 +42,6 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
   const [sqliTimeDelay, setSqliTimeDelay] = useState(5);
   const [tamper, setTamper] = useState("");
   const [sqliEnumerate, setSqliEnumerate] = useState<string[]>([]);
-  // SCA (Software Composition Analysis)
-  const [scaEnabled, setScaEnabled] = useState(false);
-  const [scanDir, setScanDir] = useState("");
-  const [sbomInput, setSbomInput] = useState("");
-  const [epssThreshold, setEpssThreshold] = useState(0);
-  const [showFixes, setShowFixes] = useState(true);
-  // Binary analysis
-  const [binaryEnabled, setBinaryEnabled] = useState(false);
-  const [binaryScan, setBinaryScan] = useState("");
-  const [binaryRecursive, setBinaryRecursive] = useState(true);
-  const [binaryExtract, setBinaryExtract] = useState(true);
-
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     onStart({
@@ -86,15 +74,6 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
       sqli_enumerate: active && sqliEnumerate.length > 0
         ? sqliEnumerate.join(",")
         : undefined,
-      // SCA
-      scan_dir: scaEnabled && scanDir ? scanDir : undefined,
-      sbom_input: scaEnabled && sbomInput ? sbomInput : undefined,
-      epss_threshold: scaEnabled && epssThreshold > 0 ? epssThreshold : undefined,
-      show_fixes: scaEnabled ? showFixes : undefined,
-      // Binary analysis
-      binary_scan: binaryEnabled && binaryScan ? binaryScan : undefined,
-      binary_recursive: binaryEnabled ? binaryRecursive : undefined,
-      binary_extract: binaryEnabled ? binaryExtract : undefined,
     });
   };
 
@@ -200,134 +179,6 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
           Enable this toggle to also brute-force subdomain discovery
           using a built-in wordlist of common prefixes.
         </InfoTip>
-      </div>
-
-      {/* ---- SCA (Software Composition Analysis) Section ---- */}
-      <div className="field active-section">
-        <div className="label-row">
-          <label className="checkbox" style={{ margin: 0 }}>
-            <input
-              type="checkbox"
-              checked={scaEnabled}
-              onChange={(e) => setScaEnabled(e.target.checked)}
-            />
-            Dependency analysis
-          </label>
-          <InfoTip label="SCA help">
-            <strong>Software Composition Analysis</strong>
-            Scan project directories for dependency manifest files
-            (Cargo.lock, package-lock.json, requirements.txt, pom.xml,
-            go.mod, Gemfile.lock, composer.lock) or parse SBOM files
-            (CycloneDX, SPDX) and cross-reference detected components
-            against the local CVE vulnerability database.
-            <br /><br />
-            Results include CVSS scores, EPSS exploit probability,
-            and available fix versions where known.
-          </InfoTip>
-        </div>
-        {scaEnabled && (
-          <div className="active-options">
-            <div className="field">
-              <label>Project directory</label>
-              <input
-                type="text"
-                value={scanDir}
-                onChange={(e) => setScanDir(e.target.value)}
-                placeholder="/path/to/project"
-              />
-            </div>
-            <div className="field">
-              <label>SBOM file (optional)</label>
-              <input
-                type="text"
-                value={sbomInput}
-                onChange={(e) => setSbomInput(e.target.value)}
-                placeholder="bom.json (CycloneDX or SPDX)"
-              />
-            </div>
-            <div className="row">
-              <div>
-                <label>EPSS threshold</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={epssThreshold}
-                  onChange={(e) => setEpssThreshold(Number(e.target.value))}
-                />
-              </div>
-              <div>
-                <label className="checkbox" style={{ marginTop: 24 }}>
-                  <input
-                    type="checkbox"
-                    checked={showFixes}
-                    onChange={(e) => setShowFixes(e.target.checked)}
-                  />
-                  Show available fixes
-                </label>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ---- Binary Analysis Section ---- */}
-      <div className="field active-section">
-        <div className="label-row">
-          <label className="checkbox" style={{ margin: 0 }}>
-            <input
-              type="checkbox"
-              checked={binaryEnabled}
-              onChange={(e) => setBinaryEnabled(e.target.checked)}
-            />
-            Binary analysis
-          </label>
-          <InfoTip label="Binary analysis help">
-            <strong>Binary Component Detection</strong>
-            Scan compiled binaries and libraries for known vulnerable
-            components (OpenSSL, curl, zlib, libpng, SQLite, and 50+
-            others) by extracting strings and matching version patterns.
-            <br /><br />
-            Supports recursive directory scanning and automatic archive
-            extraction (ZIP, TAR, TAR.GZ).
-          </InfoTip>
-        </div>
-        {binaryEnabled && (
-          <div className="active-options">
-            <div className="field">
-              <label>Path to scan</label>
-              <input
-                type="text"
-                value={binaryScan}
-                onChange={(e) => setBinaryScan(e.target.value)}
-                placeholder="/path/to/binary or /path/to/directory"
-              />
-            </div>
-            <div className="row">
-              <div>
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={binaryRecursive}
-                    onChange={(e) => setBinaryRecursive(e.target.checked)}
-                  />
-                  Recursive scan
-                </label>
-              </div>
-              <div>
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={binaryExtract}
-                    onChange={(e) => setBinaryExtract(e.target.checked)}
-                  />
-                  Extract archives
-                </label>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ---- Active Fuzzing Section ---- */}
