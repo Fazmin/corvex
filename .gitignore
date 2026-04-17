@@ -49,3 +49,4 @@ tests/udb_*
 /*.sql
 /*.log
 /scan-*.txt
+snapshot.db.gz
