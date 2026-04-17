@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   startScan,
   cancelScan,
@@ -211,22 +212,60 @@ export function ScaView() {
                   </dl>
                 </InfoTip>
               </label>
-              <input
-                type="text"
-                value={scanDir}
-                onChange={(e) => setScanDir(e.target.value)}
-                placeholder="/path/to/project"
-              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  value={scanDir}
+                  onChange={(e) => setScanDir(e.target.value)}
+                  placeholder="/path/to/project"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="browse-btn"
+                  onClick={async () => {
+                    const selected = await open({
+                      directory: true,
+                      multiple: false,
+                      title: "Select project directory",
+                    });
+                    if (typeof selected === "string") setScanDir(selected);
+                  }}
+                >
+                  Browse...
+                </button>
+              </div>
             </div>
 
             <div className="field">
               <label>SBOM file (optional)</label>
-              <input
-                type="text"
-                value={sbomInput}
-                onChange={(e) => setSbomInput(e.target.value)}
-                placeholder="bom.json (CycloneDX or SPDX)"
-              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  value={sbomInput}
+                  onChange={(e) => setSbomInput(e.target.value)}
+                  placeholder="bom.json (CycloneDX or SPDX)"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="browse-btn"
+                  onClick={async () => {
+                    const selected = await open({
+                      directory: false,
+                      multiple: false,
+                      title: "Select SBOM file",
+                      filters: [
+                        { name: "SBOM", extensions: ["json", "xml", "spdx"] },
+                        { name: "All files", extensions: ["*"] },
+                      ],
+                    });
+                    if (typeof selected === "string") setSbomInput(selected);
+                  }}
+                >
+                  Browse...
+                </button>
+              </div>
             </div>
 
             <div className="row">
@@ -253,22 +292,21 @@ export function ScaView() {
               </div>
             </div>
 
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={running || (!scanDir && !sbomInput)}
-              style={{ marginTop: 8 }}
-            >
-              {running ? "Scanning..." : "Scan dependencies"}
-            </button>
-            {running && (
+            {running ? (
               <button
                 type="button"
-                className="btn btn-danger"
+                className="danger"
                 onClick={handleCancel}
-                style={{ marginLeft: 8 }}
               >
-                Cancel
+                Cancel scan
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="primary"
+                disabled={!scanDir && !sbomInput}
+              >
+                Scan dependencies
               </button>
             )}
           </form>
@@ -289,12 +327,43 @@ export function ScaView() {
 
             <div className="field">
               <label>Path to scan</label>
-              <input
-                type="text"
-                value={binaryScan}
-                onChange={(e) => setBinaryScan(e.target.value)}
-                placeholder="/path/to/binary or /path/to/directory"
-              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  value={binaryScan}
+                  onChange={(e) => setBinaryScan(e.target.value)}
+                  placeholder="/path/to/binary or /path/to/directory"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="browse-btn"
+                  onClick={async () => {
+                    const selected = await open({
+                      directory: false,
+                      multiple: false,
+                      title: "Select binary file",
+                    });
+                    if (typeof selected === "string") setBinaryScan(selected);
+                  }}
+                >
+                  File...
+                </button>
+                <button
+                  type="button"
+                  className="browse-btn"
+                  onClick={async () => {
+                    const selected = await open({
+                      directory: true,
+                      multiple: false,
+                      title: "Select directory",
+                    });
+                    if (typeof selected === "string") setBinaryScan(selected);
+                  }}
+                >
+                  Folder...
+                </button>
+              </div>
             </div>
 
             <div className="row">
@@ -320,22 +389,21 @@ export function ScaView() {
               </div>
             </div>
 
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={running || !binaryScan}
-              style={{ marginTop: 8 }}
-            >
-              {running ? "Scanning..." : "Scan binaries"}
-            </button>
-            {running && (
+            {running ? (
               <button
                 type="button"
-                className="btn btn-danger"
+                className="danger"
                 onClick={handleCancel}
-                style={{ marginLeft: 8 }}
               >
-                Cancel
+                Cancel scan
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="primary"
+                disabled={!binaryScan}
+              >
+                Scan binaries
               </button>
             )}
           </form>
@@ -423,9 +491,11 @@ export function ScaView() {
                 </div>
               </div>
               <button
-                className="btn btn-primary"
+                type="button"
+                className="primary"
                 onClick={handleVulndbUpdate}
                 disabled={updating}
+                style={{ width: "auto", margin: 0, padding: "10px 20px" }}
               >
                 {updating ? "Updating..." : "Update database"}
               </button>

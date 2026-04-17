@@ -17,6 +17,7 @@ tauri-build.workspace = true
 corvex-core.workspace = true
 corvex-plugins.workspace = true
 tauri.workspace = true
+tauri-plugin-dialog = "2"
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
 serde.workspace = true

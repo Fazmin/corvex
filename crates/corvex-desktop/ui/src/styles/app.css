@@ -722,6 +722,30 @@ button.primary:disabled {
   filter: none;
 }
 
+/* ---------- Secondary / browse buttons ---------- */
+
+button.browse-btn {
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--fg);
+  font-weight: 500;
+  font-size: var(--font-base);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+button.browse-btn:hover {
+  background: var(--panel-hover);
+  border-color: var(--accent-border);
+}
+
+button.browse-btn:active {
+  transform: translateY(1px);
+}
+
 /* ---------- Findings table ---------- */
 
 .findings-wrap {
