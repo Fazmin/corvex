@@ -1,8 +1,80 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ScanParams } from "../api";
 import { PluginPicker } from "./PluginPicker";
 import { TuningPicker } from "./TuningPicker";
 import { InfoTip } from "./InfoTip";
+
+const PRESETS_KEY = "corvexScanPresets";
+
+interface FormSnapshot {
+  host: string;
+  ports: string;
+  ssl: boolean;
+  tuning: string;
+  plugins: string;
+  format: string;
+  output: string;
+  timeout: number;
+  concurrent: number;
+  followRedirects: boolean;
+  id: string;
+  useragent: string;
+  evasion: string;
+  portscan: boolean;
+  portsRange: string;
+  dnsBrute: boolean;
+  active: boolean;
+  scope: string;
+  crawlDepth: number;
+  maxUrls: number;
+  sqliLevel: number;
+  sqliRisk: number;
+  sqliTechniques: string;
+  sqliDbms: string;
+  sqliTimeDelay: number;
+  tamper: string;
+  sqliEnumerate: string[];
+}
+
+function readPresets(): Record<string, FormSnapshot> {
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePresets(presets: Record<string, FormSnapshot>) {
+  try {
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+  } catch {
+    /* quota / disabled */
+  }
+}
+
+// Host accepts either a scheme://... URL or a bare host[:port][/path].
+const HOST_REGEX = /^(?:[a-z][a-z0-9+.-]*:\/\/)?[^\s/]+(?::\d{1,5})?(?:\/\S*)?$/i;
+// Comma-separated ports or port ranges: "80", "80,443", "1-1000", "80,8000-8100".
+const PORT_LIST_REGEX = /^\d{1,5}(?:-\d{1,5})?(?:,\d{1,5}(?:-\d{1,5})?)*$/;
+const EVASION_REGEX = /^[1-9aA]*$/;
+const TUNING_REGEX = /^[0-9a-ex]*$/i;
+
+function validatePortList(raw: string, max = 65535): string | null {
+  if (!raw) return null;
+  const stripped = raw.replace(/\s+/g, "");
+  if (!PORT_LIST_REGEX.test(stripped)) return "Use comma-separated ports or ranges (e.g. 80,443,8000-8100)";
+  for (const segment of stripped.split(",")) {
+    const parts = segment.split("-").map(Number);
+    for (const n of parts) {
+      if (!Number.isFinite(n) || n < 1 || n > max) return `Port ${n} is out of range (1–${max})`;
+    }
+    if (parts.length === 2 && parts[0] > parts[1]) return `Range ${segment} is reversed`;
+  }
+  return null;
+}
 
 interface Props {
   running: boolean;
@@ -42,8 +114,92 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
   const [sqliTimeDelay, setSqliTimeDelay] = useState(5);
   const [tamper, setTamper] = useState("");
   const [sqliEnumerate, setSqliEnumerate] = useState<string[]>([]);
+
+  const [presets, setPresets] = useState<Record<string, FormSnapshot>>(() => readPresets());
+  const [selectedPreset, setSelectedPreset] = useState<string>("");
+
+  const applyPreset = (name: string) => {
+    const snap = presets[name];
+    if (!snap) return;
+    setHost(snap.host);
+    setPorts(snap.ports);
+    setSsl(snap.ssl);
+    setTuning(snap.tuning);
+    setPlugins(snap.plugins);
+    setFormat(snap.format);
+    setOutput(snap.output);
+    setTimeoutVal(snap.timeout);
+    setConcurrent(snap.concurrent);
+    setFollowRedirects(snap.followRedirects);
+    setId(snap.id);
+    setUseragent(snap.useragent);
+    setEvasion(snap.evasion);
+    setPortscan(snap.portscan);
+    setPortsRange(snap.portsRange);
+    setDnsBrute(snap.dnsBrute);
+    setActive(snap.active);
+    setScope(snap.scope);
+    setCrawlDepth(snap.crawlDepth);
+    setMaxUrls(snap.maxUrls);
+    setSqliLevel(snap.sqliLevel);
+    setSqliRisk(snap.sqliRisk);
+    setSqliTechniques(snap.sqliTechniques);
+    setSqliDbms(snap.sqliDbms);
+    setSqliTimeDelay(snap.sqliTimeDelay);
+    setTamper(snap.tamper);
+    setSqliEnumerate(snap.sqliEnumerate ?? []);
+  };
+
+  const savePreset = () => {
+    const name = window.prompt("Preset name:")?.trim();
+    if (!name) return;
+    const snap: FormSnapshot = {
+      host, ports, ssl, tuning, plugins, format, output,
+      timeout, concurrent, followRedirects, id, useragent, evasion,
+      portscan, portsRange, dnsBrute,
+      active, scope, crawlDepth, maxUrls,
+      sqliLevel, sqliRisk, sqliTechniques, sqliDbms, sqliTimeDelay, tamper,
+      sqliEnumerate,
+    };
+    const next = { ...presets, [name]: snap };
+    setPresets(next);
+    writePresets(next);
+    setSelectedPreset(name);
+  };
+
+  const deletePreset = () => {
+    if (!selectedPreset) return;
+    if (!window.confirm(`Delete preset "${selectedPreset}"?`)) return;
+    const next = { ...presets };
+    delete next[selectedPreset];
+    setPresets(next);
+    writePresets(next);
+    setSelectedPreset("");
+  };
+
+  const errors = useMemo(() => {
+    const e: Record<string, string> = {};
+    if (!host.trim()) e.host = "Required";
+    else if (!HOST_REGEX.test(host.trim())) e.host = "Enter a URL or host[:port][/path]";
+    const pErr = validatePortList(ports);
+    if (pErr) e.ports = pErr;
+    if (portscan) {
+      const prErr = validatePortList(portsRange);
+      if (prErr) e.portsRange = prErr;
+      else if (!portsRange.trim()) e.portsRange = "Required when port scanning is enabled";
+    }
+    if (evasion && !EVASION_REGEX.test(evasion)) e.evasion = "Only digits 1–9 and letter A";
+    if (tuning && !TUNING_REGEX.test(tuning)) e.tuning = "Only 0–9, a–e, or x (inverse)";
+    if (timeout < 1) e.timeout = "Must be ≥ 1";
+    if (concurrent < 1 || concurrent > 64) e.concurrent = "1–64";
+    return e;
+  }, [host, ports, portscan, portsRange, evasion, tuning, timeout, concurrent]);
+
+  const hasErrors = Object.keys(errors).length > 0;
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (hasErrors) return;
     onStart({
       host,
       ports: ports || undefined,
@@ -83,6 +239,36 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
         <h2>Scan target</h2>
       </div>
       <div className="panel-body">
+      <div className="field preset-row">
+        <label>Preset</label>
+        <div className="preset-controls">
+          <select
+            value={selectedPreset}
+            onChange={(e) => {
+              const name = e.target.value;
+              setSelectedPreset(name);
+              if (name) applyPreset(name);
+            }}
+          >
+            <option value="">— none —</option>
+            {Object.keys(presets).sort().map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+          <button type="button" className="chip" onClick={savePreset} title="Save current form as a named preset">
+            Save as…
+          </button>
+          <button
+            type="button"
+            className="chip"
+            onClick={deletePreset}
+            disabled={!selectedPreset}
+            title="Delete selected preset"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
       <div className="field">
         <label>Host / URL</label>
         <input
@@ -90,8 +276,10 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
           value={host}
           onChange={(e) => setHost(e.target.value)}
           placeholder="http://example.com"
+          aria-invalid={!!errors.host}
           required
         />
+        {errors.host && <div className="field-error">{errors.host}</div>}
       </div>
       <div className="row">
         <div>
@@ -101,7 +289,9 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
             value={ports}
             onChange={(e) => setPorts(e.target.value)}
             placeholder="80,443"
+            aria-invalid={!!errors.ports}
           />
+          {errors.ports && <div className="field-error">{errors.ports}</div>}
         </div>
         <div>
           <label>Timeout (s)</label>
@@ -110,7 +300,9 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
             min={1}
             value={timeout}
             onChange={(e) => setTimeoutVal(parseInt(e.target.value) || 15)}
+            aria-invalid={!!errors.timeout}
           />
+          {errors.timeout && <div className="field-error">{errors.timeout}</div>}
         </div>
       </div>
 
@@ -158,7 +350,9 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
             value={portsRange}
             onChange={(e) => setPortsRange(e.target.value)}
             placeholder="1-1000"
+            aria-invalid={!!errors.portsRange}
           />
+          {errors.portsRange && <div className="field-error">{errors.portsRange}</div>}
         </div>
       )}
 
@@ -673,7 +867,9 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
           value={evasion}
           onChange={(e) => setEvasion(e.target.value)}
           placeholder="e.g. 13"
+          aria-invalid={!!errors.evasion}
         />
+        {errors.evasion && <div className="field-error">{errors.evasion}</div>}
       </div>
 
       {running ? (
@@ -681,7 +877,12 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
           Cancel scan
         </button>
       ) : (
-        <button type="submit" className="primary">
+        <button
+          type="submit"
+          className="primary"
+          disabled={hasErrors}
+          title={hasErrors ? "Fix the highlighted fields above" : undefined}
+        >
           Start scan
         </button>
       )}

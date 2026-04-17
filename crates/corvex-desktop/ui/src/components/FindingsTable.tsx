@@ -1,8 +1,81 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FindingPayload, SeverityLevel } from "../api";
 
 type FilterMode = "all" | "signature" | "active" | "fingerprint";
 type SeverityFilter = "all" | SeverityLevel;
+
+const FILTER_KEY = "corvexFindingsFilter";
+const SEV_FILTER_KEY = "corvexFindingsSevFilter";
+const QUERY_KEY = "corvexFindingsQuery";
+
+function readStorage(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStorage(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* quota / disabled */
+  }
+}
+
+const CSV_COLUMNS: Array<keyof FindingPayload> = [
+  "severity",
+  "corvex_id",
+  "method",
+  "uri",
+  "host",
+  "port",
+  "plugin",
+  "cve",
+  "cvss",
+  "epss_score",
+  "epss_percentile",
+  "fix_version",
+  "component",
+  "component_version",
+  "message",
+  "refs",
+];
+
+function csvEscape(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const s = String(value);
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function toCsv(rows: FindingPayload[]): string {
+  const header = CSV_COLUMNS.join(",");
+  const body = rows
+    .map((r) => CSV_COLUMNS.map((c) => csvEscape((r as unknown as Record<string, unknown>)[c])).join(","))
+    .join("\r\n");
+  return body ? `${header}\r\n${body}\r\n` : `${header}\r\n`;
+}
+
+function download(filename: string, mime: string, data: string) {
+  const blob = new Blob([data], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Defer revoke so browsers reliably flush the download.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function timestamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
 
 const ACTIVE_PREFIXES = [
   "active:", "xss", "sqli", "lfi_active", "cmd_injection",
@@ -54,8 +127,17 @@ interface Props {
 
 export function FindingsTable({ findings }: Props) {
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
-  const [filter, setFilter] = useState<FilterMode>("all");
-  const [sevFilter, setSevFilter] = useState<SeverityFilter>("all");
+  const [filter, setFilter] = useState<FilterMode>(
+    () => (readStorage(FILTER_KEY, "all") as FilterMode),
+  );
+  const [sevFilter, setSevFilter] = useState<SeverityFilter>(
+    () => (readStorage(SEV_FILTER_KEY, "all") as SeverityFilter),
+  );
+  const [query, setQuery] = useState(() => readStorage(QUERY_KEY, ""));
+
+  useEffect(() => writeStorage(FILTER_KEY, filter), [filter]);
+  useEffect(() => writeStorage(SEV_FILTER_KEY, sevFilter), [sevFilter]);
+  useEffect(() => writeStorage(QUERY_KEY, query), [query]);
 
   const toggle = useCallback((idx: number) => {
     setExpanded((prev) => {
@@ -74,12 +156,43 @@ export function FindingsTable({ findings }: Props) {
     if (sevFilter !== "all") {
       result = result.filter((f) => f.severity === sevFilter);
     }
+    const q = query.trim().toLowerCase();
+    if (q) {
+      result = result.filter((f) => {
+        const haystack = [
+          f.message,
+          f.uri,
+          f.corvex_id,
+          f.plugin,
+          f.cve ?? "",
+          f.component ?? "",
+          f.host,
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(q);
+      });
+    }
     // Sort by severity descending (Critical first)
     return [...result].sort(
       (a, b) =>
         (SEVERITY_ORDER[b.severity] ?? 0) - (SEVERITY_ORDER[a.severity] ?? 0)
     );
-  }, [findings, filter, sevFilter]);
+  }, [findings, filter, sevFilter, query]);
+
+  const exportCsv = useCallback(() => {
+    if (filtered.length === 0) return;
+    download(`corvex-findings-${timestamp()}.csv`, "text/csv;charset=utf-8", toCsv(filtered));
+  }, [filtered]);
+
+  const exportJson = useCallback(() => {
+    if (filtered.length === 0) return;
+    download(
+      `corvex-findings-${timestamp()}.json`,
+      "application/json;charset=utf-8",
+      JSON.stringify(filtered, null, 2) + "\n",
+    );
+  }, [filtered]);
 
   const counts = useMemo(() => {
     let sig = 0;
@@ -102,12 +215,44 @@ export function FindingsTable({ findings }: Props) {
     return m;
   }, [findings]);
 
+  const hasFindings = findings.length > 0;
+
   return (
     <div className="panel results">
-      <h2>
-        Findings
-        <span className="badge-inline">{filtered.length}</span>
-      </h2>
+      <div className="findings-header">
+        <h2 style={{ margin: 0 }}>
+          Findings
+          <span className="badge-inline">{filtered.length}</span>
+        </h2>
+        <div className="findings-toolbar">
+          <input
+            type="search"
+            className="findings-search"
+            placeholder="Search findings…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search findings"
+          />
+          <button
+            type="button"
+            className="chip"
+            onClick={exportCsv}
+            disabled={!hasFindings}
+            title="Download filtered findings as CSV"
+          >
+            Export CSV
+          </button>
+          <button
+            type="button"
+            className="chip"
+            onClick={exportJson}
+            disabled={!hasFindings}
+            title="Download filtered findings as JSON"
+          >
+            Export JSON
+          </button>
+        </div>
+      </div>
       <div className="filter-chips">
         <button
           className={`chip${filter === "all" ? " active" : ""}`}

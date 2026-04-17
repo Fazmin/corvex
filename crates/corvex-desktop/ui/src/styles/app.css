@@ -939,6 +939,132 @@ button.browse-btn:active {
   font-family: inherit;
 }
 
+/* ---------- Findings toolbar (search + export) ---------- */
+
+.findings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.findings-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.findings-search {
+  width: 220px;
+  padding: 4px 8px;
+  font-size: var(--font-base);
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  color: var(--fg);
+}
+
+.findings-search:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+}
+
+.findings-toolbar .chip[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- Toast notifications ---------- */
+
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+  max-width: 360px;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  font-size: calc(var(--font-base) - 1px);
+  line-height: 1.35;
+  animation: toast-slide-in 160ms ease-out;
+}
+
+.toast-success { border-left: 3px solid var(--success); }
+.toast-error   { border-left: 3px solid var(--danger); }
+.toast-info    { border-left: 3px solid var(--accent); }
+
+.toast-message {
+  flex: 1;
+  word-break: break-word;
+}
+
+.toast-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.toast-dismiss:hover { color: var(--fg); }
+
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- Scan form preset strip ---------- */
+
+.preset-row .preset-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.preset-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- Field-level validation errors ---------- */
+
+.field-error {
+  color: var(--danger);
+  font-size: calc(var(--font-base) - 2px);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+input[aria-invalid="true"],
+select[aria-invalid="true"] {
+  border-color: var(--danger) !important;
+}
+
+button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* ---------- Active fuzzing form section ---------- */
 
 .active-section {
@@ -953,6 +1079,21 @@ button.browse-btn:active {
 }
 
 /* ---------- Log panel ---------- */
+
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.log-follow {
+  margin: 0;
+  font-size: calc(var(--font-base) - 1px);
+  color: var(--muted);
+  user-select: none;
+}
 
 .log-panel {
   flex: 1;

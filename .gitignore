@@ -50,3 +50,5 @@ tests/udb_*
 /*.log
 /scan-*.txt
 snapshot.db.gz
+*/vulndb/snapshot.db.gz
+snapshot.db.gz

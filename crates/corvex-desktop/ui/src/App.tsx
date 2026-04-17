@@ -31,6 +31,7 @@ import { DatabasesView } from "./components/DatabasesView";
 import { FuzzingView } from "./components/FuzzingView";
 import { ScaView } from "./components/ScaView";
 import { SettingsView } from "./components/SettingsView";
+import { ToastContainer, type Toast, type ToastKind } from "./components/Toast";
 
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
@@ -66,6 +67,16 @@ export default function App() {
   const [scanCrawlDepth, setScanCrawlDepth] = useState(3);
   // Bumped on every scan completion so HistoryView re-fetches.
   const [historyRefresh, setHistoryRefresh] = useState(0);
+
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastIdRef = useRef(0);
+  const pushToast = useCallback((kind: ToastKind, message: string) => {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { id, kind, message }]);
+  }, []);
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const unlisteners = useRef<(() => void)[]>([]);
   const statsTimer = useRef<number | null>(null);
@@ -156,7 +167,16 @@ export default function App() {
         });
         const done = await onDone(id, (d) => {
           setRunning(false);
-          appendLog(d.cancelled ? "✗ cancelled" : d.error ? `✗ error: ${d.error}` : "✓ done");
+          if (d.cancelled) {
+            appendLog("✗ cancelled");
+            pushToast("info", "Scan cancelled");
+          } else if (d.error) {
+            appendLog(`✗ error: ${d.error}`);
+            pushToast("error", `Scan failed: ${d.error}`);
+          } else {
+            appendLog("✓ done");
+            pushToast("success", "Scan complete");
+          }
           setHistoryRefresh((n) => n + 1);
         });
         unlisteners.current.push(hs, he, f, sum, done);
@@ -183,10 +203,11 @@ export default function App() {
         }, 750);
       } catch (err) {
         appendLog(`✗ failed to start: ${err}`);
+        pushToast("error", `Failed to start scan: ${err}`);
         setRunning(false);
       }
     },
-    [appendLog, cleanupListeners]
+    [appendLog, cleanupListeners, pushToast]
   );
 
   const handleCancel = useCallback(async () => {
@@ -310,6 +331,7 @@ export default function App() {
           )}
         </main>
       </div>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
