@@ -3,10 +3,12 @@ import type { FindingPayload, SeverityLevel } from "../api";
 
 type FilterMode = "all" | "signature" | "active" | "fingerprint";
 type SeverityFilter = "all" | SeverityLevel;
+type SourceFilter = "all" | "sca" | "web";
 
 const FILTER_KEY = "corvexFindingsFilter";
 const SEV_FILTER_KEY = "corvexFindingsSevFilter";
 const QUERY_KEY = "corvexFindingsQuery";
+const SOURCE_FILTER_KEY = "corvexFindingsSourceFilter";
 
 function readStorage(key: string, fallback: string): string {
   try {
@@ -91,6 +93,23 @@ function classify(plugin: string): "active" | "fingerprint" | "signature" {
   return "signature";
 }
 
+type Source = "sca" | "web";
+
+// SCA findings always carry component metadata; every other plugin leaves
+// it null. Plugin-name prefix is a secondary safety net for future SCA
+// plugins that might not populate `component` immediately.
+function source(finding: FindingPayload): Source {
+  if (finding.component) return "sca";
+  if (finding.plugin.toLowerCase().startsWith("sca")) return "sca";
+  return "web";
+}
+
+const SOURCE_LABEL: Record<Source, string> = { sca: "SCA", web: "Web" };
+const SOURCE_COLOR: Record<Source, string> = {
+  sca: "#8e24aa",
+  web: "#26a69a",
+};
+
 const SEVERITY_ORDER: Record<SeverityLevel, number> = {
   CRITICAL: 4,
   HIGH: 3,
@@ -133,10 +152,14 @@ export function FindingsTable({ findings }: Props) {
   const [sevFilter, setSevFilter] = useState<SeverityFilter>(
     () => (readStorage(SEV_FILTER_KEY, "all") as SeverityFilter),
   );
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(
+    () => (readStorage(SOURCE_FILTER_KEY, "all") as SourceFilter),
+  );
   const [query, setQuery] = useState(() => readStorage(QUERY_KEY, ""));
 
   useEffect(() => writeStorage(FILTER_KEY, filter), [filter]);
   useEffect(() => writeStorage(SEV_FILTER_KEY, sevFilter), [sevFilter]);
+  useEffect(() => writeStorage(SOURCE_FILTER_KEY, sourceFilter), [sourceFilter]);
   useEffect(() => writeStorage(QUERY_KEY, query), [query]);
 
   const toggle = useCallback((idx: number) => {
@@ -155,6 +178,9 @@ export function FindingsTable({ findings }: Props) {
     }
     if (sevFilter !== "all") {
       result = result.filter((f) => f.severity === sevFilter);
+    }
+    if (sourceFilter !== "all") {
+      result = result.filter((f) => source(f) === sourceFilter);
     }
     const q = query.trim().toLowerCase();
     if (q) {
@@ -178,7 +204,15 @@ export function FindingsTable({ findings }: Props) {
       (a, b) =>
         (SEVERITY_ORDER[b.severity] ?? 0) - (SEVERITY_ORDER[a.severity] ?? 0)
     );
-  }, [findings, filter, sevFilter, query]);
+  }, [findings, filter, sevFilter, sourceFilter, query]);
+
+  const sourceCounts = useMemo(() => {
+    const m: Record<Source, number> = { sca: 0, web: 0 };
+    for (const f of findings) {
+      m[source(f)]++;
+    }
+    return m;
+  }, [findings]);
 
   const exportCsv = useCallback(() => {
     if (filtered.length === 0) return;
@@ -279,6 +313,29 @@ export function FindingsTable({ findings }: Props) {
           Fingerprint ({counts.fp})
         </button>
       </div>
+      <div className="filter-chips">
+        <button
+          className={`chip${sourceFilter === "all" ? " active" : ""}`}
+          onClick={() => setSourceFilter("all")}
+        >
+          All Src
+        </button>
+        {(["web", "sca"] as const).map((s) => (
+          <button
+            key={s}
+            className={`chip${sourceFilter === s ? " active" : ""}`}
+            style={{
+              borderColor: SOURCE_COLOR[s],
+              ...(sourceFilter === s
+                ? { backgroundColor: SOURCE_COLOR[s], color: "#fff" }
+                : {}),
+            }}
+            onClick={() => setSourceFilter(s)}
+          >
+            {SOURCE_LABEL[s]} ({sourceCounts[s] ?? 0})
+          </button>
+        ))}
+      </div>
       <div className="filter-chips severity-chips">
         <button
           className={`chip${sevFilter === "all" ? " active" : ""}`}
@@ -357,6 +414,7 @@ interface RowProps {
 }
 
 function FindingRow({ finding, isOpen, onToggle }: RowProps) {
+  const src = source(finding);
   return (
     <>
       <tr
@@ -379,7 +437,16 @@ function FindingRow({ finding, isOpen, onToggle }: RowProps) {
         </td>
         <td className="cell-message">{finding.message}</td>
         <td className="cell-plugin">
-          <span className="badge">{finding.plugin}</span>
+          <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+            <span
+              className="severity-badge"
+              style={{ backgroundColor: SOURCE_COLOR[src], color: "#fff", fontSize: 10 }}
+              title={`Source: ${SOURCE_LABEL[src]}`}
+            >
+              {SOURCE_LABEL[src]}
+            </span>
+            <span className="badge">{finding.plugin}</span>
+          </div>
         </td>
       </tr>
       {isOpen && (

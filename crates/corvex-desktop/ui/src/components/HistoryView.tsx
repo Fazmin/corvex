@@ -4,11 +4,28 @@ import {
   historyDelete,
   historyList,
   type HistoryEntry,
+  type ScanParams,
 } from "../api";
 
 interface Props {
   /** Bumped after each scan completion so the view re-fetches. */
   refreshKey: number;
+  /** Re-run a historical scan — triggers scan_start and switches to dashboard. */
+  onRerun: (params: ScanParams) => void;
+  /** True when a scan is currently running — disables re-run to avoid overlap. */
+  running: boolean;
+}
+
+function parseParams(raw: string): ScanParams | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && typeof parsed.host === "string") {
+      return parsed as ScanParams;
+    }
+  } catch {
+    /* fallthrough */
+  }
+  return null;
 }
 
 function fmtTime(unix: number): string {
@@ -41,7 +58,7 @@ function statusBadge(status: string): { label: string; color: string } {
   }
 }
 
-export function HistoryView({ refreshKey }: Props) {
+export function HistoryView({ refreshKey, onRerun, running }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +102,18 @@ export function HistoryView({ refreshKey }: Props) {
     [load]
   );
 
+  const handleRerun = useCallback(
+    (entry: HistoryEntry) => {
+      const params = parseParams(entry.params_json);
+      if (!params) {
+        setError(`Could not parse parameters for scan ${entry.id}`);
+        return;
+      }
+      onRerun(params);
+    },
+    [onRerun]
+  );
+
   return (
     <div className="history-view">
       <div className="history-header">
@@ -116,13 +145,13 @@ export function HistoryView({ refreshKey }: Props) {
       <div className="findings-wrap">
         <table className="findings-table">
           <colgroup>
-            <col style={{ width: "30%" }} />
-            <col style={{ width: "16%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "10%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "12%" }} />
+            <col style={{ width: "26%" }} />
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "21%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -132,7 +161,7 @@ export function HistoryView({ refreshKey }: Props) {
               <th>Requests</th>
               <th>Findings</th>
               <th>Status</th>
-              <th></th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -148,6 +177,7 @@ export function HistoryView({ refreshKey }: Props) {
             )}
             {entries.map((e) => {
               const badge = statusBadge(e.status);
+              const canRerun = !running && e.status !== "running";
               return (
                 <tr key={e.id}>
                   <td><code>{e.host}</code></td>
@@ -161,13 +191,30 @@ export function HistoryView({ refreshKey }: Props) {
                     </span>
                   </td>
                   <td>
-                    <button
-                      type="button"
-                      className="ghost-btn danger-text"
-                      onClick={() => handleDelete(e.id)}
-                    >
-                      Delete
-                    </button>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        onClick={() => handleRerun(e)}
+                        disabled={!canRerun}
+                        title={
+                          running
+                            ? "Cancel the current scan before re-running"
+                            : e.status === "running"
+                            ? "Scan still in progress"
+                            : "Re-run this scan with the same parameters"
+                        }
+                      >
+                        Re-run
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-btn danger-text"
+                        onClick={() => handleDelete(e.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

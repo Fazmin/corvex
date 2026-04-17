@@ -1,5 +1,6 @@
 import { useTheme, type ThemePref } from "../theme";
 import { useSettings, FONT_SIZE_LABELS, type FontSize } from "../settings";
+import { resetTour } from "./OnboardingTour";
 
 const THEMES: { value: ThemePref; label: string; hint: string }[] = [
   { value: "system", label: "System", hint: "Follow your OS color scheme" },
@@ -74,6 +75,23 @@ export function SettingsView() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-head">
+          <h3>Onboarding</h3>
+          <p>Show the welcome tour again the next time the app starts.</p>
+        </div>
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() => {
+            resetTour();
+            alert("Tour will appear on the next app launch.");
+          }}
+        >
+          Restart welcome tour
+        </button>
       </div>
 
       <div className="settings-section">

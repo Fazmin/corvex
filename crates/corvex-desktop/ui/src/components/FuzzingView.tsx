@@ -5,6 +5,8 @@
  */
 
 import { useState } from "react";
+import type { FindingPayload, ScanParams, ScanStats } from "../api";
+import { ActiveFuzzRunner } from "./ActiveFuzzRunner";
 
 interface FuzzerModule {
   name: string;
@@ -385,10 +387,26 @@ const ENUMERATE_TARGETS = [
   { flag: "os-cmd", label: "OS command", desc: "Execute operating system commands on the server", risk: 3, queries: "MSSQL: xp_cmdshell | PostgreSQL: COPY TO PROGRAM | MySQL: UDF sys_exec() | Oracle: DBMS_SCHEDULER" },
 ];
 
-type DetailTab = "modules" | "techniques" | "tamper" | "dbms" | "enumerate";
+type DetailTab = "run" | "modules" | "techniques" | "tamper" | "dbms" | "enumerate";
 
-export function FuzzingView() {
-  const [tab, setTab] = useState<DetailTab>("modules");
+interface FuzzingViewProps {
+  running: boolean;
+  scanId: string | null;
+  findings: FindingPayload[];
+  stats: ScanStats | null;
+  onStart: (params: ScanParams) => void;
+  onCancel: () => void;
+}
+
+export function FuzzingView({
+  running,
+  scanId,
+  findings,
+  stats,
+  onStart,
+  onCancel,
+}: FuzzingViewProps) {
+  const [tab, setTab] = useState<DetailTab>("run");
 
   const grouped = {
     injection: MODULES.filter((m) => m.category === "injection"),
@@ -400,6 +418,7 @@ export function FuzzingView() {
   const totalTamper = TAMPER_MODULES.reduce((s, c) => s + c.count, 0);
 
   const tabs: { key: DetailTab; label: string }[] = [
+    { key: "run", label: "Run" },
     { key: "modules", label: `Modules (${MODULES.length})` },
     { key: "techniques", label: `Techniques (${TECHNIQUES.length})` },
     { key: "tamper", label: `Tamper (${totalTamper})` },
@@ -417,7 +436,7 @@ export function FuzzingView() {
           <div className="sub" style={{ marginTop: 4, lineHeight: 1.6 }}>
             {readyCount} ready, {MODULES.length - readyCount} planned modules.{" "}
             The SQL injection engine provides {TECHNIQUES.length} detection techniques, {totalTamper} tamper modules, {DBMS_DETAILS.length} DBMS backends, and {ENUMERATE_TARGETS.length} enumeration targets.{" "}
-            Enable via the "Active fuzzing" checkbox on the Dashboard or <code>--active</code> on the CLI.
+            Launch a standalone run from the <strong>Run</strong> tab below, or from the Dashboard via the "Active fuzzing" checkbox.
           </div>
         </div>
       </div>
@@ -445,6 +464,18 @@ export function FuzzingView() {
           </button>
         ))}
       </div>
+
+      {/* ---- Run tab ---- */}
+      {tab === "run" && (
+        <ActiveFuzzRunner
+          running={running}
+          scanId={scanId}
+          findings={findings}
+          stats={stats}
+          onStart={onStart}
+          onCancel={onCancel}
+        />
+      )}
 
       {/* ---- Modules tab ---- */}
       {tab === "modules" && (

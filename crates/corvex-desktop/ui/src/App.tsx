@@ -32,6 +32,8 @@ import { FuzzingView } from "./components/FuzzingView";
 import { ScaView } from "./components/ScaView";
 import { SettingsView } from "./components/SettingsView";
 import { ToastContainer, type Toast, type ToastKind } from "./components/Toast";
+import { SeverityBreakdown } from "./components/SeverityBreakdown";
+import { OnboardingTour, hasSeenTour } from "./components/OnboardingTour";
 
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
@@ -63,10 +65,13 @@ export default function App() {
   const [pluginCount, setPluginCount] = useState(0);
   const [requestRate, setRequestRate] = useState<number | null>(null);
   const [activeMode, setActiveMode] = useState(false);
+  const [currentHost, setCurrentHost] = useState<string | null>(null);
   const [scanMaxUrls, setScanMaxUrls] = useState(500);
   const [scanCrawlDepth, setScanCrawlDepth] = useState(3);
   // Bumped on every scan completion so HistoryView re-fetches.
   const [historyRefresh, setHistoryRefresh] = useState(0);
+
+  const [showTour, setShowTour] = useState(() => !hasSeenTour());
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastIdRef = useRef(0);
@@ -138,6 +143,7 @@ export default function App() {
       cleanupListeners();
       setFindings([]);
       setStats(null);
+      setCurrentHost(null);
       setActiveMode(params.active ?? false);
       setScanMaxUrls(params.max_urls ?? 500);
       setScanCrawlDepth(params.crawl_depth ?? 3);
@@ -152,9 +158,11 @@ export default function App() {
         setHistoryRefresh((n) => n + 1);
 
         const hs = await onHostStart(id, (h) => {
+          setCurrentHost(`${h.hostname}:${h.port}${h.ssl ? " (ssl)" : ""}`);
           appendLog(`⊙ host start ${h.hostname}:${h.port}${h.ssl ? " [ssl]" : ""}`);
         });
         const he = await onHostEnd(id, (h) => {
+          setCurrentHost(null);
           appendLog(`⊗ host end ${h.hostname}:${h.port}`);
         });
         const f = await onFinding(id, (finding) => {
@@ -217,6 +225,14 @@ export default function App() {
     appendLog(ok ? "✓ cancel requested" : "? scan not found");
   }, [scanId, appendLog]);
 
+  const handleRerun = useCallback(
+    (params: ScanParams) => {
+      setView("dashboard");
+      handleStart(params);
+    },
+    [handleStart]
+  );
+
   // "New scan" — return to the dashboard and clear the previous run's
   // findings/stats so the form is uncluttered.
   const handleNewScan = useCallback(() => {
@@ -232,7 +248,9 @@ export default function App() {
   useEffect(() => () => cleanupListeners(), [cleanupListeners]);
 
   const headline = running
-    ? "Scan in progress"
+    ? currentHost
+      ? `Scanning ${currentHost}`
+      : "Scan in progress"
     : scanId
     ? "Last scan complete"
     : "Ready to scan";
@@ -294,6 +312,7 @@ export default function App() {
               maxUrls={scanMaxUrls}
               crawlDepth={scanCrawlDepth}
             />
+              <SeverityBreakdown findings={findings} />
               <ScanForm running={running} onStart={handleStart} onCancel={handleCancel} />
               <FindingsTable findings={findings} />
               <LogPanel lines={log} />
@@ -301,7 +320,7 @@ export default function App() {
           )}
           {view === "history" && (
             <div className="dashboard single-pane">
-              <HistoryView refreshKey={historyRefresh} />
+              <HistoryView refreshKey={historyRefresh} onRerun={handleRerun} running={running} />
             </div>
           )}
           {view === "plugins" && (
@@ -311,7 +330,14 @@ export default function App() {
           )}
           {view === "fuzzing" && (
             <div className="dashboard single-pane">
-              <FuzzingView />
+              <FuzzingView
+                running={running}
+                scanId={scanId}
+                findings={findings}
+                stats={stats}
+                onStart={handleStart}
+                onCancel={handleCancel}
+              />
             </div>
           )}
           {view === "databases" && (
@@ -332,6 +358,7 @@ export default function App() {
         </main>
       </div>
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      {showTour && <OnboardingTour onClose={() => setShowTour(false)} />}
     </div>
   );
 }
