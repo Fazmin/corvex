@@ -37,9 +37,9 @@ const STEPS: Step[] = [
     body: (
       <>
         <p>
-          This is a Rust port of the classic Nikto web vulnerability scanner,
-          extended with an active fuzzing engine, software composition analysis,
-          and a CVE/EPSS-backed vulnerability database.
+          A web vulnerability scanner with an active fuzzing engine, software
+          composition analysis, and a CVE/EPSS-backed vulnerability database —
+          all wrapped in a local desktop UI.
         </p>
         <p>
           The tour below takes about a minute. You can re-open it anytime from

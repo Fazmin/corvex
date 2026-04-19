@@ -31,6 +31,7 @@ import { DatabasesView } from "./components/DatabasesView";
 import { FuzzingView } from "./components/FuzzingView";
 import { ScaView } from "./components/ScaView";
 import { SettingsView } from "./components/SettingsView";
+import { HelpView } from "./components/HelpView";
 import { ToastContainer, type Toast, type ToastKind } from "./components/Toast";
 import { SeverityBreakdown } from "./components/SeverityBreakdown";
 import { OnboardingTour, hasSeenTour } from "./components/OnboardingTour";
@@ -270,6 +271,7 @@ export default function App() {
     databases: "Databases",
     sca: "Software Composition Analysis",
     settings: "Settings",
+    help: "Help",
   };
 
   return (
@@ -353,6 +355,11 @@ export default function App() {
           {view === "settings" && (
             <div className="dashboard single-pane">
               <SettingsView />
+            </div>
+          )}
+          {view === "help" && (
+            <div className="dashboard single-pane">
+              <HelpView />
             </div>
           )}
         </main>

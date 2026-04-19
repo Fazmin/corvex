@@ -5,6 +5,7 @@ import {
   DashboardIcon,
   DatabasesIcon,
   FuzzingIcon,
+  HelpIcon,
   HistoryIcon,
   NewScanIcon,
   PluginsIcon,
@@ -12,7 +13,7 @@ import {
   SettingsIcon,
 } from "./Icons";
 
-export type View = "dashboard" | "history" | "plugins" | "databases" | "fuzzing" | "sca" | "settings";
+export type View = "dashboard" | "history" | "plugins" | "databases" | "fuzzing" | "sca" | "settings" | "help";
 
 interface Props {
   view: View;
@@ -171,6 +172,17 @@ export function Sidebar({
             <SettingsIcon size={iconSize} />
           </span>
           <span>Settings</span>
+        </button>
+        <button
+          type="button"
+          className={`sidebar-item${view === "help" ? " active" : ""}`}
+          onClick={() => onSelect("help")}
+          title={collapsed ? "Help" : undefined}
+        >
+          <span className="ico">
+            <HelpIcon size={iconSize} />
+          </span>
+          <span>Help</span>
         </button>
       </div>
 
