@@ -8,10 +8,19 @@ import { useEffect, useMemo, useState } from "react";
 import { sonarSummary, type SonarSummary } from "../api";
 import { useSettings } from "../settings";
 import { InfoTip } from "./InfoTip";
+import { ProbeRunner } from "./ProbeRunner";
 
-type Tab = "configure" | "modes" | "families" | "datasets" | "directive" | "jarm";
+type Tab =
+  | "run"
+  | "configure"
+  | "modes"
+  | "families"
+  | "datasets"
+  | "directive"
+  | "jarm";
 
 const TABS: { key: Tab; label: string }[] = [
+  { key: "run", label: "Run" },
   { key: "configure", label: "Configure" },
   { key: "modes", label: "Scan modes" },
   { key: "families", label: "Probe families" },
@@ -34,7 +43,7 @@ const DEFAULT_PORTS_RANGE = "1-1000";
 
 export function ProbingView() {
   const { extraProbeFiles, setExtraProbeFiles } = useSettings();
-  const [tab, setTab] = useState<Tab>("configure");
+  const [tab, setTab] = useState<Tab>("run");
   const [summary, setSummary] = useState<SonarSummary | null>(null);
   const [summaryErr, setSummaryErr] = useState<string | null>(null);
   const [draftMode, setDraftMode] = useState<"rapid" | "deep">(() => readDefault().scanMode);
@@ -138,6 +147,7 @@ export function ProbingView() {
         ))}
       </div>
 
+      {tab === "run" && <ProbeRunner />}
       {tab === "configure" && (
         <ConfigureTab
           draftMode={draftMode}

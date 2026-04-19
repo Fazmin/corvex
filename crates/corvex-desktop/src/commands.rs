@@ -25,6 +25,7 @@ use crate::error::{AppError, AppResult};
 use crate::event_sink::TauriEventSink;
 use crate::history::{HistoryDb, HistoryEntry};
 use crate::params::ScanParams;
+use crate::probe_state::{ProbeRegistry, RunningProbe};
 use crate::scan_state::{RunningScan, ScanRegistry, ScanStats};
 
 #[derive(Debug, Clone, Serialize)]
@@ -496,4 +497,533 @@ pub async fn history_delete(
 ) -> AppResult<usize> {
     db.delete(id)
         .map_err(|e| AppError::Other(format!("history.delete: {e}")))
+}
+
+// ===== Standalone service-probing =====================================
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ProbeParams {
+    /// One target per entry. Supports:
+    ///   * Single IPv4 / IPv6 literal (`10.0.0.3`, `::1`)
+    ///   * Hostname (resolved via DNS)
+    ///   * IPv4 CIDR block (`192.168.1.0/24`)
+    pub targets: Vec<String>,
+    /// "rapid" | "deep"
+    pub scan_mode: String,
+    pub ports_range: String,
+    #[serde(default)]
+    pub jarm: bool,
+    #[serde(default)]
+    pub extra_probe_files: Vec<String>,
+    #[serde(default)]
+    pub host_concurrency: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProbeResolvedTarget {
+    display: String,
+    ip: String,
+    hostname: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProbeHostStart {
+    probe_id: String,
+    display: String,
+    hostname: String,
+    ip: String,
+    index: usize,
+    total: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProbeHostEnd {
+    probe_id: String,
+    display: String,
+    ip: String,
+    open_count: usize,
+    elapsed_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProbeOpenPort {
+    probe_id: String,
+    display: String,
+    hostname: String,
+    ip: String,
+    port: u16,
+    over_tls: bool,
+    service: Option<String>,
+    product: Option<String>,
+    vendor: Option<String>,
+    version: Option<String>,
+    info: Option<String>,
+    cpe: Vec<String>,
+    jarm: Option<String>,
+    banner: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProbeSummary {
+    probe_id: String,
+    hosts_completed: usize,
+    hosts_total: usize,
+    open_ports_total: usize,
+    elapsed_ms: u128,
+    cancelled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProbeTargetError {
+    probe_id: String,
+    target: String,
+    message: String,
+}
+
+#[tauri::command]
+pub async fn probe_start(
+    app: AppHandle,
+    registry: State<'_, ProbeRegistry>,
+    params: ProbeParams,
+) -> AppResult<String> {
+    let probe_id = Uuid::new_v4();
+    let cancel = CancellationToken::new();
+    registry
+        .insert(RunningProbe {
+            id: probe_id,
+            cancel: cancel.clone(),
+        })
+        .await;
+
+    let registry_handle: tauri::State<'_, ProbeRegistry> = registry;
+    let _ = registry_handle;
+
+    let app_cloned = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let start = std::time::Instant::now();
+        run_probe(app_cloned.clone(), probe_id, params, cancel, start).await;
+        // Registry clean-up on completion.
+        if let Some(registry) = app_cloned.try_state::<ProbeRegistry>() {
+            registry.remove(probe_id).await;
+        }
+    });
+
+    Ok(probe_id.to_string())
+}
+
+#[tauri::command]
+pub async fn probe_cancel(
+    registry: State<'_, ProbeRegistry>,
+    id: String,
+) -> AppResult<bool> {
+    let uuid = Uuid::parse_str(&id).map_err(|e| AppError::Other(e.to_string()))?;
+    Ok(registry.cancel(uuid).await)
+}
+
+async fn run_probe(
+    app: AppHandle,
+    probe_id: Uuid,
+    params: ProbeParams,
+    cancel: CancellationToken,
+    start: std::time::Instant,
+) {
+    let id_str = probe_id.to_string();
+
+    let scan_mode = match params.scan_mode.as_str() {
+        "deep" => corvex_sonar::ScanMode::Deep,
+        _ => corvex_sonar::ScanMode::Rapid,
+    };
+    let tuning = corvex_sonar::ScanTuning::defaults_for(scan_mode);
+    let opts = corvex_sonar::SonarOpts {
+        jarm: params.jarm,
+        extra_probe_files: params.extra_probe_files.clone(),
+    };
+    let port_list = corvex_core::portscan::parse_port_range(&params.ports_range);
+    if port_list.is_empty() {
+        let _ = app.emit(
+            &ev(&id_str, "error"),
+            ProbeTargetError {
+                probe_id: id_str.clone(),
+                target: String::new(),
+                message: format!("port range '{}' expanded to zero ports", params.ports_range),
+            },
+        );
+        emit_final_summary(&app, &id_str, 0, 0, 0, start, true);
+        return;
+    }
+
+    // Expand every target entry. Failures are reported per-target but do not
+    // abort the whole run.
+    let mut resolved: Vec<ProbeResolvedTarget> = Vec::new();
+    for raw in &params.targets {
+        let entry = raw.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        match expand_target(entry).await {
+            Ok(mut list) => resolved.append(&mut list),
+            Err(e) => {
+                let _ = app.emit(
+                    &ev(&id_str, "error"),
+                    ProbeTargetError {
+                        probe_id: id_str.clone(),
+                        target: entry.to_string(),
+                        message: e,
+                    },
+                );
+            }
+        }
+    }
+
+    if resolved.is_empty() {
+        emit_final_summary(&app, &id_str, 0, 0, 0, start, false);
+        return;
+    }
+
+    let total = resolved.len();
+    let host_cap = params.host_concurrency.unwrap_or(8).max(1);
+    let sem = Arc::new(Semaphore::new(host_cap));
+    let hosts_completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let open_ports_total = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let mut tasks = Vec::new();
+    for (index, target) in resolved.into_iter().enumerate() {
+        let app = app.clone();
+        let id_str = id_str.clone();
+        let sem = sem.clone();
+        let cancel = cancel.clone();
+        let hosts_completed = hosts_completed.clone();
+        let open_ports_total = open_ports_total.clone();
+        let port_list = port_list.clone();
+        let opts = opts.clone();
+
+        tasks.push(tauri::async_runtime::spawn(async move {
+            if cancel.is_cancelled() {
+                return;
+            }
+            let _permit = sem.acquire().await;
+            if cancel.is_cancelled() {
+                return;
+            }
+
+            let host_start_at = std::time::Instant::now();
+            let _ = app.emit(
+                &ev(&id_str, "host-start"),
+                ProbeHostStart {
+                    probe_id: id_str.clone(),
+                    display: target.display.clone(),
+                    hostname: target.hostname.clone(),
+                    ip: target.ip.clone(),
+                    index,
+                    total,
+                },
+            );
+
+            let ip: std::net::IpAddr = match target.ip.parse() {
+                Ok(ip) => ip,
+                Err(_) => return,
+            };
+
+            let scan_result = tokio::select! {
+                _ = cancel.cancelled() => return,
+                r = corvex_core::portscan::tcp_scan(
+                    ip,
+                    &target.hostname,
+                    &port_list,
+                    scan_mode,
+                    tuning,
+                    opts,
+                ) => r,
+            };
+
+            let mut open_count = 0usize;
+            for op in &scan_result.open_ports {
+                open_count += 1;
+                let svc = op.service.clone();
+                let over_tls = svc.as_ref().map(|s| s.tls).unwrap_or(false);
+                let payload = ProbeOpenPort {
+                    probe_id: id_str.clone(),
+                    display: target.display.clone(),
+                    hostname: target.hostname.clone(),
+                    ip: target.ip.clone(),
+                    port: op.port,
+                    over_tls,
+                    service: svc.as_ref().map(|s| s.name.clone()),
+                    product: svc.as_ref().and_then(|s| s.product.clone()),
+                    vendor: svc.as_ref().and_then(|s| s.vendor.clone()),
+                    version: svc.as_ref().and_then(|s| s.version.clone()),
+                    info: svc.as_ref().and_then(|s| s.info.clone()),
+                    cpe: svc.as_ref().map(|s| s.cpe.clone()).unwrap_or_default(),
+                    jarm: svc.as_ref().and_then(|s| s.jarm.clone()),
+                    banner: svc.as_ref().map(|s| s.banner.clone()).unwrap_or_default(),
+                };
+                let _ = app.emit(&ev(&id_str, "open-port"), payload);
+            }
+
+            open_ports_total.fetch_add(open_count, std::sync::atomic::Ordering::Relaxed);
+            hosts_completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+            let _ = app.emit(
+                &ev(&id_str, "host-end"),
+                ProbeHostEnd {
+                    probe_id: id_str.clone(),
+                    display: target.display.clone(),
+                    ip: target.ip.clone(),
+                    open_count,
+                    elapsed_ms: host_start_at.elapsed().as_millis(),
+                },
+            );
+        }));
+    }
+
+    for t in tasks {
+        let _ = t.await;
+    }
+
+    let completed = hosts_completed.load(std::sync::atomic::Ordering::Relaxed);
+    let opens = open_ports_total.load(std::sync::atomic::Ordering::Relaxed);
+    emit_final_summary(&app, &id_str, completed, total, opens, start, cancel.is_cancelled());
+}
+
+fn emit_final_summary(
+    app: &AppHandle,
+    id_str: &str,
+    hosts_completed: usize,
+    hosts_total: usize,
+    open_ports_total: usize,
+    start: std::time::Instant,
+    cancelled: bool,
+) {
+    let _ = app.emit(
+        &ev(id_str, "summary"),
+        ProbeSummary {
+            probe_id: id_str.to_string(),
+            hosts_completed,
+            hosts_total,
+            open_ports_total,
+            elapsed_ms: start.elapsed().as_millis(),
+            cancelled,
+        },
+    );
+}
+
+fn ev(id: &str, kind: &str) -> String {
+    format!("probe://{}/{}", id, kind)
+}
+
+/// Supported target spellings on one line:
+///   * `a.b.c.d`                       — single IPv4 or IPv6 literal
+///   * `example.com`                   — hostname (resolved via DNS)
+///   * `a.b.c.d/N`                     — IPv4 CIDR block
+///   * `a.b.c.d-e.f.g.h`               — inclusive IPv4 range (full IPs)
+///   * `a.b.c.d-M`                     — inclusive IPv4 range with a
+///                                        short suffix on the last octet
+///                                        (M must be 0-255 and ≥ d)
+///   * `a,b,...`                       — comma-separated list where each
+///                                        element is parsed independently
+async fn expand_target(entry: &str) -> Result<Vec<ProbeResolvedTarget>, String> {
+    let trimmed = entry.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Comma-separated lists on one line — parse each element recursively,
+    // concatenate the results. Errors in any sub-element fail the whole
+    // line so the user notices the typo.
+    if trimmed.contains(',') {
+        let mut out = Vec::new();
+        for piece in trimmed.split(',') {
+            let piece = piece.trim();
+            if piece.is_empty() {
+                continue;
+            }
+            let mut sub = Box::pin(expand_target(piece)).await?;
+            out.append(&mut sub);
+        }
+        return Ok(out);
+    }
+
+    // CIDR form (IPv4 only in v1).
+    if let Some((net, bits)) = trimmed.split_once('/') {
+        let prefix: u8 = bits
+            .parse()
+            .map_err(|_| format!("invalid CIDR prefix '{bits}'"))?;
+        let addr: std::net::Ipv4Addr = net
+            .parse()
+            .map_err(|_| format!("CIDR base '{net}' must be an IPv4 literal"))?;
+        if prefix > 32 {
+            return Err(format!("CIDR prefix /{prefix} out of range"));
+        }
+        return Ok(expand_ipv4_cidr(addr, prefix, trimmed));
+    }
+
+    // Dash-range forms. We only split on the *first* '-' so that an
+    // upstream hostname containing a dash is still treated as a hostname
+    // if both halves don't look like IPs.
+    if let Some((left_raw, right_raw)) = trimmed.split_once('-') {
+        let left = left_raw.trim();
+        let right = right_raw.trim();
+        if let Some(range) = parse_ipv4_dash_range(left, right, trimmed) {
+            return range;
+        }
+    }
+
+    // Bare IP literal.
+    if let Ok(ip) = trimmed.parse::<std::net::IpAddr>() {
+        return Ok(vec![ProbeResolvedTarget {
+            display: trimmed.to_string(),
+            ip: ip.to_string(),
+            hostname: trimmed.to_string(),
+        }]);
+    }
+
+    // Hostname lookup. Bind to :0 so lookup_host doesn't complain about a
+    // missing port; we use the first A/AAAA record returned.
+    let lookup = format!("{trimmed}:0");
+    let first = tokio::net::lookup_host(&lookup)
+        .await
+        .map_err(|e| format!("DNS lookup for '{trimmed}' failed: {e}"))?
+        .next()
+        .ok_or_else(|| format!("no A/AAAA records for '{trimmed}'"))?;
+    Ok(vec![ProbeResolvedTarget {
+        display: trimmed.to_string(),
+        ip: first.ip().to_string(),
+        hostname: trimmed.to_string(),
+    }])
+}
+
+/// Parse an IPv4 dash-range (`a.b.c.d-e.f.g.h` or `a.b.c.d-M`) and return
+/// the expanded host list. Returns `None` when `left`/`right` don't look
+/// like an IPv4 range at all (so the caller falls through to hostname
+/// resolution).
+fn parse_ipv4_dash_range(
+    left: &str,
+    right: &str,
+    display_original: &str,
+) -> Option<Result<Vec<ProbeResolvedTarget>, String>> {
+    // Left half must be a full IPv4 literal.
+    let start: std::net::Ipv4Addr = left.parse().ok()?;
+
+    // Right half: either a full IPv4 literal or a bare 0-255 last-octet.
+    let end: std::net::Ipv4Addr = if let Ok(ip) = right.parse::<std::net::Ipv4Addr>() {
+        ip
+    } else if let Ok(last_octet) = right.parse::<u8>() {
+        let o = start.octets();
+        std::net::Ipv4Addr::new(o[0], o[1], o[2], last_octet)
+    } else {
+        return None;
+    };
+
+    let start_u32 = u32::from(start);
+    let end_u32 = u32::from(end);
+    if end_u32 < start_u32 {
+        return Some(Err(format!(
+            "IP range '{display_original}' is reversed: {start} > {end}"
+        )));
+    }
+
+    let span = (end_u32 - start_u32) as u64 + 1;
+    // Same safety cap as CIDR expansion: never emit more than 65,536
+    // entries from a single range directive.
+    let capped = span.min(1 << 16);
+
+    let mut out = Vec::with_capacity(capped as usize);
+    for i in 0..capped {
+        let ip = std::net::Ipv4Addr::from(start_u32.wrapping_add(i as u32));
+        out.push(ProbeResolvedTarget {
+            display: format!("{display_original} [{ip}]"),
+            ip: ip.to_string(),
+            hostname: ip.to_string(),
+        });
+    }
+    Some(Ok(out))
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::*;
+
+    fn ips(v: &[ProbeResolvedTarget]) -> Vec<String> {
+        v.iter().map(|t| t.ip.clone()).collect()
+    }
+
+    #[tokio::test]
+    async fn full_ip_range_expands_inclusive() {
+        let out = expand_target("10.0.0.5-10.0.0.7").await.unwrap();
+        assert_eq!(ips(&out), vec!["10.0.0.5", "10.0.0.6", "10.0.0.7"]);
+    }
+
+    #[tokio::test]
+    async fn short_last_octet_range_expands() {
+        let out = expand_target("192.168.1.10-12").await.unwrap();
+        assert_eq!(ips(&out), vec!["192.168.1.10", "192.168.1.11", "192.168.1.12"]);
+    }
+
+    #[tokio::test]
+    async fn reversed_range_is_rejected() {
+        let err = expand_target("10.0.0.5-10.0.0.4").await.unwrap_err();
+        assert!(err.contains("reversed"), "err = {err}");
+    }
+
+    #[tokio::test]
+    async fn comma_list_concatenates() {
+        let out = expand_target("10.0.0.1,10.0.0.2-3").await.unwrap();
+        assert_eq!(ips(&out), vec!["10.0.0.1", "10.0.0.2", "10.0.0.3"]);
+    }
+
+    #[tokio::test]
+    async fn single_ipv4_literal() {
+        let out = expand_target("192.168.99.1").await.unwrap();
+        assert_eq!(ips(&out), vec!["192.168.99.1"]);
+    }
+
+    #[tokio::test]
+    async fn cidr_skips_network_and_broadcast() {
+        let out = expand_target("10.0.0.0/30").await.unwrap();
+        // /30 = 4 addresses, network + broadcast skipped => two usable.
+        assert_eq!(ips(&out), vec!["10.0.0.1", "10.0.0.2"]);
+    }
+
+    #[tokio::test]
+    async fn cidr_31_keeps_both_endpoints() {
+        let out = expand_target("10.0.0.0/31").await.unwrap();
+        assert_eq!(ips(&out), vec!["10.0.0.0", "10.0.0.1"]);
+    }
+}
+
+fn expand_ipv4_cidr(
+    base: std::net::Ipv4Addr,
+    prefix: u8,
+    display_original: &str,
+) -> Vec<ProbeResolvedTarget> {
+    if prefix == 32 {
+        return vec![ProbeResolvedTarget {
+            display: base.to_string(),
+            ip: base.to_string(),
+            hostname: base.to_string(),
+        }];
+    }
+    let mask: u32 = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
+    let base_u32 = u32::from(base) & mask;
+    let host_bits = 32 - prefix;
+    // Cap expansion to prevent accidental /8-against-public scans inside a GUI.
+    let max_hosts: u64 = 1u64 << host_bits;
+    let capped = max_hosts.min(1 << 16); // never expand more than 65,536 at once
+    let mut out = Vec::with_capacity(capped as usize);
+    for i in 0..capped {
+        let ip = std::net::Ipv4Addr::from(base_u32.wrapping_add(i as u32));
+        // In a /31 or /32 we keep all entries. For wider prefixes we drop
+        // the network + broadcast addresses so we don't poke identifiers.
+        if prefix < 31 {
+            if i == 0 || i == max_hosts - 1 {
+                continue;
+            }
+        }
+        out.push(ProbeResolvedTarget {
+            display: format!("{} [{}]", display_original, ip),
+            ip: ip.to_string(),
+            hostname: ip.to_string(),
+        });
+    }
+    out
 }

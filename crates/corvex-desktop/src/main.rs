@@ -11,11 +11,13 @@ mod event_sink;
 mod history;
 mod log_bridge;
 mod params;
+mod probe_state;
 mod scan_state;
 
 use std::sync::Arc;
 
 use history::HistoryDb;
+use probe_state::ProbeRegistry;
 use scan_state::ScanRegistry;
 use tauri::{Emitter, Manager};
 use tracing_subscriber::prelude::*;
@@ -41,6 +43,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.manage(ScanRegistry::default());
+            app.manage(ProbeRegistry::default());
 
             // Open the SQLite history DB at the platform's app data
             // directory. Failing to open isn't fatal — the rest of the
@@ -83,6 +86,8 @@ fn main() {
             commands::vulndb_summary,
             commands::vulndb_update,
             commands::sonar_summary,
+            commands::probe_start,
+            commands::probe_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

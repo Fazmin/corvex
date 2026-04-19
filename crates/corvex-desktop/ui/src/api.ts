@@ -220,6 +220,81 @@ export function sonarSummary(
   });
 }
 
+// ---- Standalone probing runs ------------------------------------------------
+
+export interface ProbeParams {
+  targets: string[];
+  scan_mode: "rapid" | "deep";
+  ports_range: string;
+  jarm?: boolean;
+  extra_probe_files?: string[];
+  host_concurrency?: number;
+}
+
+export interface ProbeHostStart {
+  probe_id: string;
+  display: string;
+  hostname: string;
+  ip: string;
+  index: number;
+  total: number;
+}
+
+export interface ProbeHostEnd {
+  probe_id: string;
+  display: string;
+  ip: string;
+  open_count: number;
+  elapsed_ms: number;
+}
+
+export interface ProbeOpenPort {
+  probe_id: string;
+  display: string;
+  hostname: string;
+  ip: string;
+  port: number;
+  over_tls: boolean;
+  service: string | null;
+  product: string | null;
+  vendor: string | null;
+  version: string | null;
+  info: string | null;
+  cpe: string[];
+  jarm: string | null;
+  banner: string;
+}
+
+export interface ProbeSummary {
+  probe_id: string;
+  hosts_completed: number;
+  hosts_total: number;
+  open_ports_total: number;
+  elapsed_ms: number;
+  cancelled: boolean;
+}
+
+export interface ProbeTargetError {
+  probe_id: string;
+  target: string;
+  message: string;
+}
+
+export function startProbe(params: ProbeParams): Promise<string> {
+  return invoke<string>("probe_start", { params });
+}
+
+export function cancelProbe(id: string): Promise<boolean> {
+  return invoke<boolean>("probe_cancel", { id });
+}
+
+export function probeEventName(
+  probeId: string,
+  kind: "host-start" | "host-end" | "open-port" | "summary" | "error"
+): string {
+  return `probe://${probeId}/${kind}`;
+}
+
 // ---- Event subscriptions ---------------------------------------------------
 
 function scoped(id: string, kind: string): string {
@@ -249,6 +324,53 @@ export interface DoneEvent {
 
 export function onDone(id: string, cb: (d: DoneEvent) => void): Promise<UnlistenFn> {
   return listen<DoneEvent>(scoped(id, "done"), (e) => cb(e.payload));
+}
+
+// ---- Probe-run event subscriptions ----------------------------------------
+
+export function onProbeHostStart(
+  id: string,
+  cb: (p: ProbeHostStart) => void
+): Promise<UnlistenFn> {
+  return listen<ProbeHostStart>(probeEventName(id, "host-start"), (e) =>
+    cb(e.payload)
+  );
+}
+
+export function onProbeHostEnd(
+  id: string,
+  cb: (p: ProbeHostEnd) => void
+): Promise<UnlistenFn> {
+  return listen<ProbeHostEnd>(probeEventName(id, "host-end"), (e) =>
+    cb(e.payload)
+  );
+}
+
+export function onProbeOpenPort(
+  id: string,
+  cb: (p: ProbeOpenPort) => void
+): Promise<UnlistenFn> {
+  return listen<ProbeOpenPort>(probeEventName(id, "open-port"), (e) =>
+    cb(e.payload)
+  );
+}
+
+export function onProbeSummary(
+  id: string,
+  cb: (p: ProbeSummary) => void
+): Promise<UnlistenFn> {
+  return listen<ProbeSummary>(probeEventName(id, "summary"), (e) =>
+    cb(e.payload)
+  );
+}
+
+export function onProbeError(
+  id: string,
+  cb: (p: ProbeTargetError) => void
+): Promise<UnlistenFn> {
+  return listen<ProbeTargetError>(probeEventName(id, "error"), (e) =>
+    cb(e.payload)
+  );
 }
 
 // ---- Global log stream ----------------------------------------------------
