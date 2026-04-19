@@ -19,13 +19,7 @@ const FONT_PREVIEW_PX: Record<FontSize, string> = {
 
 export function SettingsView() {
   const { pref, setPref } = useTheme();
-  const {
-    fontSize,
-    setFontSize,
-    extraProbeFiles,
-    setExtraProbeFiles,
-    resetDefaults,
-  } = useSettings();
+  const { fontSize, setFontSize, resetDefaults } = useSettings();
 
   return (
     <div className="settings-view">
@@ -85,27 +79,14 @@ export function SettingsView() {
 
       <div className="settings-section">
         <div className="settings-section-head">
-          <h3>Additional service probes</h3>
+          <h3>Service probing</h3>
           <p>
-            Absolute paths (one per line) to extra probe files in the
-            directive format. Loaded at scan time alongside the bundled
-            probe set; only affects Deep-mode port scans.
+            Port-scan mode, JARM, and additional probe files have moved to the{" "}
+            <strong>Probing</strong> view in the sidebar, where they sit
+            alongside detailed explanations of each probe family and the
+            bundled fingerprint database.
           </p>
         </div>
-        <textarea
-          value={extraProbeFiles.join("\n")}
-          onChange={(e) => {
-            const lines = e.target.value
-              .split(/\r?\n/)
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0);
-            setExtraProbeFiles(lines);
-          }}
-          spellCheck={false}
-          rows={4}
-          placeholder="C:\\path\\to\\extra-probes.txt"
-          style={{ width: "100%", fontFamily: "monospace" }}
-        />
       </div>
 
       <div className="settings-section">

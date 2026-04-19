@@ -62,6 +62,23 @@ impl SonarDb {
     pub fn fps_by_set(&self, set: &str) -> &[usize] {
         self.by_set.get(set).map(|v| v.as_slice()).unwrap_or(&[])
     }
+
+    /// Distinct fingerprint sets present in this DB.
+    pub fn fp_set_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.by_set.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// Stable ids of every scripted probe registered with this DB.
+    pub fn scripted_probe_ids(&self) -> Vec<&'static str> {
+        self.scripted_probes.iter().map(|p| p.id()).collect()
+    }
+
+    /// Stable ids of every declarative (TOML / layer-3) probe in this DB.
+    pub fn static_probe_ids(&self) -> Vec<String> {
+        self.static_probes.iter().map(|p| p.id.clone()).collect()
+    }
 }
 
 static INSTANCE: OnceCell<Arc<SonarDb>> = OnceCell::new();

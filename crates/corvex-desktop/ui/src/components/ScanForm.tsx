@@ -4,6 +4,7 @@ import { PluginPicker } from "./PluginPicker";
 import { TuningPicker } from "./TuningPicker";
 import { InfoTip } from "./InfoTip";
 import { useSettings } from "../settings";
+import { readDefault as readProbingDefaults } from "./ProbingView";
 
 const PRESETS_KEY = "corvexScanPresets";
 
@@ -100,11 +101,14 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
   const [id, setId] = useState("");
   const [useragent, setUseragent] = useState("");
   const [evasion, setEvasion] = useState("");
-  // Port scanning
+  // Port scanning — initial values come from the Probing view's saved defaults
+  // so configuring there actually takes effect on new scans.
   const [portscan, setPortscan] = useState(false);
-  const [portsRange, setPortsRange] = useState("1-1000");
-  const [scanMode, setScanMode] = useState<"rapid" | "deep">("rapid");
-  const [jarm, setJarm] = useState(false);
+  const [portsRange, setPortsRange] = useState(() => readProbingDefaults().portsRange);
+  const [scanMode, setScanMode] = useState<"rapid" | "deep">(
+    () => readProbingDefaults().scanMode
+  );
+  const [jarm, setJarm] = useState<boolean>(() => readProbingDefaults().jarm);
   // DNS enumeration
   const [dnsBrute, setDnsBrute] = useState(false);
   // Active fuzzing

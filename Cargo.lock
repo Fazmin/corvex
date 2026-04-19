@@ -697,6 +697,7 @@ dependencies = [
  "anyhow",
  "corvex-core",
  "corvex-plugins",
+ "corvex-sonar",
  "futures",
  "once_cell",
  "regex",

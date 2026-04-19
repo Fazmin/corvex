@@ -82,6 +82,7 @@ fn main() {
             commands::history_delete,
             commands::vulndb_summary,
             commands::vulndb_update,
+            commands::sonar_summary,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

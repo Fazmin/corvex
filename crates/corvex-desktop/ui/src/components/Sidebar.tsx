@@ -9,11 +9,21 @@ import {
   HistoryIcon,
   NewScanIcon,
   PluginsIcon,
+  ProbingIcon,
   ScaIcon,
   SettingsIcon,
 } from "./Icons";
 
-export type View = "dashboard" | "history" | "plugins" | "databases" | "fuzzing" | "sca" | "settings" | "help";
+export type View =
+  | "dashboard"
+  | "history"
+  | "plugins"
+  | "databases"
+  | "fuzzing"
+  | "probing"
+  | "sca"
+  | "settings"
+  | "help";
 
 interface Props {
   view: View;
@@ -64,6 +74,11 @@ export function Sidebar({
       icon: <PluginsIcon size={collapsed ? 22 : 18} />,
       label: "Plugins",
       count: pluginCount,
+    },
+    {
+      view: "probing",
+      icon: <ProbingIcon size={collapsed ? 22 : 18} />,
+      label: "Probing",
     },
     {
       view: "fuzzing",

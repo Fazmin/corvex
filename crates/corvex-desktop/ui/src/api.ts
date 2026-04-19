@@ -198,6 +198,28 @@ export function vulndbUpdate(mode: string): Promise<string> {
   return invoke<string>("vulndb_update", { mode });
 }
 
+// ---- Sonar (Service Probing) ------------------------------------------------
+
+export interface SonarSummary {
+  scripted_probes: string[];
+  static_probes: string[];
+  fingerprint_sets: string[];
+  fingerprint_count: number;
+  scripted_count: number;
+  static_count: number;
+  extra_files_loaded: number;
+  extra_probes_loaded: number;
+  extra_fps_loaded: number;
+}
+
+export function sonarSummary(
+  extraProbeFiles: string[] = []
+): Promise<SonarSummary> {
+  return invoke<SonarSummary>("sonar_summary", {
+    extraProbeFiles,
+  });
+}
+
 // ---- Event subscriptions ---------------------------------------------------
 
 function scoped(id: string, kind: string): string {

@@ -113,6 +113,17 @@ export function ScaIcon({ size = 18 }: IconProps) {
   );
 }
 
+export function ProbingIcon({ size = 18 }: IconProps) {
+  return (
+    <svg {...stroke(size)} aria-hidden>
+      <circle cx="11" cy="11" r="6" />
+      <line x1="15.5" y1="15.5" x2="21" y2="21" />
+      <line x1="11" y1="7" x2="11" y2="15" />
+      <line x1="7" y1="11" x2="15" y2="11" />
+    </svg>
+  );
+}
+
 export function HelpIcon({ size = 18 }: IconProps) {
   return (
     <svg {...stroke(size)} aria-hidden>

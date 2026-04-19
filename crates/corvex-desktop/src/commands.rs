@@ -63,6 +63,19 @@ pub struct VersionInfo {
     pub version: &'static str,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SonarSummary {
+    pub scripted_probes: Vec<String>,
+    pub static_probes: Vec<String>,
+    pub fingerprint_sets: Vec<String>,
+    pub fingerprint_count: usize,
+    pub scripted_count: usize,
+    pub static_count: usize,
+    pub extra_files_loaded: usize,
+    pub extra_probes_loaded: usize,
+    pub extra_fps_loaded: usize,
+}
+
 #[tauri::command]
 pub async fn list_plugins() -> Vec<PluginSummary> {
     let reg = corvex_plugins::register_all();
@@ -113,6 +126,43 @@ pub async fn db_summary() -> DbSummary {
         useragents: dbs.useragents.agents.len(),
         dictionary: dbs.dictionary.entries.len(),
         fourohfour: dbs.fourohfour.signatures.len(),
+    }
+}
+
+#[tauri::command]
+pub async fn sonar_summary(extra_probe_files: Vec<String>) -> SonarSummary {
+    let baseline = corvex_sonar::db::sonar_db();
+    let baseline_scripted = baseline.scripted_probe_ids().len();
+    let baseline_static = baseline.static_probe_ids().len();
+    let baseline_fps = baseline.recog.len();
+
+    let extras: Vec<std::path::PathBuf> = extra_probe_files
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+    let db = if extras.is_empty() {
+        baseline.clone()
+    } else {
+        corvex_sonar::db::sonar_db_with_extras(&extras)
+    };
+
+    let extra_probes_loaded = db.static_probe_ids().len().saturating_sub(baseline_static);
+    let extra_fps_loaded = db.recog.len().saturating_sub(baseline_fps);
+
+    SonarSummary {
+        scripted_probes: db
+            .scripted_probe_ids()
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        static_probes: db.static_probe_ids(),
+        fingerprint_sets: db.fp_set_names(),
+        fingerprint_count: db.recog.len(),
+        scripted_count: baseline_scripted,
+        static_count: db.static_probe_ids().len(),
+        extra_files_loaded: extras.len(),
+        extra_probes_loaded,
+        extra_fps_loaded,
     }
 }
 
