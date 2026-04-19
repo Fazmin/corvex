@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="memcached.version">
+
+  <fingerprint pattern="^VERSION\s+(\d+\.\d+\.\d+)">
+    <description>Memcached server version</description>
+    <param pos="0" name="service.product" value="Memcached"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:memcached:memcached:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+</fingerprints>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="imap.banner">
+
+  <fingerprint pattern="^\* OK\s+\[CAPABILITY[^\]]*\]\s+Dovecot">
+    <description>Dovecot IMAP</description>
+    <param pos="0" name="service.product" value="Dovecot"/>
+  </fingerprint>
+
+  <fingerprint pattern="^\* OK.*Courier-IMAP\s+ready.*v(\d+\.\d+\.\d+)">
+    <description>Courier IMAP</description>
+    <param pos="0" name="service.product" value="Courier"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^\* OK.*Microsoft Exchange.*IMAP">
+    <description>Microsoft Exchange IMAP</description>
+    <param pos="0" name="service.product" value="Microsoft Exchange"/>
+    <param pos="0" name="service.vendor" value="Microsoft"/>
+  </fingerprint>
+
+  <fingerprint pattern="^\* OK.*Cyrus IMAP(?:4)?.*v(\d+\.\d+\.\d+)">
+    <description>Cyrus IMAP</description>
+    <param pos="0" name="service.product" value="Cyrus IMAP"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^\* OK\s+IMAP">
+    <description>Generic IMAP</description>
+    <param pos="0" name="service.product" value="IMAP"/>
+  </fingerprint>
+
+</fingerprints>

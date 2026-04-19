@@ -28,11 +28,14 @@ export const FONT_SIZE_LABELS: Record<FontSize, string> = {
 interface SettingsContextShape {
   fontSize: FontSize;
   setFontSize: (size: FontSize) => void;
+  extraProbeFiles: string[];
+  setExtraProbeFiles: (paths: string[]) => void;
   resetDefaults: () => void;
 }
 
 const SettingsContext = createContext<SettingsContextShape | null>(null);
 const FONT_KEY = "corvexFontSize";
+const EXTRA_PROBES_KEY = "corvexExtraProbeFiles";
 
 function readFont(): FontSize {
   try {
@@ -46,6 +49,20 @@ function readFont(): FontSize {
   return "medium";
 }
 
+function readExtraProbeFiles(): string[] {
+  try {
+    const raw = localStorage.getItem(EXTRA_PROBES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((p) => typeof p === "string")) {
+      return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
 /**
  * App-wide settings provider. Currently holds the font-size preference;
  * theme is owned by `theme.tsx`. Both are persisted to localStorage and
@@ -54,6 +71,9 @@ function readFont(): FontSize {
  */
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [fontSize, setFontSizeState] = useState<FontSize>(() => readFont());
+  const [extraProbeFiles, setExtraProbeFilesState] = useState<string[]>(() =>
+    readExtraProbeFiles()
+  );
 
   useEffect(() => {
     document.documentElement.style.setProperty("--font-base", SIZE_PX[fontSize]);
@@ -68,13 +88,29 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const setExtraProbeFiles = useCallback((paths: string[]) => {
+    setExtraProbeFilesState(paths);
+    try {
+      localStorage.setItem(EXTRA_PROBES_KEY, JSON.stringify(paths));
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const resetDefaults = useCallback(() => {
     setFontSize("medium");
-  }, [setFontSize]);
+    setExtraProbeFiles([]);
+  }, [setFontSize, setExtraProbeFiles]);
 
   const value = useMemo<SettingsContextShape>(
-    () => ({ fontSize, setFontSize, resetDefaults }),
-    [fontSize, setFontSize, resetDefaults]
+    () => ({
+      fontSize,
+      setFontSize,
+      extraProbeFiles,
+      setExtraProbeFiles,
+      resetDefaults,
+    }),
+    [fontSize, setFontSize, extraProbeFiles, setExtraProbeFiles, resetDefaults]
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

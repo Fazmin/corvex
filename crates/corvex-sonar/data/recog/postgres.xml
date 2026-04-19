@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="postgres.error">
+
+  <fingerprint pattern="FATAL.*database .* does not exist">
+    <description>PostgreSQL startup FATAL error (implies presence)</description>
+    <param pos="0" name="service.product" value="PostgreSQL"/>
+  </fingerprint>
+
+  <fingerprint pattern="unsupported frontend protocol">
+    <description>PostgreSQL error — server running but protocol mismatch</description>
+    <param pos="0" name="service.product" value="PostgreSQL"/>
+  </fingerprint>
+
+</fingerprints>

@@ -3,6 +3,7 @@ import type { ScanParams } from "../api";
 import { PluginPicker } from "./PluginPicker";
 import { TuningPicker } from "./TuningPicker";
 import { InfoTip } from "./InfoTip";
+import { useSettings } from "../settings";
 
 const PRESETS_KEY = "corvexScanPresets";
 
@@ -85,6 +86,7 @@ interface Props {
 }
 
 export function ScanForm({ running, onStart, onCancel }: Props) {
+  const { extraProbeFiles } = useSettings();
   const [host, setHost] = useState("http://example.com");
   const [ports, setPorts] = useState("");
   const [ssl, setSsl] = useState(false);
@@ -224,6 +226,10 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
       ports_range: portscan ? portsRange : undefined,
       scan_mode: portscan ? scanMode : undefined,
       jarm: portscan && scanMode === "deep" && jarm ? true : undefined,
+      extra_probe_files:
+        portscan && scanMode === "deep" && extraProbeFiles.length > 0
+          ? extraProbeFiles
+          : undefined,
       dns_brute: dnsBrute || undefined,
       active,
       scope: active ? scope : undefined,

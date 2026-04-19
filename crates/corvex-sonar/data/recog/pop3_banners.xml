@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="pop3.banner">
+
+  <fingerprint pattern="^\+OK\s+Dovecot(?:\s+\(([^)]+)\))?">
+    <description>Dovecot POP3</description>
+    <param pos="0" name="service.product" value="Dovecot"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^\+OK\s+Courier-POP3\s+server.*v(\d+\.\d+\.\d+)">
+    <description>Courier POP3</description>
+    <param pos="0" name="service.product" value="Courier"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^\+OK\s+Microsoft Exchange">
+    <description>Microsoft Exchange POP3</description>
+    <param pos="0" name="service.product" value="Microsoft Exchange"/>
+    <param pos="0" name="service.vendor" value="Microsoft"/>
+  </fingerprint>
+
+  <fingerprint pattern="^\+OK\s+POP3">
+    <description>Generic POP3</description>
+    <param pos="0" name="service.product" value="POP3"/>
+  </fingerprint>
+
+</fingerprints>

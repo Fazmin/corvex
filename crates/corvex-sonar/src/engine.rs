@@ -137,7 +137,13 @@ pub async fn identify(
 
     if let Some(ref mut m) = best {
         if opts.jarm && over_tls {
-            m.jarm = Some(String::from("jarm_not_implemented_v1"));
+            let addr = std::net::SocketAddr::new(ip, port);
+            match crate::jarm::jarm_hash_for(addr, host, Duration::from_millis(800)).await {
+                Ok(hash) => m.jarm = Some(hash),
+                Err(e) => {
+                    tracing::debug!(target: "sonar", "jarm failed for {addr}: {e}");
+                }
+            }
         }
         if over_tls && m.service == "http" {
             m.service = "https".into();

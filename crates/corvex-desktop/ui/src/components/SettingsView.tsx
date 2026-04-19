@@ -19,7 +19,13 @@ const FONT_PREVIEW_PX: Record<FontSize, string> = {
 
 export function SettingsView() {
   const { pref, setPref } = useTheme();
-  const { fontSize, setFontSize, resetDefaults } = useSettings();
+  const {
+    fontSize,
+    setFontSize,
+    extraProbeFiles,
+    setExtraProbeFiles,
+    resetDefaults,
+  } = useSettings();
 
   return (
     <div className="settings-view">
@@ -75,6 +81,31 @@ export function SettingsView() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-head">
+          <h3>Additional service probes</h3>
+          <p>
+            Absolute paths (one per line) to extra probe files in the
+            directive format. Loaded at scan time alongside the bundled
+            probe set; only affects Deep-mode port scans.
+          </p>
+        </div>
+        <textarea
+          value={extraProbeFiles.join("\n")}
+          onChange={(e) => {
+            const lines = e.target.value
+              .split(/\r?\n/)
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
+            setExtraProbeFiles(lines);
+          }}
+          spellCheck={false}
+          rows={4}
+          placeholder="C:\\path\\to\\extra-probes.txt"
+          style={{ width: "100%", fontFamily: "monospace" }}
+        />
       </div>
 
       <div className="settings-section">

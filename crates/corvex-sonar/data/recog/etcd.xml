@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="etcd.response">
+
+  <fingerprint pattern='"etcdserver"\s*:\s*"(\d+\.\d+\.\d+)"'>
+    <description>etcd server version</description>
+    <param pos="0" name="service.product" value="etcd"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:etcd:etcd:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+</fingerprints>

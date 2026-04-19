@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="mongodb.banner">
+
+  <fingerprint pattern="It looks like you are trying to access MongoDB over HTTP">
+    <description>MongoDB wire-protocol port responding to HTTP</description>
+    <param pos="0" name="service.product" value="MongoDB"/>
+  </fingerprint>
+
+</fingerprints>

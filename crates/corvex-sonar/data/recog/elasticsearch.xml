@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="elasticsearch.response">
+
+  <fingerprint pattern='"number"\s*:\s*"(\d+\.\d+\.\d+)"'>
+    <description>Elasticsearch version from root endpoint</description>
+    <param pos="0" name="service.product" value="Elasticsearch"/>
+    <param pos="0" name="service.vendor" value="Elastic"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:elastic:elasticsearch:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+  <fingerprint pattern='"cluster_name"\s*:\s*"([^"]+)"'>
+    <description>Elasticsearch cluster name (presence marker)</description>
+    <param pos="0" name="service.product" value="Elasticsearch"/>
+    <param pos="1" name="service.info"/>
+  </fingerprint>
+
+</fingerprints>

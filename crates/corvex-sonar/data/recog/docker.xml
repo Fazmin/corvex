@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="docker.response">
+
+  <fingerprint pattern='"ApiVersion"\s*:\s*"(\d+\.\d+)"'>
+    <description>Docker Engine API version response</description>
+    <param pos="0" name="service.product" value="Docker"/>
+    <param pos="0" name="service.vendor" value="Docker"/>
+    <param pos="1" name="service.info"/>
+  </fingerprint>
+
+  <fingerprint pattern='"Version"\s*:\s*"(\d+\.\d+\.\d+(?:-[a-z0-9]+)?)"'>
+    <description>Docker Engine version from /version</description>
+    <param pos="0" name="service.product" value="Docker"/>
+    <param pos="0" name="service.vendor" value="Docker"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:docker:docker:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+</fingerprints>

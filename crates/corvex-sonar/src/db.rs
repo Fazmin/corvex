@@ -3,7 +3,8 @@ use crate::schema::{SerializedDb, SerializedRecogFp, SerializedStaticProbe};
 use fancy_regex::Regex;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 const EMBEDDED_DB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/sonar_db.bin"));
 
@@ -75,6 +76,124 @@ pub fn sonar_db() -> Arc<SonarDb> {
             Arc::new(db)
         })
         .clone()
+}
+
+/// Return a merged `SonarDb` that combines the baked fingerprints with
+/// the probes and fingerprints parsed from every path in `extras`. Merged
+/// instances are cached by a canonical key derived from the sorted
+/// absolute paths, so subsequent scans with the same extras reuse the
+/// same compiled state.
+///
+/// If `extras` is empty, this returns the same singleton as `sonar_db()`.
+pub fn sonar_db_with_extras(extras: &[PathBuf]) -> Arc<SonarDb> {
+    if extras.is_empty() {
+        return sonar_db();
+    }
+    static MERGED_CACHE: OnceCell<Mutex<HashMap<String, Arc<SonarDb>>>> = OnceCell::new();
+    let cache = MERGED_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+    let key = cache_key(extras);
+    if let Some(existing) = cache.lock().unwrap().get(&key) {
+        return existing.clone();
+    }
+
+    let merged = Arc::new(merge_with_extras(&sonar_db(), extras));
+    cache
+        .lock()
+        .unwrap()
+        .insert(key, merged.clone());
+    merged
+}
+
+fn cache_key(extras: &[PathBuf]) -> String {
+    let mut items: Vec<String> = extras
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+    items.sort();
+    items.join("\0")
+}
+
+fn merge_with_extras(base: &SonarDb, extras: &[PathBuf]) -> SonarDb {
+    let mut static_probes: Vec<StaticProbeDef> = base
+        .static_probes
+        .iter()
+        .map(|p| clone_probe_def(p))
+        .collect();
+    let mut recog: Vec<RecogFp> = base
+        .recog
+        .iter()
+        .map(|fp| clone_fp(fp))
+        .collect();
+
+    for path in extras {
+        match crate::directive::load(path) {
+            Ok(parsed) => {
+                tracing::info!(
+                    target: "sonar",
+                    "loaded layer-3 probes from {}: {} probes, {} fingerprints",
+                    path.display(),
+                    parsed.static_probes.len(),
+                    parsed.fps.len(),
+                );
+                static_probes.extend(parsed.static_probes);
+                recog.extend(parsed.fps);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "sonar",
+                    "failed to load layer-3 probes from {}: {e}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    let mut by_set: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, fp) in recog.iter().enumerate() {
+        by_set.entry(fp.set.clone()).or_default().push(i);
+    }
+
+    SonarDb {
+        static_probes,
+        scripted_probes: crate::probes::registry(),
+        recog,
+        by_set,
+    }
+}
+
+fn clone_probe_def(p: &StaticProbeDef) -> StaticProbeDef {
+    StaticProbeDef {
+        id: p.id.clone(),
+        ports: p.ports.clone(),
+        sslports: p.sslports.clone(),
+        payload: p.payload.clone(),
+        payload_has_host_token: p.payload_has_host_token,
+        rarity: p.rarity,
+        wait_ms: p.wait_ms,
+        fingerprints: p.fingerprints.clone(),
+        hint: p.hint.clone(),
+        fallback: p.fallback.clone(),
+    }
+}
+
+fn clone_fp(fp: &RecogFp) -> RecogFp {
+    // `fancy_regex::Regex` is not `Clone`; rebuild from its source text.
+    let regex = Regex::new(fp.regex.as_str()).expect("baked regex known-good");
+    RecogFp {
+        set: fp.set.clone(),
+        regex,
+        description: fp.description.clone(),
+        params: fp
+            .params
+            .iter()
+            .map(|p| RecogParam {
+                pos: p.pos,
+                name: p.name.clone(),
+                value: p.value.clone(),
+            })
+            .collect(),
+    }
 }
 
 fn empty_db() -> SonarDb {

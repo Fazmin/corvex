@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="vnc.banner">
+
+  <fingerprint pattern="^RFB (\d{3}\.\d{3})\s*$">
+    <description>RFB (VNC) protocol version</description>
+    <param pos="0" name="service.product" value="VNC"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+</fingerprints>

@@ -2,16 +2,29 @@
 # Each [[probe]] describes a payload sent to an open port plus the
 # Recog fingerprint sets applied to the response.
 
+# Listen-only probe: many protocols (SSH, FTP, SMTP, MySQL, VNC, POP3, IMAP)
+# send a banner on connect. Try every banner-style fingerprint set.
 [[probe]]
 id = "null_banner"
 rarity = 1
 wait_ms = 5000
-fingerprints = ["ssh.banner", "ftp.banner", "smtp.banner", "mysql.greeting"]
+fingerprints = [
+    "ssh.banner",
+    "ftp.banner",
+    "smtp.banner",
+    "pop3.banner",
+    "imap.banner",
+    "vnc.banner",
+    "mysql.greeting",
+    "postgres.error",
+    "mongodb.banner",
+    "memcached.version",
+]
 
 [[probe]]
 id = "http_get_toml"
-ports    = [80, 8080, 8000, 8008, 8081, 8180, 8888]
-sslports = [443, 8443, 9443, 4443]
+ports    = [80, 81, 591, 593, 2080, 2480, 3000, 5000, 8000, 8008, 8042, 8080, 8081, 8180, 8888, 9080, 9200, 9300, 2375, 2376, 2379, 2380, 5984, 7474, 9090]
+sslports = [443, 832, 981, 1311, 2083, 2087, 2096, 4443, 4444, 5001, 7000, 8443, 8888, 9443]
 payload  = "GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Corvex/1.0\r\nAccept: */*\r\nConnection: close\r\n\r\n"
 rarity   = 2
 wait_ms  = 4000
@@ -33,5 +46,100 @@ ports = [11211]
 payload = "version\r\n"
 rarity = 3
 wait_ms = 3000
-fingerprints = []
+fingerprints = ["memcached.version"]
 hint = "memcached"
+
+[[probe]]
+id = "smtp_ehlo"
+ports = [25, 465, 587, 2525]
+sslports = [465]
+payload = "EHLO corvex.local\r\n"
+rarity = 3
+wait_ms = 4000
+fingerprints = ["smtp.banner"]
+hint = "smtp"
+
+[[probe]]
+id = "pop3_capa"
+ports = [110, 995]
+sslports = [995]
+payload = "CAPA\r\nQUIT\r\n"
+rarity = 4
+wait_ms = 3000
+fingerprints = ["pop3.banner"]
+hint = "pop3"
+
+[[probe]]
+id = "imap_capability"
+ports = [143, 993]
+sslports = [993]
+payload = "A0001 CAPABILITY\r\nA0002 LOGOUT\r\n"
+rarity = 4
+wait_ms = 3000
+fingerprints = ["imap.banner"]
+hint = "imap"
+
+[[probe]]
+id = "ftp_syst"
+ports = [21, 990, 2121]
+sslports = [990]
+payload = "SYST\r\nQUIT\r\n"
+rarity = 4
+wait_ms = 3000
+fingerprints = ["ftp.banner"]
+hint = "ftp"
+
+[[probe]]
+id = "vnc_handshake"
+ports = [5900, 5901, 5902, 5903, 5904, 5905, 5906]
+payload = ""
+rarity = 5
+wait_ms = 3000
+fingerprints = ["vnc.banner"]
+hint = "vnc"
+
+[[probe]]
+id = "elasticsearch_root"
+ports = [9200, 9300]
+payload = "GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Corvex/1.0\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+rarity = 5
+wait_ms = 4000
+fingerprints = ["elasticsearch.response"]
+hint = "http"
+
+[[probe]]
+id = "docker_version"
+ports = [2375, 2376]
+sslports = [2376]
+payload = "GET /version HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Corvex/1.0\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+rarity = 5
+wait_ms = 3000
+fingerprints = ["docker.response"]
+hint = "http"
+
+[[probe]]
+id = "etcd_version"
+ports = [2379, 2380]
+payload = "GET /version HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Corvex/1.0\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+rarity = 5
+wait_ms = 3000
+fingerprints = ["etcd.response"]
+hint = "http"
+
+[[probe]]
+id = "dns_version_bind"
+ports = [53]
+# DNS-over-TCP query for "version.bind" TXT in CHAOS class.
+# RFC 1035 frame = 2-byte length + 12-byte header + question.
+# Bytes:
+#   001E                               length = 30
+#   0001 0120 0001 0000 0000 0000      header (qid, RD flag, qdcount=1)
+#   07 76 65 72 73 69 6f 6e            "version"
+#   04 62 69 6e 64                     "bind"
+#   00                                 root
+#   0010 0003                          QTYPE=TXT QCLASS=CHAOS
+payload_hex = "001E00010120000100000000000007 76 65 72 73 69 6f 6e 04 62 69 6e 64 00 00 10 00 03"
+rarity = 7
+wait_ms = 3000
+fingerprints = ["dns.version"]
+hint = "dns"

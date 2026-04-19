@@ -107,7 +107,12 @@ pub async fn tcp_scan(
                 });
             }
 
-            let db = corvex_sonar::db::sonar_db();
+            let extras: Vec<std::path::PathBuf> = opts
+                .extra_probe_files
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect();
+            let db = corvex_sonar::db::sonar_db_with_extras(&extras);
             let match_opt = corvex_sonar::identify(
                 &db,
                 &host,
