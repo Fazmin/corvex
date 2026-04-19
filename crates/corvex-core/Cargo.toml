@@ -7,6 +7,7 @@ license.workspace = true
 description = "Core engine for the Rust port of Corvex"
 
 [dependencies]
+corvex-sonar = { workspace = true }
 tokio.workspace = true
 tokio-util.workspace = true
 clap.workspace = true

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="mysql.greeting">
+
+  <fingerprint pattern="(\d+\.\d+\.\d+)-MariaDB">
+    <description>MariaDB</description>
+    <param pos="0" name="service.product" value="MariaDB"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:mariadb:mariadb:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+  <fingerprint pattern="^(\d+\.\d+\.\d+)(?:-log)?$">
+    <description>MySQL server version</description>
+    <param pos="0" name="service.product" value="MySQL"/>
+    <param pos="0" name="service.vendor" value="Oracle"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:mysql:mysql:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+</fingerprints>

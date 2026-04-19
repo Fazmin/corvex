@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="ssh.banner">
+
+  <fingerprint pattern="^SSH-(\d+\.\d+)-OpenSSH[_-](\d+\.\d+(?:p\d+)?)(?:\s+(.+?))?\s*$">
+    <description>OpenSSH with version</description>
+    <param pos="0" name="service.product" value="OpenSSH"/>
+    <param pos="0" name="service.vendor" value="OpenBSD"/>
+    <param pos="2" name="service.version"/>
+    <param pos="3" name="os.product"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:openbsd:openssh:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+  <fingerprint pattern="^SSH-\d+\.\d+-dropbear(?:_(\d+\.\d+))?">
+    <description>Dropbear SSH</description>
+    <param pos="0" name="service.product" value="Dropbear SSH"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^SSH-\d+\.\d+-libssh[_-](\d+\.\d+\.\d+)">
+    <description>libssh</description>
+    <param pos="0" name="service.product" value="libssh"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+</fingerprints>

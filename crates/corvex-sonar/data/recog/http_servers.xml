@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Recog fingerprint file: HTTP Server header matchers.
+     Layout and attribute names follow the Recog project's schema
+     (see THIRD_PARTY_LICENSES.md for the BSD-2-Clause notice). -->
+<fingerprints matches="http_header.server">
+
+  <fingerprint pattern="^nginx/(\d+\.\d+(?:\.\d+)?)$">
+    <description>nginx with version</description>
+    <param pos="0" name="service.product" value="nginx"/>
+    <param pos="0" name="service.vendor" value="Nginx"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:nginx:nginx:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+  <fingerprint pattern="^nginx$">
+    <description>nginx without version</description>
+    <param pos="0" name="service.product" value="nginx"/>
+    <param pos="0" name="service.vendor" value="Nginx"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Apache/(\d+\.\d+(?:\.\d+)?)(?:\s+\(([^)]+)\))?">
+    <description>Apache httpd with version and platform</description>
+    <param pos="0" name="service.product" value="Apache httpd"/>
+    <param pos="0" name="service.vendor" value="Apache"/>
+    <param pos="1" name="service.version"/>
+    <param pos="2" name="os.product"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:apache:http_server:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Apache$">
+    <description>Apache httpd without version</description>
+    <param pos="0" name="service.product" value="Apache httpd"/>
+    <param pos="0" name="service.vendor" value="Apache"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Microsoft-IIS/(\d+\.\d+)$">
+    <description>Microsoft IIS</description>
+    <param pos="0" name="service.product" value="IIS"/>
+    <param pos="0" name="service.vendor" value="Microsoft"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:microsoft:internet_information_services:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+  <fingerprint pattern="^lighttpd/(\d+\.\d+\.\d+)$">
+    <description>lighttpd</description>
+    <param pos="0" name="service.product" value="lighttpd"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:lighttpd:lighttpd:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Caddy$">
+    <description>Caddy server</description>
+    <param pos="0" name="service.product" value="Caddy"/>
+  </fingerprint>
+
+</fingerprints>

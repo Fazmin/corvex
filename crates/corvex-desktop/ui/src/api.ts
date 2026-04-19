@@ -77,6 +77,9 @@ export interface ScanParams {
   // Port scanning
   portscan?: boolean;
   ports_range?: string;
+  scan_mode?: "rapid" | "deep";
+  jarm?: boolean;
+  extra_probe_files?: string[];
   // DNS enumeration
   dns_brute?: boolean;
   // SQL injection

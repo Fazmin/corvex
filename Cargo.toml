@@ -4,6 +4,7 @@ members = [
     "crates/corvex",
     "crates/corvex-core",
     "crates/corvex-plugins",
+    "crates/corvex-sonar",
     "crates/corvex-desktop",
     "crates/vulndb-builder",
 ]
@@ -19,6 +20,7 @@ description = "Rust port of the Corvex web vulnerability scanner"
 [workspace.dependencies]
 corvex-core = { path = "crates/corvex-core" }
 corvex-plugins = { path = "crates/corvex-plugins" }
+corvex-sonar = { path = "crates/corvex-sonar" }
 
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -62,6 +64,11 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "gzip"] }
 quick-xml = { version = "0.38", features = ["serialize"] }
 toml_crate = { package = "toml", version = "0.8" }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-pki-types = "1"
+fancy-regex = "0.13"
+hex = "0.4"
 serde_yaml = "0.9"
 zip = "2"
 tar = "0.4"

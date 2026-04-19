@@ -320,8 +320,23 @@ pub struct Cli {
     pub portscan_threads: usize,
 
     /// Enable service banner grabbing on open ports
-    #[arg(long = "service-detect", default_value_t = true)]
+    /// (deprecated — prefer `--scan-mode deep`; kept for backwards compatibility).
+    #[arg(long = "service-detect", hide = true, default_value_t = false)]
     pub service_detect: bool,
+
+    /// Port-scan mode: "rapid" (fast sweep, open/closed only) or
+    /// "deep" (TLS handshake + service fingerprinting with product, version, CPE).
+    #[arg(long = "scan-mode", value_name = "MODE", default_value = "rapid")]
+    pub scan_mode: String,
+
+    /// Enable JARM TLS-stack fingerprinting in deep mode (opt-in, adds cost).
+    #[arg(long = "jarm", default_value_t = false)]
+    pub jarm: bool,
+
+    /// Additional service-probe files (Layer-3 drop-in, directive format).
+    /// Repeat the flag to add multiple files.
+    #[arg(long = "service-probes", value_name = "PATH")]
+    pub service_probes: Vec<PathBuf>,
 
     // ---- DNS enumeration flags ------------------------------------------------
 

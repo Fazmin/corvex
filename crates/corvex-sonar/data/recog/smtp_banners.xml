@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="smtp.banner">
+
+  <fingerprint pattern="^220[- ].*Postfix">
+    <description>Postfix</description>
+    <param pos="0" name="service.product" value="Postfix"/>
+  </fingerprint>
+
+  <fingerprint pattern="^220[- ].*Exim (\d+\.\d+(?:\.\d+)?)">
+    <description>Exim</description>
+    <param pos="0" name="service.product" value="Exim"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^220[- ].*Sendmail (\d+\.\d+\.\d+)">
+    <description>Sendmail</description>
+    <param pos="0" name="service.product" value="Sendmail"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^220[- ].*Microsoft ESMTP">
+    <description>Microsoft Exchange SMTP</description>
+    <param pos="0" name="service.product" value="Microsoft Exchange"/>
+    <param pos="0" name="service.vendor" value="Microsoft"/>
+  </fingerprint>
+
+</fingerprints>

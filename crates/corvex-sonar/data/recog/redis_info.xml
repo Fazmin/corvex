@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="redis.info">
+
+  <fingerprint pattern="redis_version:(\d+\.\d+\.\d+)">
+    <description>Redis INFO version</description>
+    <param pos="0" name="service.product" value="Redis"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:redislabs:redis:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+  <fingerprint pattern="-NOAUTH Authentication required">
+    <description>Redis requiring auth</description>
+    <param pos="0" name="service.product" value="Redis"/>
+    <param pos="0" name="service.info" value="authentication required"/>
+  </fingerprint>
+
+</fingerprints>

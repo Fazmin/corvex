@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fingerprints matches="ftp.banner">
+
+  <fingerprint pattern="^220[- ].*vsftpd (\d+\.\d+\.\d+)">
+    <description>vsftpd</description>
+    <param pos="0" name="service.product" value="vsftpd"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:2.3:a:vsftpd_project:vsftpd:{service.version}:*:*:*:*:*:*:*"/>
+  </fingerprint>
+
+  <fingerprint pattern="^220[- ].*ProFTPD (\d+\.\d+\.\d+[a-z]?)">
+    <description>ProFTPD</description>
+    <param pos="0" name="service.product" value="ProFTPD"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^220[- ].*Pure-FTPd">
+    <description>Pure-FTPd</description>
+    <param pos="0" name="service.product" value="Pure-FTPd"/>
+  </fingerprint>
+
+  <fingerprint pattern="^220[- ].*FileZilla Server\s*(?:version\s+)?(\d+\.\d+(?:\.\d+)?)">
+    <description>FileZilla Server</description>
+    <param pos="0" name="service.product" value="FileZilla Server"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^220[- ].*Microsoft FTP Service">
+    <description>Microsoft FTP</description>
+    <param pos="0" name="service.product" value="Microsoft FTP Service"/>
+    <param pos="0" name="service.vendor" value="Microsoft"/>
+  </fingerprint>
+
+</fingerprints>

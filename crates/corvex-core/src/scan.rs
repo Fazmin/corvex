@@ -168,13 +168,38 @@ pub async fn run(ctx: Arc<ScanCtx>, mut marks: Vec<Mark>) -> Result<()> {
                 None => continue,
             };
 
+            let scan_mode = match ctx.cli.scan_mode.as_str() {
+                "deep" => corvex_sonar::ScanMode::Deep,
+                _ => {
+                    if ctx.cli.service_detect {
+                        tracing::warn!(target: "scan",
+                            "--service-detect is deprecated; use --scan-mode deep");
+                        corvex_sonar::ScanMode::Deep
+                    } else {
+                        corvex_sonar::ScanMode::Rapid
+                    }
+                }
+            };
+            let mut tuning = corvex_sonar::ScanTuning::defaults_for(scan_mode);
+            if ctx.cli.portscan_threads != 0 && matches!(scan_mode, corvex_sonar::ScanMode::Rapid) {
+                tuning.concurrency = ctx.cli.portscan_threads;
+            }
+            let opts = corvex_sonar::SonarOpts {
+                jarm: ctx.cli.jarm,
+                extra_probe_files: ctx
+                    .cli
+                    .service_probes
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect(),
+            };
             let result = portscan::tcp_scan(
                 ip,
                 &mark.hostname,
                 &port_list,
-                ctx.cli.portscan_threads,
-                3000, // 3s connect timeout
-                ctx.cli.service_detect,
+                scan_mode,
+                tuning,
+                opts,
             )
             .await;
 

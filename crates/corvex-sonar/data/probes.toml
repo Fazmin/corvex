@@ -1,0 +1,37 @@
+# Corvex Sonar — declarative probe set.
+# Each [[probe]] describes a payload sent to an open port plus the
+# Recog fingerprint sets applied to the response.
+
+[[probe]]
+id = "null_banner"
+rarity = 1
+wait_ms = 5000
+fingerprints = ["ssh.banner", "ftp.banner", "smtp.banner", "mysql.greeting"]
+
+[[probe]]
+id = "http_get_toml"
+ports    = [80, 8080, 8000, 8008, 8081, 8180, 8888]
+sslports = [443, 8443, 9443, 4443]
+payload  = "GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Corvex/1.0\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+rarity   = 2
+wait_ms  = 4000
+fingerprints = ["http_header.server"]
+hint = "http"
+
+[[probe]]
+id = "redis_info"
+ports = [6379]
+payload = "INFO\r\n"
+rarity = 3
+wait_ms = 3000
+fingerprints = ["redis.info"]
+hint = "redis"
+
+[[probe]]
+id = "memcached_version"
+ports = [11211]
+payload = "version\r\n"
+rarity = 3
+wait_ms = 3000
+fingerprints = []
+hint = "memcached"

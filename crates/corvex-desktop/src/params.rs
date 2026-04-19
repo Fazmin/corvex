@@ -78,6 +78,12 @@ pub struct ScanParams {
     pub portscan: bool,
     #[serde(default)]
     pub ports_range: Option<String>,
+    #[serde(default)]
+    pub scan_mode: Option<String>,
+    #[serde(default)]
+    pub jarm: bool,
+    #[serde(default)]
+    pub extra_probe_files: Vec<String>,
 
     // ---- DNS enumeration flags ------------------------------------------------
     #[serde(default)]
@@ -188,7 +194,16 @@ impl ScanParams {
             portscan: self.portscan,
             ports_range: self.ports_range.unwrap_or_else(|| "1-1000".to_string()),
             portscan_threads: 200,
-            service_detect: true,
+            service_detect: false,
+            scan_mode: self
+                .scan_mode
+                .unwrap_or_else(|| "rapid".to_string()),
+            jarm: self.jarm,
+            service_probes: self
+                .extra_probe_files
+                .into_iter()
+                .map(PathBuf::from)
+                .collect(),
             dns_brute: self.dns_brute,
             dns_wordlist: None,
             dns_threads: 50,

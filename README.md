@@ -546,6 +546,16 @@ Environment:
 
 This tool is intended for use in environments where you have explicit permission to test. Running it against servers you do not own or operate without written authorization is illegal in most jurisdictions. You assume all responsibility for how you use it.
 
+## Third-party data
+
+The desktop binary embeds third-party fingerprint data for service
+identification. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
+for the required copyright and license notices.
+
+Deep-mode scans can also load additional probe files supplied by the user at
+runtime via `--service-probes <path>` (CLI) or the Settings view in the
+desktop app. Such files are not bundled.
+
 ## License
 
 Copyright (c) 2026 Fazmin Nizam. All rights reserved.

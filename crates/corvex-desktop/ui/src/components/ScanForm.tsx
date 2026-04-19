@@ -22,6 +22,8 @@ interface FormSnapshot {
   evasion: string;
   portscan: boolean;
   portsRange: string;
+  scanMode: "rapid" | "deep";
+  jarm: boolean;
   dnsBrute: boolean;
   active: boolean;
   scope: string;
@@ -99,6 +101,8 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
   // Port scanning
   const [portscan, setPortscan] = useState(false);
   const [portsRange, setPortsRange] = useState("1-1000");
+  const [scanMode, setScanMode] = useState<"rapid" | "deep">("rapid");
+  const [jarm, setJarm] = useState(false);
   // DNS enumeration
   const [dnsBrute, setDnsBrute] = useState(false);
   // Active fuzzing
@@ -136,6 +140,8 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
     setEvasion(snap.evasion);
     setPortscan(snap.portscan);
     setPortsRange(snap.portsRange);
+    setScanMode(snap.scanMode ?? "rapid");
+    setJarm(Boolean(snap.jarm));
     setDnsBrute(snap.dnsBrute);
     setActive(snap.active);
     setScope(snap.scope);
@@ -156,7 +162,7 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
     const snap: FormSnapshot = {
       host, ports, ssl, tuning, plugins, format, output,
       timeout, concurrent, followRedirects, id, useragent, evasion,
-      portscan, portsRange, dnsBrute,
+      portscan, portsRange, scanMode, jarm, dnsBrute,
       active, scope, crawlDepth, maxUrls,
       sqliLevel, sqliRisk, sqliTechniques, sqliDbms, sqliTimeDelay, tamper,
       sqliEnumerate,
@@ -216,6 +222,8 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
       evasion: evasion || undefined,
       portscan: portscan || undefined,
       ports_range: portscan ? portsRange : undefined,
+      scan_mode: portscan ? scanMode : undefined,
+      jarm: portscan && scanMode === "deep" && jarm ? true : undefined,
       dns_brute: dnsBrute || undefined,
       active,
       scope: active ? scope : undefined,
@@ -343,17 +351,56 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
         </InfoTip>
       </div>
       {portscan && (
-        <div className="field indent">
-          <label>Port range</label>
-          <input
-            type="text"
-            value={portsRange}
-            onChange={(e) => setPortsRange(e.target.value)}
-            placeholder="1-1000"
-            aria-invalid={!!errors.portsRange}
-          />
-          {errors.portsRange && <div className="field-error">{errors.portsRange}</div>}
-        </div>
+        <>
+          <div className="field indent">
+            <label>Port range</label>
+            <input
+              type="text"
+              value={portsRange}
+              onChange={(e) => setPortsRange(e.target.value)}
+              placeholder="1-1000"
+              aria-invalid={!!errors.portsRange}
+            />
+            {errors.portsRange && <div className="field-error">{errors.portsRange}</div>}
+          </div>
+          <div className="field indent">
+            <label>Scan mode</label>
+            <div role="radiogroup" style={{ display: "flex", gap: 12 }}>
+              <label className="radio">
+                <input
+                  type="radio"
+                  name="scanMode"
+                  value="rapid"
+                  checked={scanMode === "rapid"}
+                  onChange={() => setScanMode("rapid")}
+                />
+                Rapid (fast sweep)
+              </label>
+              <label className="radio">
+                <input
+                  type="radio"
+                  name="scanMode"
+                  value="deep"
+                  checked={scanMode === "deep"}
+                  onChange={() => setScanMode("deep")}
+                />
+                Deep (service fingerprint)
+              </label>
+            </div>
+          </div>
+          {scanMode === "deep" && (
+            <div className="field indent">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={jarm}
+                  onChange={(e) => setJarm(e.target.checked)}
+                />
+                Collect JARM TLS fingerprint (extra probes per TLS port)
+              </label>
+            </div>
+          )}
+        </>
       )}
 
       {/* ---- DNS Enumeration Section ---- */}
