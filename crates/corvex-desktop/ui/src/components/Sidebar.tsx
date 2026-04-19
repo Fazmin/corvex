@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useProbeRunning } from "../probe_running";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -33,6 +34,8 @@ interface Props {
   testsCount: number;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  /** True while a web-scan (dashboard) run is in flight. */
+  webScanRunning?: boolean;
 }
 
 interface NavItem {
@@ -40,6 +43,8 @@ interface NavItem {
   icon: ReactNode;
   label: string;
   count?: number | string;
+  /** Show a pulsing dot next to this item. */
+  active?: boolean;
 }
 
 /**
@@ -64,9 +69,16 @@ export function Sidebar({
   testsCount,
   collapsed,
   onToggleCollapsed,
+  webScanRunning = false,
 }: Props) {
+  const { running: probeRunning } = useProbeRunning();
   const scanner: NavItem[] = [
-    { view: "dashboard", icon: <DashboardIcon size={collapsed ? 22 : 18} />, label: "Dashboard" },
+    {
+      view: "dashboard",
+      icon: <DashboardIcon size={collapsed ? 22 : 18} />,
+      label: "Dashboard",
+      active: webScanRunning,
+    },
   ];
   const engine: NavItem[] = [
     {
@@ -79,6 +91,7 @@ export function Sidebar({
       view: "probing",
       icon: <ProbingIcon size={collapsed ? 22 : 18} />,
       label: "Probing",
+      active: probeRunning,
     },
     {
       view: "fuzzing",
@@ -128,10 +141,17 @@ export function Sidebar({
             key={item.view}
             className={`sidebar-item${view === item.view ? " active" : ""}`}
             onClick={() => onSelect(item.view)}
-            title={collapsed ? item.label : undefined}
+            title={
+              collapsed
+                ? item.active
+                  ? `${item.label} — scan running`
+                  : item.label
+                : undefined
+            }
           >
             <span className="ico">{item.icon}</span>
             <span>{item.label}</span>
+            {item.active && <span className="nav-pulse" aria-label="scan running" />}
           </button>
         ))}
         <button
@@ -166,11 +186,18 @@ export function Sidebar({
             key={item.view}
             className={`sidebar-item${view === item.view ? " active" : ""}`}
             onClick={() => onSelect(item.view)}
-            title={collapsed ? item.label : undefined}
+            title={
+              collapsed
+                ? item.active
+                  ? `${item.label} — running`
+                  : item.label
+                : undefined
+            }
           >
             <span className="ico">{item.icon}</span>
             <span>{item.label}</span>
             {item.count !== undefined && <span className="count">{item.count}</span>}
+            {item.active && <span className="nav-pulse" aria-label="running" />}
           </button>
         ))}
       </div>

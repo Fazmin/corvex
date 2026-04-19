@@ -23,8 +23,10 @@ import {
   type ProbeTargetError,
 } from "../api";
 import { useSettings } from "../settings";
+import { useProbeRunning } from "../probe_running";
 import { InfoTip } from "./InfoTip";
 import { readDefault as readProbingDefaults } from "./ProbingView";
+import { ScanIndicator, type MetricChip } from "./ScanIndicator";
 
 interface HostStatus {
   display: string;
@@ -101,6 +103,7 @@ function formatElapsed(ms: number | null): string {
 
 export function ProbeRunner() {
   const { extraProbeFiles } = useSettings();
+  const { setRunning: setGlobalRunning } = useProbeRunning();
   const defaults = useMemo(() => readProbingDefaults(), []);
 
   const [targetsText, setTargetsText] = useState("");
@@ -115,6 +118,22 @@ export function ProbeRunner() {
   const [openPorts, setOpenPorts] = useState<ProbeOpenPort[]>([]);
   const [errors, setErrors] = useState<ProbeTargetError[]>([]);
   const [summary, setSummary] = useState<ProbeSummary | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (!running) return;
+    const interval = setInterval(() => setNowMs(Date.now()), 250);
+    return () => clearInterval(interval);
+  }, [running]);
+
+  // Mirror the local running flag into the global probe-running context
+  // so the sidebar can surface a pulse indicator even when the user has
+  // navigated away to another view.
+  useEffect(() => {
+    setGlobalRunning(running);
+    return () => setGlobalRunning(false);
+  }, [running, setGlobalRunning]);
 
   const unlistenersRef = useRef<Array<() => void>>([]);
   const cleanup = useCallback(() => {
@@ -178,6 +197,8 @@ export function ProbeRunner() {
 
     setProbeId(id);
     setRunning(true);
+    setStartedAt(Date.now());
+    setNowMs(Date.now());
 
     const uHostStart = await onProbeHostStart(id, (p: ProbeHostStart) => {
       setHosts((prev) => ({
@@ -229,8 +250,36 @@ export function ProbeRunner() {
     await cancelProbe(probeId);
   };
 
+  const hostStates = Object.values(hosts);
+  const hostsRunning = hostStates.filter((h) => h.state === "running").length;
+  const hostsDone = hostStates.filter((h) => h.state === "done").length;
+  const runningTotal = hostStates.length > 0 ? hostStates.length : targets.length;
+  const elapsedLive = running && startedAt !== null ? nowMs - startedAt : 0;
+
+  const indicatorChips: MetricChip[] = running
+    ? [
+        { label: "hosts done", value: `${hostsDone}/${runningTotal}` },
+        { label: "in flight", value: hostsRunning },
+        { label: "open ports", value: openPorts.length },
+        { label: "elapsed", value: formatElapsed(elapsedLive) },
+      ]
+    : [];
+
   return (
     <div className="single-pane" style={{ display: "grid", gap: 16 }}>
+      {running && (
+        <ScanIndicator
+          label="Probing"
+          progress={
+            runningTotal > 0
+              ? { current: hostsDone, total: runningTotal }
+              : undefined
+          }
+          chips={indicatorChips}
+          onCancel={stop}
+        />
+      )}
+
       <div className="form-panel" style={{ maxWidth: 960 }}>
         <div className="field">
           <label>

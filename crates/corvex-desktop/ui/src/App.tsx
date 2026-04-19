@@ -20,6 +20,7 @@ import {
   type VersionInfo,
 } from "./api";
 import { ScanForm } from "./components/ScanForm";
+import { ScanIndicator, type MetricChip } from "./components/ScanIndicator";
 import { StatsBar } from "./components/StatsBar";
 import { FindingsTable } from "./components/FindingsTable";
 import { LogPanel } from "./components/LogPanel";
@@ -36,6 +37,43 @@ import { HelpView } from "./components/HelpView";
 import { ToastContainer, type Toast, type ToastKind } from "./components/Toast";
 import { SeverityBreakdown } from "./components/SeverityBreakdown";
 import { OnboardingTour, hasSeenTour } from "./components/OnboardingTour";
+
+function buildScanChips({
+  currentHost,
+  stats,
+  findings,
+  requestRate,
+}: {
+  currentHost: string | null;
+  stats: ScanStats | null;
+  findings: FindingPayload[];
+  requestRate: number | null;
+}): MetricChip[] {
+  const chips: MetricChip[] = [];
+  if (currentHost) chips.push({ label: "host", value: currentHost });
+  if (stats) {
+    chips.push({ label: "requests", value: stats.total_requests.toLocaleString() });
+    if (requestRate !== null && requestRate > 0) {
+      chips.push({ label: "rate", value: `${requestRate.toFixed(1)}/s` });
+    }
+    chips.push({
+      label: "elapsed",
+      value: formatElapsedSeconds(stats.elapsed_secs),
+    });
+  }
+  chips.push({ label: "findings", value: findings.length });
+  return chips;
+}
+
+function formatElapsedSeconds(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  if (m < 60) return `${m}m ${s.toString().padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${h}h ${mm.toString().padStart(2, "0")}m`;
+}
 
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
@@ -288,6 +326,7 @@ export default function App() {
           testsCount={dbs?.tests ?? 0}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={toggleSidebar}
+          webScanRunning={running}
         />
         <main className="main">
           <header className="main-header">
@@ -308,6 +347,18 @@ export default function App() {
 
           {view === "dashboard" && (
             <div className="dashboard">
+              {running && (
+                <ScanIndicator
+                  label="Scanning"
+                  chips={buildScanChips({
+                    currentHost,
+                    stats,
+                    findings,
+                    requestRate,
+                  })}
+                  onCancel={handleCancel}
+                />
+              )}
               <StatsBar
               stats={stats}
               running={running}

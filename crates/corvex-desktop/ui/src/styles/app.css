@@ -1924,3 +1924,137 @@ button[disabled] {
   font-size: calc(var(--font-base) - 2px);
   color: var(--muted);
 }
+
+/* -------- Scan / probe "in-flight" indicator ---------------------- */
+
+@keyframes scan-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes scan-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.85); }
+}
+
+@keyframes scan-shimmer {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.scan-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 8%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 14%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 8%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: scan-shimmer 2.4s linear infinite;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.scan-indicator .spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: scan-spin 900ms linear infinite;
+  flex-shrink: 0;
+}
+
+.scan-indicator .label {
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.scan-indicator .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.scan-indicator .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--panel) 90%, var(--accent) 10%);
+  color: var(--fg);
+  font-family: var(--font-mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+  white-space: nowrap;
+}
+
+.scan-indicator .chip-label {
+  color: var(--muted);
+  font-family: var(--font-base), system-ui, sans-serif;
+}
+
+.scan-indicator .progress-track {
+  flex: 1 1 140px;
+  min-width: 100px;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--muted) 20%, transparent);
+  overflow: hidden;
+  position: relative;
+}
+
+.scan-indicator .progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  transition: width 200ms ease-out;
+}
+
+.scan-indicator .progress-fill.indeterminate {
+  width: 35%;
+  animation: scan-slide 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes scan-slide {
+  0%   { left: -40%; width: 35%; }
+  50%  { left: 30%;  width: 50%; }
+  100% { left: 110%; width: 35%; }
+}
+
+.scan-indicator .cancel-btn {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: calc(var(--font-base) - 2px);
+}
+
+.scan-indicator .cancel-btn:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* Sidebar nav entry with an active-scan dot */
+.sidebar-item .nav-pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: scan-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
