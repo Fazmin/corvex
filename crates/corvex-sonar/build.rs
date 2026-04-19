@@ -18,6 +18,22 @@ struct ProbesToml {
 }
 
 #[derive(Debug, serde::Deserialize)]
+struct JarmKnownToml {
+    #[serde(default)]
+    entry: Vec<TomlJarmEntry>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct TomlJarmEntry {
+    hash: String,
+    name: String,
+    #[serde(default)]
+    notes: Option<String>,
+    #[serde(default)]
+    confidence: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
 struct TomlProbe {
     id: String,
     #[serde(default)]
@@ -134,6 +150,26 @@ fn load_probes_toml(path: &Path) -> Result<Vec<SerializedStaticProbe>> {
         });
     }
     Ok(out)
+}
+
+fn load_jarm_known(path: &Path) -> Result<Vec<SerializedJarmEntry>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("read {}", path.display()))?;
+    let parsed: JarmKnownToml = toml::from_str(&text)
+        .with_context(|| format!("parse TOML in {}", path.display()))?;
+    Ok(parsed
+        .entry
+        .into_iter()
+        .map(|e| SerializedJarmEntry {
+            hash: e.hash,
+            name: e.name,
+            notes: e.notes,
+            confidence: e.confidence,
+        })
+        .collect())
 }
 
 fn load_recog_dir(dir: &Path) -> Result<Vec<SerializedRecogFp>> {
@@ -321,6 +357,7 @@ fn main() -> Result<()> {
 
     let probes = load_probes_toml(&data_dir.join("probes.toml"))?;
     let recog = load_recog_dir(&data_dir.join("recog"))?;
+    let jarm_known = load_jarm_known(&data_dir.join("jarm_known.toml"))?;
     audit_probes(&probes)?;
     audit_recog(&recog)?;
 
@@ -328,6 +365,7 @@ fn main() -> Result<()> {
         version: SCHEMA_VERSION,
         static_probes: probes,
         recog_fps: recog,
+        jarm_known,
     };
 
     let bytes = bincode::serialize(&db)?;

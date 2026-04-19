@@ -515,43 +515,56 @@ export function ScaView() {
             )}
 
             {vulndb && vulndb.available && (
-              <div className="info-grid">
-                <div className="info-cell">
-                  <div className="label">CVEs</div>
-                  <div className="value">{vulndb.cve_count.toLocaleString()}</div>
-                  <div className="hint">Total CVE records from NVD</div>
-                </div>
-                <div className="info-cell">
-                  <div className="label">CPE matches</div>
-                  <div className="value">{vulndb.cpe_match_count.toLocaleString()}</div>
-                  <div className="hint">Software version to CVE mappings</div>
-                </div>
-                <div className="info-cell">
-                  <div className="label">EPSS scores</div>
-                  <div className="value">{vulndb.epss_count.toLocaleString()}</div>
-                  <div className="hint">Exploit probability predictions</div>
-                </div>
-                <div className="info-cell">
-                  <div className="label">Fix records</div>
-                  <div className="value">{vulndb.fix_count.toLocaleString()}</div>
-                  <div className="hint">Known available fixes</div>
-                </div>
-                <div className="info-cell">
-                  <div className="label">Last NVD update</div>
-                  <div className="value" style={{ fontSize: 13 }}>
-                    {vulndb.last_nvd_update || "\u2014"}
-                  </div>
-                  <div className="hint">When CVE data was last refreshed</div>
-                </div>
-                <div className="info-cell">
-                  <div className="label">Last EPSS update</div>
-                  <div className="value" style={{ fontSize: 13 }}>
-                    {vulndb.last_epss_update || "\u2014"}
-                  </div>
-                  <div className="hint">When exploit scores were last refreshed</div>
-                </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px 18px",
+                  padding: "8px 12px",
+                  marginTop: 4,
+                  borderRadius: 6,
+                  background: "var(--panel-alt)",
+                  border: "1px solid var(--border-soft)",
+                  fontSize: "calc(var(--font-base) - 2px)",
+                  fontFamily: "monospace",
+                  color: "var(--fg)",
+                }}
+              >
+                <span>
+                  <span style={{ color: "var(--muted)" }}>cves </span>
+                  {vulndb.cve_count.toLocaleString()}
+                </span>
+                <span>
+                  <span style={{ color: "var(--muted)" }}>cpe matches </span>
+                  {vulndb.cpe_match_count.toLocaleString()}
+                </span>
+                <span>
+                  <span style={{ color: "var(--muted)" }}>epss scores </span>
+                  {vulndb.epss_count.toLocaleString()}
+                </span>
+                <span>
+                  <span style={{ color: "var(--muted)" }}>fixes </span>
+                  {vulndb.fix_count.toLocaleString()}
+                </span>
+                <span>
+                  <span style={{ color: "var(--muted)" }}>nvd </span>
+                  {vulndb.last_nvd_update || "\u2014"}
+                </span>
+                <span>
+                  <span style={{ color: "var(--muted)" }}>epss </span>
+                  {vulndb.last_epss_update || "\u2014"}
+                </span>
               </div>
             )}
+
+            <div
+              className="sub"
+              style={{ marginTop: 10, lineHeight: 1.5 }}
+            >
+              Full provenance (NVD / EPSS / CPE dictionary sources, licence
+              notes, cross-cutting dataset counts) lives in the{" "}
+              <strong>Databases</strong> view under its SCA / VulnDB tab.
+            </div>
           </div>
         )}
       </div>

@@ -408,13 +408,87 @@ code {
   overflow: hidden;
   display: grid;
   grid-template-columns: 380px 1fr;
-  grid-template-rows: auto minmax(0, 1fr) 200px;
+  grid-template-rows: auto auto 1fr;
   grid-template-areas:
-    "stats   stats"
-    "form    results"
-    "form    log";
+    "indicator indicator"
+    "stats     stats"
+    "form      content";
   gap: 16px;
   min-height: 0;
+}
+
+.dashboard > .scan-indicator {
+  grid-area: indicator;
+  margin-bottom: 0;
+}
+
+.dashboard-right-col {
+  grid-area: content;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+}
+
+.findings-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 0 0 auto;
+  /* Responsive default: scales to ~45 % of the viewport with hard min/max
+     so short screens don't overflow and large screens don't run away. A
+     user-set pixel height overrides via the inline `--findings-h` variable. */
+  height: var(--findings-h, clamp(180px, 45vh, 640px));
+}
+
+/* Idle dashboard (no scan initiated yet): the Log panel is hidden, so let
+   the Findings panel grow to fill the column instead of leaving empty
+   space above the severity strip. The severity strip stays pinned at the
+   bottom since it's `flex: 0 0 auto`. */
+.dashboard-right-col.idle .findings-container {
+  flex: 1 1 auto;
+  height: auto;
+}
+
+.findings-container .panel.results {
+  grid-area: auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.findings-resize-handle {
+  position: relative;
+  height: 8px;
+  flex: 0 0 auto;
+  cursor: row-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.findings-resize-handle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 48px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--border);
+  transition: background 150ms ease;
+}
+
+.findings-resize-handle:hover::before,
+.findings-resize-handle.dragging::before {
+  background: var(--accent);
+}
+
+.dashboard-right-col .panel.log {
+  grid-area: auto;
+  flex: 1 1 auto;
+  min-height: 120px;
 }
 
 /* ---------- Panels ---------- */
@@ -759,28 +833,28 @@ button.browse-btn:active {
 .findings-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: calc(var(--font-base) - 1px);
+  font-size: calc(var(--font-base) - 2px);
   table-layout: fixed;
 }
 
-.findings-table col.col-toggle   { width: 26px; }
-.findings-table col.col-severity { width: 82px; }
-.findings-table col.col-id       { width: 88px; }
-.findings-table col.col-method   { width: 80px; }
-.findings-table col.col-uri      { width: 20%; }
+.findings-table col.col-toggle   { width: 22px; }
+.findings-table col.col-severity { width: 72px; }
+.findings-table col.col-id       { width: 76px; }
+.findings-table col.col-method   { width: 64px; }
+.findings-table col.col-uri      { width: 18%; }
 .findings-table col.col-message  { width: auto; }
-.findings-table col.col-plugin   { width: 100px; }
+.findings-table col.col-plugin   { width: 170px; }
 
 .findings-table th,
 .findings-table td {
-  padding: 5px 10px;
+  padding: 2px 8px;
   text-align: left;
   vertical-align: middle;
   border-bottom: 1px solid var(--border-soft);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 .findings-table th {
@@ -790,11 +864,11 @@ button.browse-btn:active {
   color: var(--muted);
   font-weight: 600;
   text-transform: uppercase;
-  font-size: calc(var(--font-base) - 3px);
+  font-size: calc(var(--font-base) - 4px);
   letter-spacing: 0.05em;
   border-bottom: 1px solid var(--border);
-  padding-top: 8px;
-  padding-bottom: 8px;
+  padding-top: 5px;
+  padding-bottom: 5px;
 }
 
 .findings-table .finding-row {
@@ -932,6 +1006,22 @@ button.browse-btn:active {
   gap: 6px;
   margin-bottom: 10px;
   flex: none;
+}
+
+.filter-chips.filter-chips-combined {
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 6px;
+}
+
+.filter-chip-divider {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+  align-self: center;
+  flex: 0 0 auto;
 }
 
 .filter-chips .chip {
@@ -1284,83 +1374,84 @@ button.browse-btn:active {
 
 /* ---------- Severity breakdown bar ---------- */
 
-.severity-breakdown {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 14px;
-}
+/* -------- Minimal severity strip (sits between Findings and Log) -------- */
 
-.severity-breakdown-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font-size: calc(var(--font-base) - 1px);
-}
-
-.severity-breakdown-header .label {
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 11px;
-}
-
-.severity-breakdown-header .muted {
-  color: var(--muted);
-}
-
-.severity-bar {
-  display: flex;
-  width: 100%;
-  height: 18px;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: var(--panel-alt);
-  border: 1px solid var(--border-soft);
-}
-
-.severity-bar-segment {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
-  min-width: 0;
-  transition: width 200ms ease-out;
-}
-
-.severity-bar-empty {
-  flex: 1;
-  text-align: center;
-  font-size: calc(var(--font-base) - 2px);
-  color: var(--muted);
-  line-height: 18px;
-}
-
-.severity-legend {
+.severity-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
   font-size: calc(var(--font-base) - 2px);
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.severity-strip-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.4;
+}
+
+/* Clickable variant: add button affordances, hover state, active pill. */
+.severity-strip.is-filter .severity-strip-chip {
+  cursor: pointer;
+  border-color: var(--border);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.severity-strip.is-filter .severity-strip-chip:hover {
+  background: var(--panel-alt);
+}
+
+.severity-strip.is-filter .severity-strip-chip.active {
+  color: inherit;
+}
+
+.severity-strip-all {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
-.severity-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.severity-strip.is-filter .severity-strip-all.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
-.severity-legend-item .dot {
+.severity-strip-dot {
   display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  border: 1px solid transparent;
+  box-sizing: border-box;
 }
 
-.severity-legend-item strong {
+.severity-strip-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+}
+
+.severity-strip.is-filter .severity-strip-chip.active .severity-strip-label,
+.severity-strip.is-filter .severity-strip-chip.active .severity-strip-count {
+  color: inherit;
+}
+
+.severity-strip-count {
   color: var(--fg);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Toast notifications ---------- */

@@ -17,7 +17,7 @@ interface FuzzerModule {
   payloads: string;
 }
 
-const MODULES: FuzzerModule[] = [
+export const MODULES: FuzzerModule[] = [
   // ---- Core injection -------------------------------------------------------
   {
     name: "xss_reflected",
@@ -213,7 +213,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 /* ---- Reference data for the detail panels ---- */
 
-const TECHNIQUES = [
+export const TECHNIQUES = [
   {
     code: "E",
     name: "Error-based",
@@ -276,7 +276,7 @@ const TECHNIQUES = [
   },
 ];
 
-const TAMPER_MODULES = [
+export const TAMPER_MODULES = [
   {
     category: "Space replacement",
     count: 8,
@@ -365,7 +365,7 @@ const TAMPER_MODULES = [
   },
 ];
 
-const DBMS_DETAILS = [
+export const DBMS_DETAILS = [
   { name: "MySQL", errors: "SQL syntax.*?MySQL, Warning.*?mysqli_, You have an error in your SQL syntax, Unknown column, com.mysql.jdbc", sleep: "SLEEP(n), BENCHMARK()", concat: "CONCAT(a,b)", catalog: "information_schema.schemata / .tables / .columns", fileOps: "LOAD_FILE(), INTO OUTFILE", osCmd: "UDF sys_exec() via shared lib" },
   { name: "PostgreSQL", errors: "PostgreSQL.*?ERROR, Warning.*?pg_, Npgsql., PG::SyntaxError, ERROR: syntax error at or near", sleep: "pg_sleep(n)", concat: "a || b", catalog: "pg_database, information_schema.tables / .columns", fileOps: "pg_read_file(), COPY TO", osCmd: "COPY TO PROGRAM (>= 9.3)" },
   { name: "MSSQL", errors: "Driver.*?SQL Server, OLE DB.*?SQL Server, ODBC SQL Server Driver, Msg \\d+.*Level \\d+", sleep: "WAITFOR DELAY '0:0:n'", concat: "a + b", catalog: "master..sysdatabases, information_schema.tables / .columns", fileOps: "OPENROWSET(BULK), xp_cmdshell echo", osCmd: "xp_cmdshell (sp_configure auto-enable)" },
@@ -376,7 +376,7 @@ const DBMS_DETAILS = [
   { name: "Firebird", errors: "Dynamic SQL Error, Warning.*?ibase_, org.firebirdsql.jdbc", sleep: "Heavy query join", concat: "a || b", catalog: "RDB$RELATIONS, RDB$RELATION_FIELDS", fileOps: "N/A", osCmd: "N/A" },
 ];
 
-const ENUMERATE_TARGETS = [
+export const ENUMERATE_TARGETS = [
   { flag: "dbs", label: "Databases", desc: "List all database/schema names on the server", risk: 1, queries: "MySQL: information_schema.schemata | PostgreSQL: pg_database | MSSQL: master..sysdatabases | Oracle: DISTINCT owner FROM all_tables | SQLite: 'main' | DB2: syscat.schemata" },
   { flag: "tables", label: "Tables", desc: "List all tables in the current (or specified) database", risk: 1, queries: "information_schema.tables, all_tables, sqlite_master, syscat.tables, RDB$RELATIONS" },
   { flag: "columns", label: "Columns", desc: "List columns for each discovered table", risk: 1, queries: "information_schema.columns, all_tab_columns, PRAGMA table_info(), syscat.columns, RDB$RELATION_FIELDS" },

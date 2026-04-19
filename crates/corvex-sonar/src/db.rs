@@ -1,5 +1,5 @@
 use crate::probe::Probe;
-use crate::schema::{SerializedDb, SerializedRecogFp, SerializedStaticProbe};
+use crate::schema::{SerializedDb, SerializedJarmEntry, SerializedRecogFp, SerializedStaticProbe};
 use fancy_regex::Regex;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -51,11 +51,32 @@ pub struct RecogParam {
     pub value: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct JarmKnownEntry {
+    pub hash: String,
+    pub name: String,
+    pub notes: Option<String>,
+    pub confidence: Option<String>,
+}
+
+impl From<SerializedJarmEntry> for JarmKnownEntry {
+    fn from(s: SerializedJarmEntry) -> Self {
+        Self {
+            hash: s.hash,
+            name: s.name,
+            notes: s.notes,
+            confidence: s.confidence,
+        }
+    }
+}
+
 pub struct SonarDb {
     pub static_probes: Vec<StaticProbeDef>,
     pub scripted_probes: Vec<Arc<dyn Probe>>,
     pub recog: Vec<RecogFp>,
     pub by_set: HashMap<String, Vec<usize>>,
+    pub jarm_known: Vec<JarmKnownEntry>,
+    pub jarm_index: HashMap<String, usize>,
 }
 
 impl SonarDb {
@@ -78,6 +99,15 @@ impl SonarDb {
     /// Stable ids of every declarative (TOML / layer-3) probe in this DB.
     pub fn static_probe_ids(&self) -> Vec<String> {
         self.static_probes.iter().map(|p| p.id.clone()).collect()
+    }
+
+    /// Look up a 62-character JARM hash against the bundled known-hash
+    /// database. Returns `None` when the hash is not recognised.
+    pub fn lookup_jarm(&self, hash: &str) -> Option<&JarmKnownEntry> {
+        let key = hash.trim().to_ascii_lowercase();
+        self.jarm_index
+            .get(&key)
+            .and_then(|&i| self.jarm_known.get(i))
     }
 }
 
@@ -171,11 +201,25 @@ fn merge_with_extras(base: &SonarDb, extras: &[PathBuf]) -> SonarDb {
         by_set.entry(fp.set.clone()).or_default().push(i);
     }
 
+    let jarm_known: Vec<JarmKnownEntry> = base
+        .jarm_known
+        .iter()
+        .map(|e| JarmKnownEntry {
+            hash: e.hash.clone(),
+            name: e.name.clone(),
+            notes: e.notes.clone(),
+            confidence: e.confidence.clone(),
+        })
+        .collect();
+    let jarm_index = build_jarm_index(&jarm_known);
+
     SonarDb {
         static_probes,
         scripted_probes: crate::probes::registry(),
         recog,
         by_set,
+        jarm_known,
+        jarm_index,
     }
 }
 
@@ -219,7 +263,17 @@ fn empty_db() -> SonarDb {
         scripted_probes: crate::probes::registry(),
         recog: Vec::new(),
         by_set: HashMap::new(),
+        jarm_known: Vec::new(),
+        jarm_index: HashMap::new(),
     }
+}
+
+fn build_jarm_index(entries: &[JarmKnownEntry]) -> HashMap<String, usize> {
+    let mut m = HashMap::with_capacity(entries.len());
+    for (i, e) in entries.iter().enumerate() {
+        m.insert(e.hash.trim().to_ascii_lowercase(), i);
+    }
+    m
 }
 
 fn load_embedded_db() -> anyhow::Result<SonarDb> {
@@ -261,11 +315,17 @@ fn load_embedded_db() -> anyhow::Result<SonarDb> {
         by_set.entry(fp.set.clone()).or_default().push(i);
     }
 
+    let jarm_known: Vec<JarmKnownEntry> =
+        parsed.jarm_known.into_iter().map(Into::into).collect();
+    let jarm_index = build_jarm_index(&jarm_known);
+
     Ok(SonarDb {
         static_probes,
         scripted_probes: crate::probes::registry(),
         recog,
         by_set,
+        jarm_known,
+        jarm_index,
     })
 }
 

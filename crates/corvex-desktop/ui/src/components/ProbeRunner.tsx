@@ -6,36 +6,13 @@
  * back from the backend via `probe://<id>/...` Tauri events.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  cancelProbe,
-  onProbeError,
-  onProbeHostEnd,
-  onProbeHostStart,
-  onProbeOpenPort,
-  onProbeSummary,
-  startProbe,
-  type ProbeHostEnd,
-  type ProbeHostStart,
-  type ProbeOpenPort,
-  type ProbeParams,
-  type ProbeSummary,
-  type ProbeTargetError,
-} from "../api";
+import { useMemo } from "react";
+import type { ProbeOpenPort, ProbeParams } from "../api";
 import { useSettings } from "../settings";
-import { useProbeRunning } from "../probe_running";
+import { useProbeRun, type HostStatus } from "../probe_running";
 import { InfoTip } from "./InfoTip";
-import { readDefault as readProbingDefaults } from "./ProbingView";
+import { JarmInfo } from "./JarmInfo";
 import { ScanIndicator, type MetricChip } from "./ScanIndicator";
-
-interface HostStatus {
-  display: string;
-  ip: string;
-  hostname: string;
-  state: "queued" | "running" | "done";
-  openCount: number;
-  elapsedMs: number | null;
-}
 
 // Comma-separated ports or ranges, same grammar as ScanForm.
 const PORT_LIST_REGEX =
@@ -103,44 +80,45 @@ function formatElapsed(ms: number | null): string {
 
 export function ProbeRunner() {
   const { extraProbeFiles } = useSettings();
-  const { setRunning: setGlobalRunning } = useProbeRunning();
-  const defaults = useMemo(() => readProbingDefaults(), []);
+  const run = useProbeRun();
 
-  const [targetsText, setTargetsText] = useState("");
-  const [scanMode, setScanMode] = useState<"rapid" | "deep">(defaults.scanMode);
-  const [portsRange, setPortsRange] = useState(defaults.portsRange);
-  const [jarm, setJarm] = useState<boolean>(defaults.jarm);
-  const [concurrency, setConcurrency] = useState(8);
+  // Form state lives in the provider so the last values the user typed
+  // or selected survive tab switches, sidebar navigation, and scan
+  // completion. The only way to reset them is the "New probe" button.
+  const {
+    running,
+    hosts,
+    openPorts,
+    errors,
+    summary,
+    startedAt,
+    nowMs,
+    form,
+    setForm,
+    start: startRun,
+    stop,
+    reset: resetRun,
+  } = run;
 
-  const [probeId, setProbeId] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [hosts, setHosts] = useState<Record<string, HostStatus>>({});
-  const [openPorts, setOpenPorts] = useState<ProbeOpenPort[]>([]);
-  const [errors, setErrors] = useState<ProbeTargetError[]>([]);
-  const [summary, setSummary] = useState<ProbeSummary | null>(null);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const { targetsText, scanMode, portsRange, jarm, concurrency } = form;
+  const setTargetsText = (v: string) => setForm({ targetsText: v });
+  const setScanMode = (v: "rapid" | "deep") => setForm({ scanMode: v });
+  const setPortsRange = (v: string) => setForm({ portsRange: v });
+  const setJarm = (v: boolean) => setForm({ jarm: v });
+  const setConcurrency = (v: number) => setForm({ concurrency: v });
 
-  useEffect(() => {
-    if (!running) return;
-    const interval = setInterval(() => setNowMs(Date.now()), 250);
-    return () => clearInterval(interval);
-  }, [running]);
+  const hasResults =
+    summary !== null ||
+    Object.keys(hosts).length > 0 ||
+    openPorts.length > 0 ||
+    errors.length > 0;
 
-  // Mirror the local running flag into the global probe-running context
-  // so the sidebar can surface a pulse indicator even when the user has
-  // navigated away to another view.
-  useEffect(() => {
-    setGlobalRunning(running);
-    return () => setGlobalRunning(false);
-  }, [running, setGlobalRunning]);
-
-  const unlistenersRef = useRef<Array<() => void>>([]);
-  const cleanup = useCallback(() => {
-    unlistenersRef.current.forEach((fn) => fn());
-    unlistenersRef.current = [];
-  }, []);
-  useEffect(() => cleanup, [cleanup]);
+  const newProbe = () => {
+    // Wipe context-held run state and roll the form back to the
+    // Configure tab's saved defaults. This is the only reset path —
+    // scan completion itself does not clear the form.
+    resetRun();
+  };
 
   const targets = useMemo(
     () =>
@@ -162,11 +140,6 @@ export function ProbeRunner() {
 
   const start = async () => {
     if (!canStart) return;
-    setHosts({});
-    setOpenPorts([]);
-    setErrors([]);
-    setSummary(null);
-
     const params: ProbeParams = {
       targets,
       scan_mode: scanMode,
@@ -175,79 +148,7 @@ export function ProbeRunner() {
       extra_probe_files: scanMode === "deep" ? extraProbeFiles : [],
       host_concurrency: concurrency,
     };
-
-    let id: string;
-    try {
-      id = await startProbe(params);
-    } catch (e) {
-      setErrors([
-        {
-          probe_id: "",
-          target: "",
-          message:
-            typeof e === "string"
-              ? e
-              : e instanceof Error
-                ? e.message
-                : "failed to start probe",
-        },
-      ]);
-      return;
-    }
-
-    setProbeId(id);
-    setRunning(true);
-    setStartedAt(Date.now());
-    setNowMs(Date.now());
-
-    const uHostStart = await onProbeHostStart(id, (p: ProbeHostStart) => {
-      setHosts((prev) => ({
-        ...prev,
-        [p.display]: {
-          display: p.display,
-          ip: p.ip,
-          hostname: p.hostname,
-          state: "running",
-          openCount: prev[p.display]?.openCount ?? 0,
-          elapsedMs: null,
-        },
-      }));
-    });
-    const uHostEnd = await onProbeHostEnd(id, (p: ProbeHostEnd) => {
-      setHosts((prev) => ({
-        ...prev,
-        [p.display]: {
-          ...(prev[p.display] ?? {
-            display: p.display,
-            ip: p.ip,
-            hostname: p.display,
-            openCount: 0,
-          }),
-          display: p.display,
-          ip: p.ip,
-          state: "done",
-          openCount: p.open_count,
-          elapsedMs: p.elapsed_ms,
-        },
-      }));
-    });
-    const uOpen = await onProbeOpenPort(id, (p: ProbeOpenPort) => {
-      setOpenPorts((prev) => [...prev, p]);
-    });
-    const uErr = await onProbeError(id, (p: ProbeTargetError) => {
-      setErrors((prev) => [...prev, p]);
-    });
-    const uSum = await onProbeSummary(id, (p: ProbeSummary) => {
-      setSummary(p);
-      setRunning(false);
-    });
-
-    unlistenersRef.current = [uHostStart, uHostEnd, uOpen, uErr, uSum];
-  };
-
-  const stop = async () => {
-    if (!probeId) return;
-    await cancelProbe(probeId);
+    await startRun(params);
   };
 
   const hostStates = Object.values(hosts);
@@ -411,31 +312,62 @@ example.com
           )}
         </div>
 
-        <div className="field" style={{ display: "flex", gap: 10 }}>
-          {!running ? (
-            <button type="button" onClick={start} disabled={!canStart}>
-              Start probing
-            </button>
-          ) : (
-            <button type="button" onClick={stop} className="ghost-btn">
-              Stop
-            </button>
-          )}
-          {summary && (
-            <span
-              style={{
-                fontSize: "calc(var(--font-base) - 2px)",
-                color: summary.cancelled ? "var(--warning)" : "var(--success)",
-                alignSelf: "center",
-              }}
+        {running ? (
+          <button type="button" className="danger" onClick={stop}>
+            Stop probing
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="primary"
+            onClick={start}
+            disabled={!canStart}
+            title={
+              !canStart
+                ? targets.length === 0
+                  ? "Add at least one target"
+                  : portsErr ?? "Fix the highlighted fields above"
+                : undefined
+            }
+          >
+            Start probing
+          </button>
+        )}
+        {!running && hasResults && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              marginTop: 8,
+              flexWrap: "wrap",
+            }}
+          >
+            {summary && (
+              <span
+                className="field-hint"
+                style={{
+                  margin: 0,
+                  color: summary.cancelled ? "var(--warning)" : "var(--success)",
+                }}
+              >
+                {summary.cancelled ? "Cancelled after " : "Completed in "}
+                {formatElapsed(summary.elapsed_ms)} · {summary.hosts_completed}/
+                {summary.hosts_total} hosts · {summary.open_ports_total} open
+                port{summary.open_ports_total === 1 ? "" : "s"}
+              </span>
+            )}
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={newProbe}
+              style={{ marginLeft: summary ? "auto" : 0 }}
+              title="Clear results and form, ready for a fresh probe"
             >
-              {summary.cancelled ? "Cancelled after " : "Completed in "}
-              {formatElapsed(summary.elapsed_ms)} · {summary.hosts_completed}/
-              {summary.hosts_total} hosts · {summary.open_ports_total} open
-              port{summary.open_ports_total === 1 ? "" : "s"}
-            </span>
-          )}
-        </div>
+              New probe
+            </button>
+          </div>
+        )}
       </div>
 
       {(running || Object.keys(hosts).length > 0) && (
@@ -596,7 +528,16 @@ function OpenPortsTable({ rows }: { rows: ProbeOpenPort[] }) {
               <td style={{ padding: "4px 10px", color: "var(--fg)" }}>{r.product ?? "-"}</td>
               <td style={{ padding: "4px 10px", color: "var(--fg)" }}>{r.version ?? "-"}</td>
               <td style={{ padding: "4px 0", color: "var(--muted)" }}>
-                {r.cpe.length > 0 ? r.cpe.join(", ") : r.jarm ? `JARM ${r.jarm}` : "-"}
+                {r.cpe.length > 0 ? (
+                  <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                    <span>{r.cpe.join(", ")}</span>
+                    {r.jarm && <JarmInfo hash={r.jarm} />}
+                  </span>
+                ) : r.jarm ? (
+                  <JarmInfo hash={r.jarm} />
+                ) : (
+                  "-"
+                )}
               </td>
             </tr>
           ))}

@@ -1,0 +1,25 @@
+# Corvex Sonar — known JARM fingerprint seed data.
+#
+# Each [[entry]] maps a full 62-character JARM hash produced by
+# `corvex_sonar::jarm` to a human-readable label. This file is curated
+# in-house from our own scanning observations — it's extensible at any
+# time by adding new entries here and rebuilding.
+#
+# Fields:
+#   hash       — exact 62-char JARM string (no spaces).
+#   name       — short product / stack label shown in the UI.
+#   notes      — one-line context (optional).
+#   confidence — "observed" (recorded from a known host) or
+#                "heuristic" (inferred from published references).
+
+# --- Seed entries (placeholder set). Grow over time. -----------------
+
+# Leave this file populated with exactly one commented-out illustrative
+# example so the build pipeline always sees valid TOML. Real entries
+# get appended below.
+
+# [[entry]]
+# hash       = "000000000000000000000000000000000000000000000000000000000000000000"
+# name       = "Example"
+# notes      = "Replace with a hash captured from a known host."
+# confidence = "observed"

@@ -20,7 +20,7 @@ import {
   type VersionInfo,
 } from "./api";
 import { ScanForm } from "./components/ScanForm";
-import { ScanIndicator, type MetricChip } from "./components/ScanIndicator";
+import { ScanIndicator } from "./components/ScanIndicator";
 import { StatsBar } from "./components/StatsBar";
 import { FindingsTable } from "./components/FindingsTable";
 import { LogPanel } from "./components/LogPanel";
@@ -35,45 +35,11 @@ import { ScaView } from "./components/ScaView";
 import { SettingsView } from "./components/SettingsView";
 import { HelpView } from "./components/HelpView";
 import { ToastContainer, type Toast, type ToastKind } from "./components/Toast";
-import { SeverityBreakdown } from "./components/SeverityBreakdown";
+import {
+  SeverityBreakdown,
+  type SeverityFilter,
+} from "./components/SeverityBreakdown";
 import { OnboardingTour, hasSeenTour } from "./components/OnboardingTour";
-
-function buildScanChips({
-  currentHost,
-  stats,
-  findings,
-  requestRate,
-}: {
-  currentHost: string | null;
-  stats: ScanStats | null;
-  findings: FindingPayload[];
-  requestRate: number | null;
-}): MetricChip[] {
-  const chips: MetricChip[] = [];
-  if (currentHost) chips.push({ label: "host", value: currentHost });
-  if (stats) {
-    chips.push({ label: "requests", value: stats.total_requests.toLocaleString() });
-    if (requestRate !== null && requestRate > 0) {
-      chips.push({ label: "rate", value: `${requestRate.toFixed(1)}/s` });
-    }
-    chips.push({
-      label: "elapsed",
-      value: formatElapsedSeconds(stats.elapsed_secs),
-    });
-  }
-  chips.push({ label: "findings", value: findings.length });
-  return chips;
-}
-
-function formatElapsedSeconds(secs: number): string {
-  if (secs < 60) return `${secs}s`;
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  if (m < 60) return `${m}m ${s.toString().padStart(2, "0")}s`;
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  return `${h}h ${mm.toString().padStart(2, "0")}m`;
-}
 
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
@@ -108,6 +74,107 @@ export default function App() {
   const [currentHost, setCurrentHost] = useState<string | null>(null);
   const [scanMaxUrls, setScanMaxUrls] = useState(500);
   const [scanCrawlDepth, setScanCrawlDepth] = useState(3);
+
+  // Dashboard severity filter — lifted here so the minimal severity
+  // strip below the Findings table can act as the filter control,
+  // avoiding a duplicate "All Sev" chip row inside the Findings panel.
+  const SEV_FILTER_KEY = "corvexFindingsSevFilter";
+  const [dashSevFilter, setDashSevFilter] = useState<SeverityFilter>(() => {
+    try {
+      const raw = localStorage.getItem(SEV_FILTER_KEY);
+      if (
+        raw === "all" ||
+        raw === "CRITICAL" ||
+        raw === "HIGH" ||
+        raw === "MEDIUM" ||
+        raw === "LOW" ||
+        raw === "INFO"
+      ) {
+        return raw as SeverityFilter;
+      }
+    } catch {
+      /* ignore */
+    }
+    return "all";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SEV_FILTER_KEY, dashSevFilter);
+    } catch {
+      /* ignore */
+    }
+  }, [dashSevFilter]);
+
+  // User-draggable height for the Findings panel. `null` means "use the
+  // responsive CSS default" (a viewport-relative `clamp()`), which is
+  // the first-run behaviour so the layout can't overflow the window.
+  // Once the user drags the handle, we switch to an explicit pixel
+  // height and persist it.
+  const FINDINGS_HEIGHT_KEY = "corvexFindingsHeight";
+  const FINDINGS_MIN = 160;
+  const FINDINGS_MAX = 1200;
+  const [findingsHeight, setFindingsHeight] = useState<number | null>(() => {
+    try {
+      const raw = localStorage.getItem(FINDINGS_HEIGHT_KEY);
+      const n = raw ? Number(raw) : NaN;
+      if (Number.isFinite(n) && n >= FINDINGS_MIN && n <= FINDINGS_MAX) return n;
+    } catch {
+      /* ignore */
+    }
+    return null;
+  });
+  const findingsContainerRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    // Capture the current *rendered* height so the first drag picks up
+    // wherever the responsive default has placed the panel.
+    const current =
+      findingsContainerRef.current?.getBoundingClientRect().height ?? 360;
+    dragRef.current = { startY: e.clientY, startHeight: Math.round(current) };
+    setDragging(true);
+  }, []);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = e.clientY - dragRef.current.startY;
+      const next = Math.max(
+        FINDINGS_MIN,
+        Math.min(FINDINGS_MAX, dragRef.current.startHeight + delta)
+      );
+      setFindingsHeight(next);
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      setDragging(false);
+    };
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [dragging]);
+
+  useEffect(() => {
+    try {
+      if (findingsHeight === null) {
+        localStorage.removeItem(FINDINGS_HEIGHT_KEY);
+      } else {
+        localStorage.setItem(FINDINGS_HEIGHT_KEY, String(findingsHeight));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [findingsHeight]);
   // Bumped on every scan completion so HistoryView re-fetches.
   const [historyRefresh, setHistoryRefresh] = useState(0);
 
@@ -348,29 +415,62 @@ export default function App() {
           {view === "dashboard" && (
             <div className="dashboard">
               {running && (
-                <ScanIndicator
-                  label="Scanning"
-                  chips={buildScanChips({
-                    currentHost,
-                    stats,
-                    findings,
-                    requestRate,
-                  })}
-                  onCancel={handleCancel}
-                />
+                <ScanIndicator label="Scanning" onCancel={handleCancel} />
               )}
               <StatsBar
-              stats={stats}
-              running={running}
-              requestRate={requestRate}
-              activeMode={activeMode}
-              maxUrls={scanMaxUrls}
-              crawlDepth={scanCrawlDepth}
-            />
-              <SeverityBreakdown findings={findings} />
+                stats={stats}
+                running={running}
+                requestRate={requestRate}
+                activeMode={activeMode}
+                maxUrls={scanMaxUrls}
+                crawlDepth={scanCrawlDepth}
+              />
               <ScanForm running={running} onStart={handleStart} onCancel={handleCancel} />
-              <FindingsTable findings={findings} />
-              <LogPanel lines={log} />
+              {(() => {
+                // Log only makes sense once scan traffic exists — hide it
+                // (and the findings/log resize handle with it) when the
+                // dashboard is idle so findings + severity fit the viewport
+                // without an empty "—" log panel under them.
+                const logVisible = running || log.length > 0;
+                return (
+                  <div
+                    className={`dashboard-right-col${logVisible ? "" : " idle"}`}
+                  >
+                    <div
+                      className="findings-container"
+                      ref={findingsContainerRef}
+                      style={
+                        logVisible && findingsHeight !== null
+                          ? ({ ["--findings-h" as string]: `${findingsHeight}px` } as React.CSSProperties)
+                          : undefined
+                      }
+                    >
+                      <FindingsTable
+                        findings={findings}
+                        sevFilter={dashSevFilter}
+                        onSevFilterChange={setDashSevFilter}
+                        hideSeverityChips
+                      />
+                    </div>
+                    {logVisible && (
+                      <div
+                        className={`findings-resize-handle${dragging ? " dragging" : ""}`}
+                        onMouseDown={startResize}
+                        role="separator"
+                        aria-orientation="horizontal"
+                        aria-label="Resize findings panel"
+                        title="Drag to resize findings panel"
+                      />
+                    )}
+                    <SeverityBreakdown
+                      findings={findings}
+                      value={dashSevFilter}
+                      onChange={setDashSevFilter}
+                    />
+                    {logVisible && <LogPanel lines={log} />}
+                  </div>
+                );
+              })()}
             </div>
           )}
           {view === "history" && (
@@ -402,7 +502,7 @@ export default function App() {
           )}
           {view === "databases" && (
             <div className="dashboard single-pane">
-              <DatabasesView />
+              <DatabasesView onNavigate={setView} />
             </div>
           )}
           {view === "sca" && (

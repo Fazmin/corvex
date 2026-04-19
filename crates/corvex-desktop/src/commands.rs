@@ -65,6 +65,27 @@ pub struct VersionInfo {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct JarmLookupResult {
+    /// The 62-character hash echoed back so the frontend can verify
+    /// round-trip state even when there's no match.
+    pub hash: String,
+    /// Known metadata, `None` when the hash isn't in the DB.
+    pub known: Option<JarmKnownPayload>,
+    /// Cipher/version portion (first 30 chars). Identifies the per-probe
+    /// TLS version + cipher suite chosen by the server.
+    pub cipher_version: String,
+    /// Extension-order SHA-256 digest portion (last 32 chars).
+    pub extensions_digest: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct JarmKnownPayload {
+    pub name: String,
+    pub notes: Option<String>,
+    pub confidence: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct SonarSummary {
     pub scripted_probes: Vec<String>,
     pub static_probes: Vec<String>,
@@ -127,6 +148,39 @@ pub async fn db_summary() -> DbSummary {
         useragents: dbs.useragents.agents.len(),
         dictionary: dbs.dictionary.entries.len(),
         fourohfour: dbs.fourohfour.signatures.len(),
+    }
+}
+
+#[tauri::command]
+pub async fn jarm_lookup(hash: String, extra_probe_files: Vec<String>) -> JarmLookupResult {
+    let extras: Vec<std::path::PathBuf> = extra_probe_files
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+    let db = if extras.is_empty() {
+        corvex_sonar::db::sonar_db()
+    } else {
+        corvex_sonar::db::sonar_db_with_extras(&extras)
+    };
+
+    let trimmed = hash.trim().to_string();
+    let known = db.lookup_jarm(&trimmed).map(|e| JarmKnownPayload {
+        name: e.name.clone(),
+        notes: e.notes.clone(),
+        confidence: e.confidence.clone(),
+    });
+
+    // Decomposition: the jarm module produces `<30-char cipher/version><32-char ext digest>`.
+    // Slice defensively so a truncated or malformed input doesn't panic.
+    let lower = trimmed.to_ascii_lowercase();
+    let cipher_version = lower.chars().take(30).collect::<String>();
+    let extensions_digest = lower.chars().skip(30).take(32).collect::<String>();
+
+    JarmLookupResult {
+        hash: trimmed,
+        known,
+        cipher_version,
+        extensions_digest,
     }
 }
 

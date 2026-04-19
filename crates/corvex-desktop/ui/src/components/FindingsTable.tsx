@@ -142,23 +142,50 @@ function SeverityBadge({ severity }: { severity: SeverityLevel }) {
 
 interface Props {
   findings: FindingPayload[];
+  /** Optionally control the severity filter from the outside. When
+   *  provided, the table reads this value and calls `onSevFilterChange`
+   *  on changes — useful so the minimal Severity strip can double as
+   *  the severity filter without duplicating counts in a chip row. */
+  sevFilter?: SeverityFilter;
+  onSevFilterChange?: (f: SeverityFilter) => void;
+  /** Hide the severity chip row. Set when the surrounding UI exposes
+   *  its own severity filter control (e.g. the Dashboard's severity
+   *  strip). Defaults to false for standalone embeddings like the
+   *  Active Fuzzing view. */
+  hideSeverityChips?: boolean;
 }
 
-export function FindingsTable({ findings }: Props) {
+export function FindingsTable({
+  findings,
+  sevFilter: externalSevFilter,
+  onSevFilterChange,
+  hideSeverityChips = false,
+}: Props) {
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [filter, setFilter] = useState<FilterMode>(
     () => (readStorage(FILTER_KEY, "all") as FilterMode),
   );
-  const [sevFilter, setSevFilter] = useState<SeverityFilter>(
+  const [internalSevFilter, setInternalSevFilter] = useState<SeverityFilter>(
     () => (readStorage(SEV_FILTER_KEY, "all") as SeverityFilter),
   );
+  const sevFilter = externalSevFilter ?? internalSevFilter;
+  const setSevFilter = (f: SeverityFilter) => {
+    if (onSevFilterChange) onSevFilterChange(f);
+    else setInternalSevFilter(f);
+  };
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(
     () => (readStorage(SOURCE_FILTER_KEY, "all") as SourceFilter),
   );
   const [query, setQuery] = useState(() => readStorage(QUERY_KEY, ""));
 
   useEffect(() => writeStorage(FILTER_KEY, filter), [filter]);
-  useEffect(() => writeStorage(SEV_FILTER_KEY, sevFilter), [sevFilter]);
+  useEffect(() => {
+    // Only persist the filter value when the table owns it internally —
+    // the external caller is responsible for its own persistence.
+    if (externalSevFilter === undefined) {
+      writeStorage(SEV_FILTER_KEY, internalSevFilter);
+    }
+  }, [internalSevFilter, externalSevFilter]);
   useEffect(() => writeStorage(SOURCE_FILTER_KEY, sourceFilter), [sourceFilter]);
   useEffect(() => writeStorage(QUERY_KEY, query), [query]);
 
@@ -287,7 +314,7 @@ export function FindingsTable({ findings }: Props) {
           </button>
         </div>
       </div>
-      <div className="filter-chips">
+      <div className="filter-chips filter-chips-combined">
         <button
           className={`chip${filter === "all" ? " active" : ""}`}
           onClick={() => setFilter("all")}
@@ -312,8 +339,9 @@ export function FindingsTable({ findings }: Props) {
         >
           Fingerprint ({counts.fp})
         </button>
-      </div>
-      <div className="filter-chips">
+
+        <span className="filter-chip-divider" aria-hidden />
+
         <button
           className={`chip${sourceFilter === "all" ? " active" : ""}`}
           onClick={() => setSourceFilter("all")}
@@ -336,27 +364,29 @@ export function FindingsTable({ findings }: Props) {
           </button>
         ))}
       </div>
-      <div className="filter-chips severity-chips">
-        <button
-          className={`chip${sevFilter === "all" ? " active" : ""}`}
-          onClick={() => setSevFilter("all")}
-        >
-          All Sev
-        </button>
-        {(["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] as SeverityLevel[]).map((s) => (
+      {!hideSeverityChips && (
+        <div className="filter-chips severity-chips">
           <button
-            key={s}
-            className={`chip${sevFilter === s ? " active" : ""}`}
-            style={{
-              borderColor: SEVERITY_COLORS[s],
-              ...(sevFilter === s ? { backgroundColor: SEVERITY_COLORS[s], color: s === "MEDIUM" ? "#333" : "#fff" } : {}),
-            }}
-            onClick={() => setSevFilter(s)}
+            className={`chip${sevFilter === "all" ? " active" : ""}`}
+            onClick={() => setSevFilter("all")}
           >
-            {s} ({sevCounts[s] ?? 0})
+            All Sev
           </button>
-        ))}
-      </div>
+          {(["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] as SeverityLevel[]).map((s) => (
+            <button
+              key={s}
+              className={`chip${sevFilter === s ? " active" : ""}`}
+              style={{
+                borderColor: SEVERITY_COLORS[s],
+                ...(sevFilter === s ? { backgroundColor: SEVERITY_COLORS[s], color: s === "MEDIUM" ? "#333" : "#fff" } : {}),
+              }}
+              onClick={() => setSevFilter(s)}
+            >
+              {s} ({sevCounts[s] ?? 0})
+            </button>
+          ))}
+        </div>
+      )}
       <div className="findings-wrap">
         <table className="findings-table">
           <colgroup>

@@ -220,6 +220,29 @@ export function sonarSummary(
   });
 }
 
+export interface JarmKnownPayload {
+  name: string;
+  notes: string | null;
+  confidence: string | null;
+}
+
+export interface JarmLookupResult {
+  hash: string;
+  known: JarmKnownPayload | null;
+  cipher_version: string;
+  extensions_digest: string;
+}
+
+export function jarmLookup(
+  hash: string,
+  extraProbeFiles: string[] = []
+): Promise<JarmLookupResult> {
+  return invoke<JarmLookupResult>("jarm_lookup", {
+    hash,
+    extraProbeFiles,
+  });
+}
+
 // ---- Standalone probing runs ------------------------------------------------
 
 export interface ProbeParams {

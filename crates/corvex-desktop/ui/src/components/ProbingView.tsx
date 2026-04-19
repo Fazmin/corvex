@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { sonarSummary, type SonarSummary } from "../api";
 import { useSettings } from "../settings";
 import { InfoTip } from "./InfoTip";
+import { JarmInfo } from "./JarmInfo";
 import { ProbeRunner } from "./ProbeRunner";
 
 type Tab =
@@ -635,102 +636,60 @@ function DatasetsTab({ summary, summaryErr }: { summary: SonarSummary | null; su
   return (
     <div className="single-pane" style={{ display: "grid", gap: 16 }}>
       <div className="form-panel" style={{ maxWidth: 860 }}>
-        <h3 style={{ margin: 0 }}>Bundled in the binary</h3>
-        <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
-          At build time, <code>crates/corvex-sonar/build.rs</code> parses the
-          declarative probes TOML and every XML file under{" "}
-          <code>data/recog/</code> into a single bincode blob embedded via{" "}
-          <code>include_bytes!</code>. The blob is deserialised on the first
-          probe, every regex is compiled once with fancy-regex on a parallel
-          iterator, and the result lives in a process-wide OnceCell. Nothing
-          touches the filesystem at scan time.
+        <h3 style={{ margin: 0 }}>Loaded now</h3>
+        <p className="sub" style={{ marginTop: 6, lineHeight: 1.5 }}>
+          Quick counts for this running process. The full breakdown —
+          per-dataset provenance, licence attribution, cross-cutting web and
+          SCA numbers — lives in the{" "}
+          <strong>Databases</strong> view so everything you have bundled
+          shows up in one place.
         </p>
         {summaryErr && (
           <div className="field-error">Failed to query probe database: {summaryErr}</div>
         )}
         {summary && (
-          <table className="sub" style={{ width: "100%", marginTop: 12, borderCollapse: "collapse" }}>
-            <tbody>
-              <StatRow k="Scripted probes" v={`${summary.scripted_count}`} />
-              <StatRow k="Declarative (TOML) probes" v={`${summary.static_count - summary.extra_probes_loaded}`} />
-              <StatRow k="Recog fingerprint sets" v={`${summary.fingerprint_sets.length}`} />
-              <StatRow k="Recog fingerprints (total)" v={`${summary.fingerprint_count - summary.extra_fps_loaded}`} />
-              <StatRow
-                k="Extra layer-3 files loaded"
-                v={`${summary.extra_files_loaded} (+${summary.extra_probes_loaded} probes, +${summary.extra_fps_loaded} fingerprints)`}
-              />
-            </tbody>
-          </table>
+          <div
+            style={{
+              marginTop: 10,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "6px 14px",
+              fontSize: "calc(var(--font-base) - 2px)",
+              color: "var(--fg)",
+              fontFamily: "monospace",
+            }}
+          >
+            <span>
+              <span style={{ color: "var(--muted)" }}>scripted </span>
+              {summary.scripted_count}
+            </span>
+            <span>
+              <span style={{ color: "var(--muted)" }}>declarative </span>
+              {summary.static_count - summary.extra_probes_loaded}
+            </span>
+            <span>
+              <span style={{ color: "var(--muted)" }}>fingerprint sets </span>
+              {summary.fingerprint_sets.length}
+            </span>
+            <span>
+              <span style={{ color: "var(--muted)" }}>fingerprints </span>
+              {summary.fingerprint_count - summary.extra_fps_loaded}
+            </span>
+            <span>
+              <span style={{ color: "var(--muted)" }}>layer-3 files </span>
+              {summary.extra_files_loaded}
+              {summary.extra_files_loaded > 0 && (
+                <span style={{ color: "var(--muted)" }}>
+                  {" "}
+                  (+{summary.extra_probes_loaded} probes, +
+                  {summary.extra_fps_loaded} fps)
+                </span>
+              )}
+            </span>
+          </div>
         )}
       </div>
-
-      <div className="form-panel" style={{ maxWidth: 860 }}>
-        <h3 style={{ margin: 0 }}>Recog fingerprint database</h3>
-        <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
-          Rapid7's open-source fingerprint corpus — regex → product / version /
-          CPE mappings for a wide range of banner protocols. Bundled under{" "}
-          <code>crates/corvex-sonar/data/recog/*.xml</code> under the
-          BSD-2-Clause licence. The required copyright notice ships with the
-          binary as <code>THIRD_PARTY_LICENSES.md</code> at the repo root; the
-          Help view links to it.
-        </p>
-        <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
-          Sets currently wired into probes:{" "}
-          <code>http_header.server</code>, <code>ssh.banner</code>,{" "}
-          <code>ftp.banner</code>, <code>smtp.banner</code>,{" "}
-          <code>pop3.banner</code>, <code>imap.banner</code>,{" "}
-          <code>vnc.banner</code>, <code>mysql.greeting</code>,{" "}
-          <code>redis.info</code>, <code>memcached.version</code>,{" "}
-          <code>postgres.error</code>, <code>mongodb.banner</code>,{" "}
-          <code>elasticsearch.response</code>, <code>docker.response</code>,{" "}
-          <code>etcd.response</code>, <code>dns.version</code>.
-        </p>
-      </div>
-
-      <div className="form-panel" style={{ maxWidth: 860 }}>
-        <h3 style={{ margin: 0 }}>In-house probe payloads</h3>
-        <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
-          <code>crates/corvex-sonar/data/probes.toml</code> — declarative
-          payloads and port lists authored from public protocol specs
-          (RFCs, MS-open protocol specs, vendor documentation). Not redistributed
-          from any third-party scanner dataset. Each entry names the Recog
-          fingerprint sets to match the response against.
-        </p>
-      </div>
-
-      <div className="form-panel" style={{ maxWidth: 860 }}>
-        <h3 style={{ margin: 0 }}>User-supplied probe files</h3>
-        <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
-          Optional drop-in probe files in the Corvex directive format (see the{" "}
-          <strong>Directive format</strong> tab). Paths configured on the
-          Configure tab are parsed at process startup, merged into the running
-          fingerprint database, and cached per path-set. Nothing is redistributed
-          — Corvex only reads what you drop into the configured paths.
-        </p>
-      </div>
-
-      <div className="form-panel" style={{ maxWidth: 860 }}>
-        <h3 style={{ margin: 0 }}>Performance budget</h3>
-        <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
-          Build-time compilation: a few hundred microseconds per regex during
-          the build script; nothing happens at scan time. Process-startup
-          compilation: all regexes compiled once with fancy-regex on a parallel
-          iterator (~ms for the bundled set). Per-match cost is bounded by a
-          50 ms spawn_blocking timeout to defuse adversarial inputs. The
-          baseline bincode blob is currently on the order of ~12 KB; size will
-          grow as the corpus expands.
-        </p>
-      </div>
     </div>
-  );
-}
-
-function StatRow({ k, v }: { k: string; v: string }) {
-  return (
-    <tr>
-      <td style={{ padding: "4px 10px 4px 0", color: "var(--muted)", width: "45%" }}>{k}</td>
-      <td style={{ padding: "4px 0", color: "var(--fg)", fontFamily: "monospace" }}>{v}</td>
-    </tr>
   );
 }
 
@@ -739,8 +698,59 @@ function StatRow({ k, v }: { k: string; v: string }) {
 /* ============================================================ */
 
 function JarmTab() {
+  const [lookupInput, setLookupInput] = useState("");
+  const trimmed = lookupInput.trim();
+  const looksValid = /^[0-9a-fA-F]{62}$/.test(trimmed);
+
   return (
     <div className="single-pane" style={{ display: "grid", gap: 16 }}>
+      <div className="form-panel" style={{ maxWidth: 860 }}>
+        <h3 style={{ margin: 0 }}>Look up a hash</h3>
+        <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
+          Paste a 62-character JARM fingerprint below to decompose it into
+          its cipher/version and extension-digest halves and check it
+          against the bundled known-fingerprint database. The same
+          popover appears automatically on every JARM result in the Run
+          tab — this field is for inspecting hashes captured elsewhere.
+        </p>
+        <input
+          type="text"
+          value={lookupInput}
+          onChange={(e) => setLookupInput(e.target.value)}
+          spellCheck={false}
+          placeholder="e.g. 27d40d40d29d40d1dc42d43d00041d4689..."
+          style={{ width: "100%", fontFamily: "monospace", marginTop: 8 }}
+        />
+        {lookupInput.length > 0 && !looksValid && (
+          <div className="field-error">
+            A JARM fingerprint is exactly 62 hex characters.
+          </div>
+        )}
+        {looksValid && (
+          <div style={{ marginTop: 10 }}>
+            <JarmInfo hash={trimmed} />
+          </div>
+        )}
+      </div>
+
+      <div className="form-panel" style={{ maxWidth: 860 }}>
+        <h3 style={{ margin: 0 }}>Growing the known-fingerprint database</h3>
+        <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
+          The bundled lookup table is a curated list of hashes we've
+          seen from known stacks. When a scan surfaces a hash that isn't
+          in the table, the popover says so and tells you where to
+          extend it — <code>crates/corvex-sonar/data/jarm_known.toml</code>.
+          Rebuild after editing and the new entries appear on the next
+          launch.
+        </p>
+        <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>
+          Tip: capture a hash from a host you know (your own web server,
+          a specific CDN property, a vendor appliance) and add it to the
+          file with a short label. Future scans that land the same stack
+          will auto-annotate.
+        </p>
+      </div>
+
       <div className="form-panel" style={{ maxWidth: 860 }}>
         <h3 style={{ margin: 0 }}>What JARM fingerprints</h3>
         <p className="sub" style={{ marginTop: 6, lineHeight: 1.6 }}>

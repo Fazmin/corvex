@@ -9,6 +9,16 @@ pub struct SerializedDb {
     pub version: u32,
     pub static_probes: Vec<SerializedStaticProbe>,
     pub recog_fps: Vec<SerializedRecogFp>,
+    #[serde(default)]
+    pub jarm_known: Vec<SerializedJarmEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializedJarmEntry {
+    pub hash: String,
+    pub name: String,
+    pub notes: Option<String>,
+    pub confidence: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
