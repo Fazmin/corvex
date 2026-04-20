@@ -11,22 +11,28 @@ use corvex_core::plugin::{Plugin, PluginRegistry};
 use corvex_core::report::{ReportFormat, ReportSink};
 use std::sync::Arc;
 
+mod active_util;
+
 pub mod apacheusers;
 pub mod auth;
 pub mod cgi;
+pub mod cmd_injection_plugin;
 pub mod compliance;
 pub mod content_search;
-pub mod dns_enum;
 pub mod cookies;
+pub mod crlf_plugin;
 pub mod dictionary_attack;
+pub mod dns_enum;
 pub mod favicon;
 pub mod fileops;
 pub mod headers;
+pub mod lfi_plugin;
 pub mod ms10_070;
 pub mod msgs;
 pub mod multiple_index;
 pub mod negotiate;
 pub mod netservices;
+pub mod open_redirect_plugin;
 pub mod options;
 pub mod optionsbleed;
 pub mod os_fingerprint;
@@ -39,11 +45,15 @@ pub mod sca_plugin;
 pub mod shellshock;
 pub mod siebel;
 pub mod sitefiles;
+pub mod spring4shell_plugin;
 pub mod springboot;
 pub mod sqli_plugin;
 pub mod ssl;
+pub mod ssti_plugin;
 pub mod tests_plugin;
 pub mod tls_audit;
+pub mod xss_plugin;
+pub mod xxe_plugin;
 
 /// Register every built-in scan plugin.
 pub fn register_all() -> PluginRegistry {
@@ -89,6 +99,15 @@ pub fn register_all() -> PluginRegistry {
         Arc::new(netservices::NetServicesPlugin::default()),
         // Active SQL injection scanner — weight 50 in the Active hook.
         Arc::new(sqli_plugin::SqliPlugin::default()),
+        // Active injection family — weights 52-66, all Active hook.
+        Arc::new(xss_plugin::XssPlugin::default()),
+        Arc::new(open_redirect_plugin::OpenRedirectPlugin::default()),
+        Arc::new(crlf_plugin::CrlfPlugin::default()),
+        Arc::new(lfi_plugin::LfiPlugin::default()),
+        Arc::new(cmd_injection_plugin::CmdInjectionPlugin::default()),
+        Arc::new(ssti_plugin::SstiPlugin::default()),
+        Arc::new(xxe_plugin::XxePlugin::default()),
+        Arc::new(spring4shell_plugin::Spring4ShellPlugin::default()),
         // The big one — runs db_tests. Weight 99 = last.
         Arc::new(tests_plugin::TestsPlugin::default()),
     ];
