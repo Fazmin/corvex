@@ -699,12 +699,15 @@ dependencies = [
  "corvex-nuclei",
  "corvex-plugins",
  "corvex-sonar",
+ "flate2",
  "futures",
  "once_cell",
  "regex",
+ "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -715,6 +718,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]

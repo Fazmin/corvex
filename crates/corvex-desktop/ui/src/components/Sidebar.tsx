@@ -30,8 +30,6 @@ interface Props {
   view: View;
   onSelect: (view: View) => void;
   onNewScan: () => void;
-  pluginCount: number;
-  testsCount: number;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   /** True while a web-scan (dashboard) run is in flight. */
@@ -42,7 +40,6 @@ interface NavItem {
   view: View;
   icon: ReactNode;
   label: string;
-  count?: number | string;
   /** Show a pulsing dot next to this item. */
   active?: boolean;
 }
@@ -65,8 +62,6 @@ export function Sidebar({
   view,
   onSelect,
   onNewScan,
-  pluginCount,
-  testsCount,
   collapsed,
   onToggleCollapsed,
   webScanRunning = false,
@@ -85,7 +80,6 @@ export function Sidebar({
       view: "plugins",
       icon: <PluginsIcon size={collapsed ? 22 : 18} />,
       label: "Plugins",
-      count: pluginCount,
     },
     {
       view: "probing",
@@ -102,7 +96,6 @@ export function Sidebar({
       view: "databases",
       icon: <DatabasesIcon size={collapsed ? 22 : 18} />,
       label: "Databases",
-      count: testsCount.toLocaleString(),
     },
     {
       view: "sca",
@@ -196,7 +189,6 @@ export function Sidebar({
           >
             <span className="ico">{item.icon}</span>
             <span>{item.label}</span>
-            {item.count !== undefined && <span className="count">{item.count}</span>}
             {item.active && <span className="nav-pulse" aria-label="running" />}
           </button>
         ))}

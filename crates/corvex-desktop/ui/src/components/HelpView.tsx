@@ -1,4 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  nucleiTemplateList,
+  type NucleiTemplateEntry,
+} from "../api";
 
 interface Section {
   id: string;
@@ -13,6 +17,7 @@ const SECTIONS: Section[] = [
   { id: "scan-form", title: "Scan form reference" },
   { id: "interface-tips", title: "Interface tips" },
   { id: "data-storage", title: "Data & storage" },
+  { id: "nuclei-catalog", title: "Bundled Nuclei templates" },
   { id: "glossary", title: "Glossary" },
   { id: "limitations", title: "Known limitations" },
   { id: "troubleshooting", title: "Troubleshooting" },
@@ -302,7 +307,7 @@ export function HelpView() {
 
           <h4>Databases</h4>
           <p>
-            The single "what's bundled?" view. Four tabs:
+            The single "what's bundled?" view. Five tabs:
           </p>
           <ul>
             <li>
@@ -331,6 +336,17 @@ export function HelpView() {
               targets). The per-technique explainers stay in the Fuzzing view
               where they're useful next to the Run form; Databases only shows
               the totals.
+            </li>
+            <li>
+              <strong>Nuclei templates</strong> — supported vs skipped counts,
+              pinned upstream tag + commit, per-severity breakdown for
+              supported templates, skipped-bucket breakdown (with a tooltip
+              for each reason — unsupported feature, DSL helper, interactsh,
+              non-HTTP protocol, parse error), top tags across the supported
+              set, and whether the Tier-2 extras cache is populated. The
+              provenance card names ProjectDiscovery (MIT), explains the
+              filter policy (severity critical/high plus the <code>kev</code>
+              tag), and lists the on-disk load roots actually being used.
             </li>
           </ul>
           <p>
@@ -881,6 +897,14 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
               Select-all UI over the plugin registry. <code>@@DEFAULT</code>{" "}
               resolves to the default-on subset. Uncheck individual plugins to
               exclude them from the default set, or pick a narrow bespoke list.
+              The <em>Select all</em> / <em>Deselect all</em> shortcuts at the
+              top of the list flip the entire registry in one click:
+              {" "}<em>Select all</em> sets <code>@@ALL</code> (every plugin
+              including opt-in extras like <code>nuclei</code>,{" "}
+              <code>dictionary</code>, <code>siebel</code>), while{" "}
+              <em>Deselect all</em> expands to{" "}
+              <code>@@DEFAULT;-p1;-p2;…;-pN</code> — every checkbox off so you
+              can cherry-pick one or two plugins for a focused run.
             </dd>
             <dt>Evasion</dt>
             <dd>
@@ -1091,6 +1115,28 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
               and fix versions. If <em>Available</em> reads <em>No</em> in the
               VulnDB summary, run <strong>Update</strong> once to populate it.
             </dd>
+            <dt>Bundled Nuclei templates</dt>
+            <dd>
+              A filtered subset of the ProjectDiscovery nuclei-templates
+              library ships with the app under{" "}
+              <code>program/databases/nuclei/</code> (severity{" "}
+              <em>critical</em> / <em>high</em> / <em>medium</em> plus the
+              {" "}<code>kev</code> tag). The sibling{" "}
+              <code>MANIFEST.toml</code> pins the upstream release tag and
+              per-file commit SHA; the live counts in Databases → Nuclei
+              templates read from this directory. In a packaged build the
+              same tree lands under the installer's resources dir next to
+              the app binary. Templates are MIT-licensed; per-template
+              author attribution is preserved in every finding.
+            </dd>
+            <dt>Tier-2 Nuclei extras cache</dt>
+            <dd>
+              Optional full-library cache maintained outside the shipped
+              bundle. When present it merges on top of the Tier-1 bundle at
+              scan time. On Windows the expected path is{" "}
+              <code>%APPDATA%\corvex\nuclei-templates\</code>; Databases →
+              Nuclei templates shows whether a cache is in place.
+            </dd>
           </dl>
           <h4>In the webview's localStorage</h4>
           <dl className="kv">
@@ -1135,6 +1181,22 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
             <dt><code>corvexTourSeen</code></dt>
             <dd>Flag preventing the welcome tour from auto-appearing after first launch.</dd>
           </dl>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        <section id="nuclei-catalog">
+          <h3>Bundled Nuclei templates</h3>
+          <p>
+            Every template currently on disk under{" "}
+            <code>program/databases/nuclei/</code> (plus the Tier-2 extras
+            cache when present). A <em>supported</em> template will run
+            during an active-phase scan; a <em>skipped</em> one is parsed
+            but not executed because it uses a v1-unsupported feature
+            (e.g. <code>raw:</code> requests, unknown DSL helpers,
+            interactsh). The list is loaded on first expand so it doesn't
+            slow down the rest of the Help view.
+          </p>
+          <NucleiCatalog />
         </section>
 
         {/* ------------------------------------------------------------------ */}
@@ -1230,16 +1292,23 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
             <dd>
               Community-maintained YAML vulnerability templates
               (ProjectDiscovery, MIT). A filtered subset — severity{" "}
-              <em>critical</em> / <em>high</em> plus the KEV tag — ships
-              bundled under <code>program/databases/nuclei/</code> and is
-              executed by the <code>nuclei</code> plugin during the active
-              phase. Each finding preserves the template id, per-template{" "}
-              <code>info.author</code> credit, and any CVE / CWE
-              classification; overlap with native plugins like{" "}
-              <code>spring4shell</code> / <code>shellshock</code> is
+              <em>critical</em> / <em>high</em> / <em>medium</em> plus the
+              {" "}<code>kev</code> tag — ships bundled under{" "}
+              <code>program/databases/nuclei/</code> and is executed by the
+              {" "}<code>nuclei</code> plugin during the active phase. Live
+              counts, pinned upstream tag, per-severity and per-tag
+              breakdowns, and the skipped-bucket reasons are visible under
+              Databases → Nuclei templates. Each finding preserves the
+              template id, per-template <code>info.author</code> credit, and
+              any CVE / CWE classification; overlap with native plugins like
+              {" "}<code>spring4shell</code> / <code>shellshock</code> is
               suppressed by{" "}
-              <code>program/databases/nuclei/overlap.toml</code>. Full
-              MIT notice with pinned upstream tag in{" "}
+              <code>program/databases/nuclei/overlap.toml</code> so the same
+              vulnerability isn't reported twice on one origin. When a CVE id
+              is present and a matching record lives in the local VulnDB, the
+              finding is enriched with CVSS / EPSS / description from that
+              record rather than emitted as two separate entries. Full MIT
+              notice with pinned upstream tag + commit in{" "}
               <code>THIRD_PARTY_LICENSES.md</code>.
             </dd>
             <dt>JARM</dt>
@@ -1284,6 +1353,20 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
           <h3>Known limitations</h3>
           <p>Deliberate, up-front honesty — things the app does not do today:</p>
           <ul>
+            <li>
+              <strong>Nuclei engine v1 coverage is partial.</strong> The
+              bundled subset currently runs about one-third of its templates
+              against targets; the rest are classified at load time with a
+              structured reason visible under Databases → Nuclei templates.
+              Dominant gaps: the <code>raw:</code> HTTP-request block (full
+              wire requests instead of path-based, roughly 2,000 templates),
+              DSL helpers outside the v1 allowlist (~200), templates that
+              require a real Interactsh out-of-band server (~65, parse-stubbed
+              but never matched), and non-HTTP protocols
+              (<code>network</code>, <code>dns</code>, <code>ssl</code>,{" "}
+              <code>code</code>, <code>headless</code>). Each of these is a
+              targeted v1.1 / v2 lift.
+            </li>
             <li>
               <strong>Most active fuzzing modules ship today.</strong> The
               SQL-injection family is fully wired (error / boolean / time /
@@ -1510,5 +1593,237 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
         </section>
       </div>
     </div>
+  );
+}
+
+/* ====================================================================== */
+/* NucleiCatalog — expandable, filter-enabled list of every template on   */
+/* disk. Fetches from the nuclei_template_list IPC command on first open, */
+/* then lets the user narrow the list with a substring match against id,  */
+/* name, tags, CVEs, authors, or skip reason.                             */
+/* ====================================================================== */
+
+type SevFilter = "all" | "critical" | "high" | "medium" | "low" | "info";
+type SupportFilter = "all" | "supported" | "skipped";
+
+function NucleiCatalog() {
+  const [opened, setOpened] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [rows, setRows] = useState<NucleiTemplateEntry[]>([]);
+  const [query, setQuery] = useState("");
+  const [sev, setSev] = useState<SevFilter>("all");
+  const [support, setSupport] = useState<SupportFilter>("all");
+
+  const onToggle = (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+    const isOpen = e.currentTarget.open;
+    setOpened(isOpen);
+    if (isOpen && rows.length === 0 && !loading && !err) {
+      setLoading(true);
+      nucleiTemplateList()
+        .then((list) => {
+          setRows(list);
+          setLoading(false);
+        })
+        .catch((e: unknown) => {
+          setErr(
+            typeof e === "string"
+              ? e
+              : e instanceof Error
+              ? e.message
+              : "unknown"
+          );
+          setLoading(false);
+        });
+    }
+  };
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (sev !== "all" && r.severity !== sev) return false;
+      if (support === "supported" && !r.supported) return false;
+      if (support === "skipped" && r.supported) return false;
+      if (!q) return true;
+      if (r.id.toLowerCase().includes(q)) return true;
+      if (r.name.toLowerCase().includes(q)) return true;
+      if (r.tags.some((t) => t.toLowerCase().includes(q))) return true;
+      if (r.cve_ids.some((c) => c.toLowerCase().includes(q))) return true;
+      if (r.authors.some((a) => a.toLowerCase().includes(q))) return true;
+      if (r.path.toLowerCase().includes(q)) return true;
+      if ((r.skip_reason ?? "").toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [rows, query, sev, support]);
+
+  const supportedTotal = rows.filter((r) => r.supported).length;
+  const skippedTotal = rows.length - supportedTotal;
+
+  const summary = rows.length
+    ? `Show full list (${rows.length.toLocaleString()} templates — ${supportedTotal.toLocaleString()} supported, ${skippedTotal.toLocaleString()} skipped)`
+    : "Show full list";
+
+  return (
+    <details onToggle={onToggle}>
+      <summary
+        style={{
+          cursor: "pointer",
+          padding: "6px 10px",
+          border: "1px solid var(--border)",
+          borderRadius: 6,
+          marginTop: 6,
+          marginBottom: 10,
+          display: "inline-block",
+        }}
+      >
+        {summary}
+      </summary>
+
+      {opened && loading && (
+        <div className="empty" style={{ marginTop: 8 }}>
+          Loading template metadata…
+        </div>
+      )}
+
+      {opened && err && (
+        <div className="empty" style={{ marginTop: 8 }}>
+          Failed to load template list: {err}
+        </div>
+      )}
+
+      {opened && !loading && !err && rows.length > 0 && (
+        <>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              marginTop: 6,
+              marginBottom: 8,
+              alignItems: "center",
+            }}
+          >
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter by id / name / tag / CVE / author / skip reason…"
+              style={{
+                flex: "1 1 260px",
+                padding: "4px 8px",
+                fontSize: "calc(var(--font-base) - 1px)",
+                border: "1px solid var(--border)",
+                borderRadius: 4,
+                background: "var(--panel)",
+                color: "var(--fg)",
+              }}
+            />
+            <select
+              value={sev}
+              onChange={(e) => setSev(e.target.value as SevFilter)}
+              style={{ padding: "3px 6px" }}
+            >
+              <option value="all">All severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+              <option value="info">Info</option>
+            </select>
+            <select
+              value={support}
+              onChange={(e) => setSupport(e.target.value as SupportFilter)}
+              style={{ padding: "3px 6px" }}
+            >
+              <option value="all">Supported + skipped</option>
+              <option value="supported">Supported only</option>
+              <option value="skipped">Skipped only</option>
+            </select>
+            <span
+              className="sub"
+              style={{ fontFamily: "monospace", fontSize: "calc(var(--font-base) - 2px)" }}
+            >
+              showing {filtered.length.toLocaleString()} of{" "}
+              {rows.length.toLocaleString()}
+            </span>
+          </div>
+
+          <div
+            style={{
+              maxHeight: 520,
+              overflow: "auto",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              contentVisibility: "auto",
+            }}
+          >
+            <table
+              className="findings-table"
+              style={{ fontSize: "calc(var(--font-base) - 2px)", width: "100%" }}
+            >
+              <thead>
+                <tr>
+                  <th style={{ width: "34%" }}>ID</th>
+                  <th style={{ width: "10%" }}>Severity</th>
+                  <th style={{ width: "20%" }}>Tags</th>
+                  <th style={{ width: "18%" }}>CVE(s)</th>
+                  <th style={{ width: "18%" }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice(0, 1000).map((r) => (
+                  <tr key={r.id + r.path} title={r.name || r.path}>
+                    <td style={{ fontFamily: "monospace" }}>{r.id}</td>
+                    <td>
+                      {r.severity ? (
+                        <span
+                          className={`sev-pill sev-${r.severity}`}
+                          style={{
+                            fontSize: "calc(var(--font-base) - 3px)",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {r.severity}
+                        </span>
+                      ) : (
+                        <span className="sub">—</span>
+                      )}
+                    </td>
+                    <td style={{ fontFamily: "monospace" }}>
+                      {r.tags.slice(0, 4).join(", ")}
+                      {r.tags.length > 4 ? ` +${r.tags.length - 4}` : ""}
+                    </td>
+                    <td style={{ fontFamily: "monospace" }}>
+                      {r.cve_ids.join(", ") || <span className="sub">—</span>}
+                    </td>
+                    <td>
+                      {r.supported ? (
+                        <span style={{ color: "var(--success)" }}>supported</span>
+                      ) : (
+                        <span
+                          style={{ color: "var(--warning)" }}
+                          title={r.skip_reason ?? ""}
+                        >
+                          {r.skip_reason ?? "skipped"}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filtered.length > 1000 && (
+              <div
+                className="sub"
+                style={{ padding: "6px 10px", textAlign: "center" }}
+              >
+                Showing the first 1,000 of {filtered.length.toLocaleString()}.
+                Tighten the filter to narrow the list.
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </details>
   );
 }

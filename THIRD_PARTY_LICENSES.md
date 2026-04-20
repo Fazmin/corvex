@@ -87,8 +87,8 @@ SOFTWARE.
 ```
 
 Changes by this project: only a subset of the upstream template library is
-bundled (templates whose `info.severity` is `critical` or `high`, or whose
-tags include `kev`). The bundled set is refreshed by
+bundled (templates whose `info.severity` is `critical`, `high`, or `medium`,
+or whose tags include `kev`). The bundled set is refreshed by
 `scripts/refresh-nuclei-bundle.sh`, which records the pinned upstream tag
 and each template's commit SHA in `program/databases/nuclei/MANIFEST.toml`.
 Per-template `info.author` attribution is preserved in the YAML and emitted

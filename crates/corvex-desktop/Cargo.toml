@@ -34,3 +34,7 @@ futures.workspace = true
 rusqlite.workspace = true
 anyhow.workspace = true
 regex.workspace = true
+walkdir.workspace = true
+reqwest.workspace = true
+tar.workspace = true
+flate2.workspace = true

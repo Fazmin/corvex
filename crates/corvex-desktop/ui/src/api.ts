@@ -241,6 +241,38 @@ export function nucleiSummary(): Promise<NucleiSummary> {
   return invoke<NucleiSummary>("nuclei_summary");
 }
 
+export interface NucleiTemplateEntry {
+  id: string;
+  name: string;
+  path: string;
+  severity: string;
+  tags: string[];
+  authors: string[];
+  cve_ids: string[];
+  supported: boolean;
+  skip_reason: string | null;
+}
+
+export function nucleiTemplateList(): Promise<NucleiTemplateEntry[]> {
+  return invoke<NucleiTemplateEntry[]>("nuclei_template_list");
+}
+
+export interface NucleiExtrasStatus {
+  cache_path: string;
+  tag: string;
+  http_template_count: number;
+}
+
+export function nucleiExtrasDownload(
+  tag?: string
+): Promise<NucleiExtrasStatus> {
+  return invoke<NucleiExtrasStatus>("nuclei_extras_download", { tag });
+}
+
+export function nucleiExtrasRemove(): Promise<void> {
+  return invoke<void>("nuclei_extras_remove");
+}
+
 export interface JarmKnownPayload {
   name: string;
   notes: string | null;

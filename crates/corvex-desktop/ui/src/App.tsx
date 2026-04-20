@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelScan,
   dbSummary,
-  listPlugins,
   onDone,
   onFinding,
   onHostEnd,
@@ -68,7 +67,6 @@ export default function App() {
   const [log, setLog] = useState<string[]>([]);
   const [version, setVersion] = useState<VersionInfo | null>(null);
   const [dbs, setDbs] = useState<DbSummary | null>(null);
-  const [pluginCount, setPluginCount] = useState(0);
   const [requestRate, setRequestRate] = useState<number | null>(null);
   const [activeMode, setActiveMode] = useState(false);
   const [currentHost, setCurrentHost] = useState<string | null>(null);
@@ -201,7 +199,6 @@ export default function App() {
   useEffect(() => {
     versionInfo().then(setVersion);
     dbSummary().then(setDbs);
-    listPlugins().then((list) => setPluginCount(list.length));
 
     let unlisten: (() => void) | null = null;
     onLogLine((line: LogLine) => {
@@ -389,8 +386,6 @@ export default function App() {
           view={view}
           onSelect={setView}
           onNewScan={handleNewScan}
-          pluginCount={pluginCount}
-          testsCount={dbs?.tests ?? 0}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={toggleSidebar}
           webScanRunning={running}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   dbSummary,
+  nucleiExtrasDownload,
+  nucleiExtrasRemove,
   nucleiSummary,
   sonarSummary,
   vulndbSummary,
@@ -440,8 +442,13 @@ function FuzzingTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
 function NucleiTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
   const [summary, setSummary] = useState<NucleiSummary | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [extrasBusy, setExtrasBusy] = useState<"download" | "remove" | null>(
+    null
+  );
+  const [extrasMsg, setExtrasMsg] = useState<string | null>(null);
+  const [extrasErr, setExtrasErr] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refresh = () => {
     nucleiSummary()
       .then((s) => {
         setSummary(s);
@@ -452,7 +459,49 @@ function NucleiTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
           typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
         );
       });
+  };
+
+  useEffect(() => {
+    refresh();
   }, []);
+
+  const onExpandCoverage = async () => {
+    if (extrasBusy) return;
+    setExtrasBusy("download");
+    setExtrasMsg(null);
+    setExtrasErr(null);
+    try {
+      const status = await nucleiExtrasDownload();
+      setExtrasMsg(
+        `Downloaded ${status.http_template_count.toLocaleString()} templates at ${status.tag} into ${status.cache_path}`
+      );
+      refresh();
+    } catch (e: unknown) {
+      setExtrasErr(
+        typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
+      );
+    } finally {
+      setExtrasBusy(null);
+    }
+  };
+
+  const onRemoveExtras = async () => {
+    if (extrasBusy) return;
+    setExtrasBusy("remove");
+    setExtrasMsg(null);
+    setExtrasErr(null);
+    try {
+      await nucleiExtrasRemove();
+      setExtrasMsg("Tier-2 cache removed. Scans will use the bundled set only.");
+      refresh();
+    } catch (e: unknown) {
+      setExtrasErr(
+        typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
+      );
+    } finally {
+      setExtrasBusy(null);
+    }
+  };
 
   if (err) {
     return <div className="empty">Failed to load Nuclei summary: {err}</div>;
@@ -602,9 +651,9 @@ function NucleiTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
           <li>
             <strong>nuclei-templates</strong> (ProjectDiscovery, MIT). The
             bundled subset is filtered to severity <em>critical</em> /{" "}
-            <em>high</em> plus the <code>kev</code> tag. Pinned to release
-            tag shown above; full copyright notice ships in{" "}
-            <code>THIRD_PARTY_LICENSES.md</code>.
+            <em>high</em> / <em>medium</em> plus the <code>kev</code> tag.
+            Pinned to release tag shown above; full copyright notice ships
+            in <code>THIRD_PARTY_LICENSES.md</code>.
           </li>
           <li>
             <strong>Per-template authors</strong> are preserved in each YAML
@@ -640,17 +689,66 @@ function NucleiTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
             <strong>Tier-2 extras cache</strong>{" "}
             {summary.extras_cached && summary.extras_cache_path ? (
               <>
-                present at <code>{summary.extras_cache_path}</code>.
+                present at <code>{summary.extras_cache_path}</code>. The full
+                upstream HTTP template tree is layered on top of the bundled
+                set at scan time.
               </>
             ) : (
               <>
-                not populated. The full ~12k upstream template tree can be
-                downloaded into the user data dir for broader coverage beyond
-                the critical/high bundle.
+                not populated. Click <em>Expand coverage</em> below to fetch
+                the full upstream HTTP template tree into your user data
+                directory; it layers on top of the bundled set at scan time.
               </>
             )}
           </li>
         </ul>
+
+        <div
+          style={{
+            marginTop: 12,
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={onExpandCoverage}
+            disabled={extrasBusy !== null}
+            style={{ padding: "6px 12px" }}
+            title="Downloads the full upstream nuclei-templates HTTP tree into your user data dir. Adds medium/low/info coverage on top of the bundled set."
+          >
+            {extrasBusy === "download"
+              ? "Downloading…"
+              : summary.extras_cached
+              ? "Re-download full library"
+              : "Expand coverage (download full library)"}
+          </button>
+          {summary.extras_cached && (
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={onRemoveExtras}
+              disabled={extrasBusy !== null}
+              style={{ padding: "6px 12px" }}
+              title="Delete the Tier-2 cache. Bundled templates are untouched."
+            >
+              {extrasBusy === "remove" ? "Removing…" : "Remove Tier-2 cache"}
+            </button>
+          )}
+        </div>
+        {extrasMsg && (
+          <div className="sub" style={{ marginTop: 6 }}>
+            {extrasMsg}
+          </div>
+        )}
+        {extrasErr && (
+          <div className="field-error" style={{ marginTop: 6 }}>
+            {extrasErr}
+          </div>
+        )}
       </Provenance>
 
       <ViewLink

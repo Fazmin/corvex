@@ -3,7 +3,7 @@
 # program/databases/nuclei/. Run this manually between corvex releases.
 #
 # Filter policy (matches THIRD_PARTY_LICENSES.md):
-#   - info.severity ∈ {critical, high}  OR
+#   - info.severity ∈ {critical, high, medium}  OR
 #   - info.tags contains `kev`
 #
 # The script:
@@ -84,7 +84,7 @@ for p in SRC.rglob("*.yaml"):
         tag_list = [str(t) for t in tags]
     else:
         tag_list = []
-    if sev in ("critical", "high") or "kev" in tag_list:
+    if sev in ("critical", "high", "medium") or "kev" in tag_list:
         rel = p.relative_to(SRC)
         out = DEST / rel
         out.parent.mkdir(parents=True, exist_ok=True)

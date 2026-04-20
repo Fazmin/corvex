@@ -86,6 +86,19 @@ pub struct JarmKnownPayload {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct NucleiTemplateEntry {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub severity: String,
+    pub tags: Vec<String>,
+    pub authors: Vec<String>,
+    pub cve_ids: Vec<String>,
+    pub supported: bool,
+    pub skip_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct NucleiSummary {
     pub enabled: bool,
     pub bundle_tag: Option<String>,
@@ -1164,5 +1177,283 @@ pub async fn nuclei_summary() -> NucleiSummary {
         by_tag_top: counts.by_tag_top,
         extras_cached,
         extras_cache_path,
+    }
+}
+
+/// Enumerate every template on disk — supported AND skipped — with
+/// enough metadata for the Help view's "All bundled Nuclei templates"
+/// list to render a filterable table. Re-walks the bundle each call;
+/// this isn't on a hot path (user-initiated via expand-to-view).
+#[tauri::command]
+pub async fn nuclei_template_list() -> Vec<NucleiTemplateEntry> {
+    use corvex_nuclei::locate;
+    use corvex_nuclei::parser::{load_file, LoadOutcome, SkipReason};
+    use corvex_nuclei::schema::Severity as NS;
+
+    fn sev_label(s: NS) -> &'static str {
+        match s {
+            NS::Critical => "critical",
+            NS::High => "high",
+            NS::Medium => "medium",
+            NS::Low => "low",
+            NS::Info => "info",
+            NS::Unknown => "unknown",
+        }
+    }
+
+    fn reason_string(r: &SkipReason) -> String {
+        match r {
+            SkipReason::Protocol(p) => format!("protocol:{p}"),
+            SkipReason::DslFn(f) => format!("dsl_fn:{f}"),
+            SkipReason::Interactsh => "interactsh".to_string(),
+            SkipReason::ParseError(e) => format!(
+                "parse_error:{}",
+                e.lines().next().unwrap_or("").chars().take(200).collect::<String>()
+            ),
+            SkipReason::UnsupportedFeature(f) => format!("unsupported_feature:{f}"),
+            SkipReason::NoHttp => "no_http".to_string(),
+        }
+    }
+
+    let mut roots = locate::default_roots();
+    roots.extend(locate::extras_roots());
+
+    let mut out: Vec<NucleiTemplateEntry> = Vec::new();
+    let mut seen_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    for root in roots {
+        for entry in walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            if !matches!(ext, "yaml" | "yml") {
+                continue;
+            }
+
+            let outcome = match load_file(path) {
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+
+            let rel = path
+                .strip_prefix(&root)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| path.display().to_string())
+                .replace('\\', "/");
+
+            match outcome {
+                LoadOutcome::Supported(tpl) => {
+                    if !seen_ids.insert(tpl.id.clone()) {
+                        continue;
+                    }
+                    let cves = tpl
+                        .info
+                        .classification
+                        .as_ref()
+                        .map(|c| c.cve_id.clone())
+                        .unwrap_or_default();
+                    out.push(NucleiTemplateEntry {
+                        id: tpl.id.clone(),
+                        name: tpl.info.name.clone(),
+                        path: rel,
+                        severity: sev_label(tpl.info.severity).to_string(),
+                        tags: tpl.info.tags.clone(),
+                        authors: tpl.info.author.clone(),
+                        cve_ids: cves,
+                        supported: true,
+                        skip_reason: None,
+                    });
+                }
+                LoadOutcome::Skipped { id, reason, .. } => {
+                    let tid = id.unwrap_or_else(|| rel.clone());
+                    if !seen_ids.insert(tid.clone()) {
+                        continue;
+                    }
+                    out.push(NucleiTemplateEntry {
+                        id: tid,
+                        name: String::new(),
+                        path: rel,
+                        severity: String::new(),
+                        tags: Vec::new(),
+                        authors: Vec::new(),
+                        cve_ids: Vec::new(),
+                        supported: false,
+                        skip_reason: Some(reason_string(&reason)),
+                    });
+                }
+            }
+        }
+    }
+
+    out.sort_by(|a, b| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()));
+    out
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NucleiExtrasStatus {
+    pub cache_path: String,
+    pub tag: String,
+    pub http_template_count: usize,
+}
+
+/// Download the full nuclei-templates HTTP tree into the Tier-2 extras
+/// cache under the user's data dir. Only `http/` is extracted — other
+/// protocol trees (`network/`, `dns/`, `ssl/`, …) are not runnable in
+/// v1 and would only inflate the cache. Idempotent: a second call
+/// replaces the cached tree.
+#[tauri::command]
+pub async fn nuclei_extras_download(tag: Option<String>) -> AppResult<NucleiExtrasStatus> {
+    use flate2::read::GzDecoder;
+    use std::io::Cursor;
+
+    let tag = tag.unwrap_or_else(|| "v10.4.2".to_string());
+    let cache_root = extras_cache_root()
+        .ok_or_else(|| AppError::Other("cannot resolve user data dir".into()))?;
+    let dest = cache_root.join(&tag);
+
+    // Wipe any previous download to keep pinning deterministic.
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest)
+            .map_err(|e| AppError::Other(format!("clear {}: {e}", dest.display())))?;
+    }
+    std::fs::create_dir_all(&dest)
+        .map_err(|e| AppError::Other(format!("create {}: {e}", dest.display())))?;
+
+    let url = format!(
+        "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/{tag}.tar.gz"
+    );
+    let client = reqwest::Client::builder()
+        .user_agent(format!("corvex-rust/{}", corvex_core::VERSION))
+        .build()
+        .map_err(|e| AppError::Other(format!("reqwest client: {e}")))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::Other(format!("GET {url}: {e}")))?;
+    if !resp.status().is_success() {
+        return Err(AppError::Other(format!(
+            "GET {url}: {}",
+            resp.status()
+        )));
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::Other(format!("read body: {e}")))?;
+
+    // Extract only the `http/` subtree of the archive. GitHub release
+    // tarballs nest everything under `nuclei-templates-<tag>/` so we
+    // strip the first path component.
+    let gz = GzDecoder::new(Cursor::new(bytes.as_ref()));
+    let mut archive = tar::Archive::new(gz);
+    let mut count = 0usize;
+    for entry in archive
+        .entries()
+        .map_err(|e| AppError::Other(format!("tar entries: {e}")))?
+    {
+        let mut entry = entry
+            .map_err(|e| AppError::Other(format!("tar entry: {e}")))?;
+        let path_in_archive = entry
+            .path()
+            .map_err(|e| AppError::Other(format!("entry path: {e}")))?
+            .into_owned();
+
+        // Strip the top-level `nuclei-templates-<tag>/` directory.
+        let mut components = path_in_archive.components();
+        let _root = components.next();
+        let rel: std::path::PathBuf = components.collect();
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+
+        let first = rel
+            .components()
+            .next()
+            .map(|c| c.as_os_str().to_string_lossy().to_string())
+            .unwrap_or_default();
+        if first != "http" {
+            continue;
+        }
+
+        let is_yaml = rel
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| matches!(s, "yaml" | "yml"))
+            .unwrap_or(false);
+        if !entry
+            .header()
+            .entry_type()
+            .is_file()
+            || !is_yaml
+        {
+            continue;
+        }
+
+        let target = dest.join(&rel);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| AppError::Other(format!("mkdir {}: {e}", parent.display())))?;
+        }
+        entry
+            .unpack(&target)
+            .map_err(|e| AppError::Other(format!("unpack {}: {e}", target.display())))?;
+        count += 1;
+    }
+
+    // Write a marker so future launches know which tag this cache was
+    // populated from and can trigger a refresh if we bump the pinned
+    // default later.
+    let manifest = format!(
+        "upstream_tag = \"{tag}\"\nextracted_count = {count}\nkind = \"tier2-http\"\n"
+    );
+    let _ = std::fs::write(dest.join("MANIFEST.toml"), manifest);
+
+    Ok(NucleiExtrasStatus {
+        cache_path: dest.display().to_string(),
+        tag,
+        http_template_count: count,
+    })
+}
+
+/// Remove the Tier-2 extras cache (all versions). Tier-1 bundled
+/// templates are untouched.
+#[tauri::command]
+pub async fn nuclei_extras_remove() -> AppResult<()> {
+    let cache_root = extras_cache_root()
+        .ok_or_else(|| AppError::Other("cannot resolve user data dir".into()))?;
+    if cache_root.exists() {
+        std::fs::remove_dir_all(&cache_root)
+            .map_err(|e| AppError::Other(format!("remove {}: {e}", cache_root.display())))?;
+    }
+    Ok(())
+}
+
+fn extras_cache_root() -> Option<std::path::PathBuf> {
+    let data = user_data_dir()?;
+    Some(data.join("corvex").join("nuclei-templates"))
+}
+
+fn user_data_dir() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("APPDATA").map(std::path::PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| {
+                    std::path::PathBuf::from(h).join(".local").join("share")
+                })
+            })
     }
 }
