@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { listPlugins, type PluginSummary } from "../api";
 import { InfoTip } from "./InfoTip";
 
@@ -57,10 +57,45 @@ export function PluginPicker({ value, onChange, onLoaded }: Props) {
     return value.split(/[;,]/).map((s) => s.trim()).includes(name);
   };
 
+  const selectAll = () => onChange("@@ALL");
+  const deselectAll = () => {
+    const parts = ["@@DEFAULT", ...plugins.map((p) => `-${p.name}`)];
+    onChange(parts.join(";"));
+  };
+  const bulkButtonStyle: CSSProperties = {
+    all: "unset",
+    cursor: plugins.length ? "pointer" : "not-allowed",
+    fontSize: "calc(var(--font-base) - 3px)",
+    color: "var(--muted)",
+    textDecoration: "underline dotted",
+    textUnderlineOffset: 2,
+    padding: "0 2px",
+    opacity: plugins.length ? 1 : 0.5,
+  };
+
   return (
     <div className="field">
       <div className="label-row">
         <label>Plugins {loaded ? `(${plugins.length})` : ""}</label>
+        <button
+          type="button"
+          onClick={selectAll}
+          disabled={!plugins.length}
+          style={bulkButtonStyle}
+          title="Check every plugin, including opt-in extras"
+        >
+          Select all
+        </button>
+        <span style={{ color: "var(--muted)", opacity: 0.4 }}>·</span>
+        <button
+          type="button"
+          onClick={deselectAll}
+          disabled={!plugins.length}
+          style={bulkButtonStyle}
+          title="Un-check every plugin"
+        >
+          Deselect all
+        </button>
         <InfoTip label="Plugin help">
           <strong>Plugin selector</strong>
           Pick which plugins run during the scan. The default is{" "}
@@ -68,7 +103,9 @@ export function PluginPicker({ value, onChange, onLoaded }: Props) {
           the standalone extras like <em>dictionary</em> and <em>siebel</em>).
           Un-checking a row adds <dt style={{ display: "inline" }}>-name</dt> to
           the selector, which excludes just that plugin. Hover the row for a
-          short description of what it does.
+          short description of what it does. The <em>Select all</em> shortcut
+          sets <dt style={{ display: "inline" }}>@@ALL</dt>;{" "}
+          <em>Deselect all</em> excludes every registered plugin.
         </InfoTip>
       </div>
       <div className="plugin-list">

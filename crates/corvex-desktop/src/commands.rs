@@ -86,6 +86,22 @@ pub struct JarmKnownPayload {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct NucleiSummary {
+    pub enabled: bool,
+    pub bundle_tag: Option<String>,
+    pub bundle_commit: Option<String>,
+    pub roots: Vec<String>,
+    pub manifest_template_count: Option<usize>,
+    pub supported: usize,
+    pub skipped: usize,
+    pub by_bucket: Vec<(String, usize)>,
+    pub by_severity: Vec<(String, usize)>,
+    pub by_tag_top: Vec<(String, usize)>,
+    pub extras_cached: bool,
+    pub extras_cache_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct SonarSummary {
     pub scripted_probes: Vec<String>,
     pub static_probes: Vec<String>,
@@ -1080,4 +1096,73 @@ fn expand_ipv4_cidr(
         });
     }
     out
+}
+
+/// Load the bundled + cached Nuclei templates and surface counts to the
+/// Databases view. Fast enough to call synchronously from the UI tab.
+#[tauri::command]
+pub async fn nuclei_summary() -> NucleiSummary {
+    use corvex_nuclei::{locate, schema::Severity as NS, TemplateStore};
+
+    // Honor nuclei.enabled so the UI can tell users when the engine is
+    // switched off. Counts are still populated — it's useful to see what
+    // would run if they turned it on.
+    let (cfg, _path) = match Config::locate_and_load(None) {
+        Ok(v) => v,
+        Err(_) => (Config::default(), std::path::PathBuf::new()),
+    };
+    let enabled = matches!(
+        cfg.get("nuclei.enabled").unwrap_or("false"),
+        "true" | "1" | "yes" | "on"
+    );
+
+    let mut store = TemplateStore::new();
+    for root in locate::default_roots() {
+        let _ = store.load_dir(&root);
+    }
+    for root in locate::extras_roots() {
+        let _ = store.load_dir(&root);
+    }
+
+    let counts = store.counts();
+    let by_severity = counts
+        .by_severity
+        .into_iter()
+        .map(|(s, n)| {
+            let label = match s {
+                NS::Critical => "critical",
+                NS::High => "high",
+                NS::Medium => "medium",
+                NS::Low => "low",
+                NS::Info => "info",
+                NS::Unknown => "unknown",
+            };
+            (label.to_string(), n)
+        })
+        .collect();
+
+    let extras_roots = locate::extras_roots();
+    let extras_cached = !extras_roots.is_empty();
+    let extras_cache_path = extras_roots
+        .first()
+        .map(|p| p.display().to_string());
+
+    NucleiSummary {
+        enabled,
+        bundle_tag: store.upstream_tag.clone(),
+        bundle_commit: store.upstream_commit.clone(),
+        roots: store
+            .roots
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect(),
+        manifest_template_count: store.manifest_template_count,
+        supported: counts.supported,
+        skipped: counts.skipped,
+        by_bucket: counts.by_bucket,
+        by_severity,
+        by_tag_top: counts.by_tag_top,
+        extras_cached,
+        extras_cache_path,
+    }
 }

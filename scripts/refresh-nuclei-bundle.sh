@@ -26,8 +26,16 @@ DEST="$REPO_ROOT/program/databases/nuclei"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "python3 is required" >&2
+if command -v python3 >/dev/null 2>&1 && python3 -c "import yaml" 2>/dev/null; then
+    PY=(python3)
+elif command -v py >/dev/null 2>&1 && py -3 -c "import yaml" 2>/dev/null; then
+    # Windows Python launcher — preferred over the 'python' stub that
+    # ships in default PATH and routes to the Microsoft Store.
+    PY=(py -3)
+elif command -v python >/dev/null 2>&1 && python -c "import yaml" 2>/dev/null; then
+    PY=(python)
+else
+    echo "python with pyyaml is required (pip install pyyaml)" >&2
     exit 1
 fi
 
@@ -43,10 +51,13 @@ git clone --depth 1 --branch "$TAG" \
     "$TMP/nuclei-templates"
 COMMIT="$(git -C "$TMP/nuclei-templates" rev-parse HEAD)"
 
-rm -rf "$DEST"
+# Preserve project-owned files at the destination root (README.md,
+# overlap.toml); wipe only the extracted template subtree + manifest.
 mkdir -p "$DEST"
+find "$DEST" -mindepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
+rm -f "$DEST/MANIFEST.toml"
 
-python3 - "$TMP/nuclei-templates" "$DEST" "$TAG" "$COMMIT" <<'PY'
+"${PY[@]}" - "$TMP/nuclei-templates" "$DEST" "$TAG" "$COMMIT" <<'PY'
 import os, sys, shutil, pathlib, yaml
 
 SRC, DEST, TAG, COMMIT = sys.argv[1:5]

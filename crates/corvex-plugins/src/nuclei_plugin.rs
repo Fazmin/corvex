@@ -6,7 +6,6 @@
 //! VulnDB data when a CVE classification is present.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -21,6 +20,7 @@ use corvex_core::scan::ScanCtx;
 use corvex_core::target::Mark;
 
 use corvex_nuclei::attribution;
+use corvex_nuclei::locate;
 use corvex_nuclei::overlap::OverlapMap;
 use corvex_nuclei::schema::Severity as NucleiSeverity;
 use corvex_nuclei::{Executor, TemplateStore};
@@ -180,7 +180,7 @@ fn parse_list(ctx: &ScanCtx, key: &str) -> Vec<String> {
 
 fn load_store(ctx: &ScanCtx) -> TemplateStore {
     let mut store = TemplateStore::new();
-    for root in bundled_roots() {
+    for root in locate::default_roots() {
         if let Err(e) = store.load_dir(&root) {
             tracing::warn!(target: "nuclei", "load {}: {}", root.display(), e);
         }
@@ -189,7 +189,7 @@ fn load_store(ctx: &ScanCtx) -> TemplateStore {
         ctx.cfg.get("nuclei.use_downloaded_extras").unwrap_or("true"),
         "true" | "1" | "yes" | "on"
     ) {
-        for root in extras_roots() {
+        for root in locate::extras_roots() {
             if let Err(e) = store.load_dir(&root) {
                 tracing::warn!(target: "nuclei", "load extras {}: {}", root.display(), e);
             }
@@ -207,7 +207,7 @@ fn load_store(ctx: &ScanCtx) -> TemplateStore {
 }
 
 fn load_overlap(_ctx: &ScanCtx) -> OverlapMap {
-    for root in bundled_roots() {
+    for root in locate::default_roots() {
         let p = root.join("overlap.toml");
         if p.exists() {
             match OverlapMap::load(&p) {
@@ -221,50 +221,8 @@ fn load_overlap(_ctx: &ScanCtx) -> OverlapMap {
     OverlapMap::default()
 }
 
-/// Candidate filesystem locations for the bundled Tier-1 templates. We
-/// check CWD-relative first (dev runs), then next-to-the-exe (packaged
-/// builds). The first existing directory wins; a missing path is not an
-/// error — the store will simply contain nothing.
-fn bundled_roots() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    roots.push(cwd.join("program").join("databases").join("nuclei"));
-    roots.push(PathBuf::from("program").join("databases").join("nuclei"));
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            roots.push(parent.join("program").join("databases").join("nuclei"));
-            roots.push(parent.join("databases").join("nuclei"));
-        }
-    }
-    roots.retain(|p| p.exists());
-    roots
-}
-
-/// Tier-2 extras cache — populated by the UI's "Expand coverage" button.
-fn extras_roots() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if let Some(data) = dirs_data_dir() {
-        roots.push(data.join("corvex").join("nuclei-templates"));
-    }
-    roots.retain(|p| p.exists());
-    roots
-}
-
-fn dirs_data_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        std::env::var_os("APPDATA").map(PathBuf::from)
-    }
-    #[cfg(not(windows))]
-    {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(|h| PathBuf::from(h).join(".local").join("share"))
-            })
-    }
-}
+// Filesystem lookup lives in corvex-nuclei::locate so the plugin and
+// the desktop Databases view share the exact same search logic.
 
 fn distinct_origins(graph: &CrawlGraph) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();

@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
   dbSummary,
+  nucleiSummary,
   sonarSummary,
   vulndbSummary,
   type DbSummary,
+  type NucleiSummary,
   type SonarSummary,
   type VulnDbInfo,
 } from "../api";
@@ -23,13 +25,14 @@ interface Cell {
   hint: string;
 }
 
-type DbTab = "web" | "probing" | "sca" | "fuzzing";
+type DbTab = "web" | "probing" | "sca" | "fuzzing" | "nuclei";
 
 const TABS: { key: DbTab; label: string }[] = [
   { key: "web", label: "Web signatures" },
   { key: "probing", label: "Probing" },
   { key: "sca", label: "SCA / VulnDB" },
   { key: "fuzzing", label: "Fuzzing" },
+  { key: "nuclei", label: "Nuclei templates" },
 ];
 
 interface Props {
@@ -101,6 +104,7 @@ export function DatabasesView({ onNavigate }: Props) {
       {tab === "probing" && <ProbingTab onNavigate={onNavigate} />}
       {tab === "sca" && <ScaTab onNavigate={onNavigate} />}
       {tab === "fuzzing" && <FuzzingTab onNavigate={onNavigate} />}
+      {tab === "nuclei" && <NucleiTab onNavigate={onNavigate} />}
     </div>
   );
 }
@@ -428,6 +432,247 @@ function FuzzingTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
 /* ====================================================================== */
 /* Shared bits                                                             */
 /* ====================================================================== */
+
+/* ====================================================================== */
+/* Tab 5 — Nuclei templates                                                */
+/* ====================================================================== */
+
+function NucleiTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
+  const [summary, setSummary] = useState<NucleiSummary | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    nucleiSummary()
+      .then((s) => {
+        setSummary(s);
+        setErr(null);
+      })
+      .catch((e: unknown) => {
+        setErr(
+          typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
+        );
+      });
+  }, []);
+
+  if (err) {
+    return <div className="empty">Failed to load Nuclei summary: {err}</div>;
+  }
+  if (!summary) return <div className="empty">Loading…</div>;
+
+  const cells: Cell[] = [
+    {
+      label: "Supported",
+      value: summary.supported,
+      hint: "Templates the v1 engine will execute against each crawled origin.",
+    },
+    {
+      label: "Skipped",
+      value: summary.skipped,
+      hint: "Templates excluded at load time (unsupported feature, DSL helper, interactsh, non-HTTP protocol).",
+    },
+    {
+      label: "Upstream tag",
+      value: summary.bundle_tag ?? "—",
+      hint: "Pinned nuclei-templates release the bundle was built from.",
+    },
+    {
+      label: "Upstream commit",
+      value: summary.bundle_commit
+        ? summary.bundle_commit.slice(0, 10)
+        : "—",
+      hint: "SHA recorded in MANIFEST.toml when the bundle was refreshed.",
+    },
+    {
+      label: "Bundled count",
+      value: summary.manifest_template_count ?? summary.supported + summary.skipped,
+      hint: "Total templates shipped on disk (pre-classification).",
+    },
+    {
+      label: "Engine enabled",
+      value: summary.enabled ? "yes" : "no",
+      hint: "Set nuclei.enabled=true/false in corvex.conf to toggle. Counts are loaded regardless.",
+    },
+  ];
+
+  const sevLabel = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  return (
+    <>
+      <div className="info-grid">
+        {cells.map((c) => (
+          <InfoCell key={c.label} cell={c} />
+        ))}
+      </div>
+
+      {summary.by_severity.length > 0 && (
+        <div
+          className="form-panel"
+          style={{
+            maxWidth: 900,
+            marginTop: 16,
+            fontSize: "calc(var(--font-base) - 1px)",
+          }}
+        >
+          <strong>Supported by severity</strong>
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "6px 14px",
+              fontFamily: "monospace",
+              fontSize: "calc(var(--font-base) - 2px)",
+            }}
+          >
+            {summary.by_severity.map(([sev, n]) => (
+              <span key={sev}>
+                <span style={{ color: "var(--muted)" }}>{sevLabel(sev)} </span>
+                {n.toLocaleString()}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {summary.by_bucket.length > 0 && (
+        <div
+          className="form-panel"
+          style={{
+            maxWidth: 900,
+            marginTop: 12,
+            fontSize: "calc(var(--font-base) - 1px)",
+          }}
+        >
+          <strong>Skipped breakdown</strong>
+          <div className="sub" style={{ marginTop: 4 }}>
+            Why a template doesn't run in v1.
+          </div>
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "6px 14px",
+              fontFamily: "monospace",
+              fontSize: "calc(var(--font-base) - 2px)",
+            }}
+          >
+            {summary.by_bucket.map(([bucket, n]) => (
+              <span key={bucket} title={BUCKET_HINTS[bucket] ?? ""}>
+                <span style={{ color: "var(--muted)" }}>{bucket} </span>
+                {n.toLocaleString()}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {summary.by_tag_top.length > 0 && (
+        <div
+          className="form-panel"
+          style={{
+            maxWidth: 900,
+            marginTop: 12,
+            fontSize: "calc(var(--font-base) - 1px)",
+          }}
+        >
+          <strong>Top tags (supported)</strong>
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "4px 10px",
+              fontFamily: "monospace",
+              fontSize: "calc(var(--font-base) - 2px)",
+            }}
+          >
+            {summary.by_tag_top.slice(0, 20).map(([tag, n]) => (
+              <span key={tag}>
+                <span style={{ color: "var(--muted)" }}>{tag} </span>
+                {n.toLocaleString()}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Provenance title="Where the data comes from">
+        <ul style={{ margin: "6px 0 0 18px", padding: 0, lineHeight: 1.6 }}>
+          <li>
+            <strong>nuclei-templates</strong> (ProjectDiscovery, MIT). The
+            bundled subset is filtered to severity <em>critical</em> /{" "}
+            <em>high</em> plus the <code>kev</code> tag. Pinned to release
+            tag shown above; full copyright notice ships in{" "}
+            <code>THIRD_PARTY_LICENSES.md</code>.
+          </li>
+          <li>
+            <strong>Per-template authors</strong> are preserved in each YAML
+            <code>info.author</code> field and emitted with every finding's{" "}
+            <code>refs</code> string.
+          </li>
+          <li>
+            <strong>Overlap skiplist</strong> —{" "}
+            <code>program/databases/nuclei/overlap.toml</code> suppresses
+            templates whose detection is already covered by a native corvex
+            plugin (spring4shell, shellshock, ms10_070, …) to avoid
+            double-reporting.
+          </li>
+          <li>
+            <strong>Load roots</strong> (priority order):
+            <ul>
+              {summary.roots.length === 0 && (
+                <li>
+                  <em>
+                    No roots found — bundled templates are missing. Run{" "}
+                    <code>scripts/refresh-nuclei-bundle.sh</code>.
+                  </em>
+                </li>
+              )}
+              {summary.roots.map((r) => (
+                <li key={r}>
+                  <code>{r}</code>
+                </li>
+              ))}
+            </ul>
+          </li>
+          <li>
+            <strong>Tier-2 extras cache</strong>{" "}
+            {summary.extras_cached && summary.extras_cache_path ? (
+              <>
+                present at <code>{summary.extras_cache_path}</code>.
+              </>
+            ) : (
+              <>
+                not populated. The full ~12k upstream template tree can be
+                downloaded into the user data dir for broader coverage beyond
+                the critical/high bundle.
+              </>
+            )}
+          </li>
+        </ul>
+      </Provenance>
+
+      <ViewLink
+        onNavigate={onNavigate}
+        view="fuzzing"
+        label="Nuclei engine module card, severity/tag filters → Fuzzing view"
+      />
+    </>
+  );
+}
+
+const BUCKET_HINTS: Record<string, string> = {
+  unsupported_feature:
+    "Template uses a feature outside the v1 scope: raw HTTP requests, self-contained, race, unsafe, pipeline, or payload file references.",
+  dsl_fn:
+    "Matcher / extractor references a DSL helper function outside the v1 allowlist.",
+  interactsh:
+    "Template relies on out-of-band interactions (OOB server) — v2 will add that infrastructure.",
+  protocol: "Template declares a non-HTTP protocol (network, dns, ssl, code, headless, …).",
+  parse_error: "YAML failed to deserialize — schema bug, worth reporting.",
+  no_http: "Template has no HTTP requests at all.",
+};
 
 function InfoCell({ cell }: { cell: Cell }) {
   const isLongText = typeof cell.value === "string" && cell.value.length > 10;

@@ -86,6 +86,7 @@ fn main() {
             commands::vulndb_summary,
             commands::vulndb_update,
             commands::sonar_summary,
+            commands::nuclei_summary,
             commands::jarm_lookup,
             commands::probe_start,
             commands::probe_cancel,

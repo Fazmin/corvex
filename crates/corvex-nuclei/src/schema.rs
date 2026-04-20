@@ -158,12 +158,12 @@ pub struct HttpRequest {
     #[serde(default = "default_method")]
     pub method: String,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub path: Vec<String>,
 
     /// Full raw HTTP requests — not supported in v1, presence triggers
     /// `Skipped(unsupported_feature:raw)` at load time.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub raw: Vec<String>,
 
     #[serde(default)]
@@ -262,9 +262,33 @@ pub enum AttackMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PayloadValue {
-    List(Vec<String>),
+    /// Inline list. Upstream templates often mix scalar types (unquoted
+    /// YAML numbers, booleans, and nulls alongside strings); every
+    /// scalar is coerced to its string form.
+    List(#[serde(deserialize_with = "de_payload_list")] Vec<String>),
     /// File path relative to the template root — not supported in v1.
     File(String),
+}
+
+fn de_payload_list<'de, D>(de: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: Option<Vec<Option<serde_yaml::Value>>> = Option::deserialize(de)?;
+    Ok(raw
+        .unwrap_or_default()
+        .into_iter()
+        .map(|o| match o {
+            Some(serde_yaml::Value::String(s)) => s,
+            Some(serde_yaml::Value::Number(n)) => n.to_string(),
+            Some(serde_yaml::Value::Bool(b)) => b.to_string(),
+            Some(serde_yaml::Value::Null) | None => String::new(),
+            Some(other) => serde_yaml::to_string(&other)
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,7 +339,7 @@ impl Matcher {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StatusMatcher {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub status: Vec<u16>,
     #[serde(default)]
     pub name: Option<String>,
@@ -325,7 +349,7 @@ pub struct StatusMatcher {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WordMatcher {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub words: Vec<String>,
     #[serde(default = "part_body")]
     pub part: String,
@@ -341,7 +365,7 @@ pub struct WordMatcher {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RegexMatcher {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub regex: Vec<String>,
     #[serde(default = "part_body")]
     pub part: String,
@@ -355,7 +379,7 @@ pub struct RegexMatcher {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SizeMatcher {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub size: Vec<usize>,
     #[serde(default)]
     pub name: Option<String>,
@@ -366,7 +390,7 @@ pub struct SizeMatcher {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BinaryMatcher {
     /// Hex-encoded byte sequences.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub binary: Vec<String>,
     #[serde(default = "part_body")]
     pub part: String,
@@ -380,7 +404,7 @@ pub struct BinaryMatcher {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DslMatcher {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub dsl: Vec<String>,
     #[serde(default = "default_or")]
     pub condition: AndOr,
@@ -430,7 +454,7 @@ impl Extractor {
 pub struct RegexExtractor {
     #[serde(default)]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub regex: Vec<String>,
     #[serde(default)]
     pub group: u32,
@@ -444,7 +468,7 @@ pub struct RegexExtractor {
 pub struct KvalExtractor {
     #[serde(default)]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub kval: Vec<String>,
     #[serde(default)]
     pub internal: bool,
@@ -454,7 +478,7 @@ pub struct KvalExtractor {
 pub struct DslExtractor {
     #[serde(default)]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub dsl: Vec<String>,
     #[serde(default)]
     pub internal: bool,
@@ -464,7 +488,7 @@ pub struct DslExtractor {
 pub struct JsonExtractor {
     #[serde(default)]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub json: Vec<String>,
     #[serde(default = "part_body")]
     pub part: String,
@@ -476,7 +500,7 @@ pub struct JsonExtractor {
 pub struct XpathExtractor {
     #[serde(default)]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_vec_or_null")]
     pub xpath: Vec<String>,
     #[serde(default = "part_body")]
     pub part: String,
@@ -494,7 +518,7 @@ where
     #[serde(untagged)]
     enum Oneof {
         One(String),
-        Many(Vec<String>),
+        Many(Vec<Option<String>>),
         Null,
     }
     match Option::<Oneof>::deserialize(de)? {
@@ -504,6 +528,29 @@ where
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect()),
-        Some(Oneof::Many(v)) => Ok(v),
+        Some(Oneof::Many(v)) => Ok(v
+            .into_iter()
+            .map(|o| o.unwrap_or_default())
+            .collect()),
     }
+}
+
+/// Tolerant sequence deserializer: accepts `field:` (null → empty Vec),
+/// `field: []`, and `field: [..., null, ...]` (null items → T::default()).
+///
+/// Upstream templates occasionally declare list fields with no body
+/// (e.g. `kval:` on its own line) or place blank entries inside a list
+/// (`- ` followed by `- "foo"`). Stock serde rejects both; this helper
+/// keeps the template parseable.
+pub(crate) fn de_vec_or_null<'de, D, T>(de: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: serde::Deserialize<'de> + Default,
+{
+    let opt: Option<Vec<Option<T>>> = Option::deserialize(de)?;
+    Ok(opt
+        .unwrap_or_default()
+        .into_iter()
+        .map(|o| o.unwrap_or_default())
+        .collect())
 }

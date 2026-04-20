@@ -220,6 +220,27 @@ export function sonarSummary(
   });
 }
 
+// ---- Nuclei template engine -------------------------------------------------
+
+export interface NucleiSummary {
+  enabled: boolean;
+  bundle_tag: string | null;
+  bundle_commit: string | null;
+  roots: string[];
+  manifest_template_count: number | null;
+  supported: number;
+  skipped: number;
+  by_bucket: [string, number][];
+  by_severity: [string, number][];
+  by_tag_top: [string, number][];
+  extras_cached: boolean;
+  extras_cache_path: string | null;
+}
+
+export function nucleiSummary(): Promise<NucleiSummary> {
+  return invoke<NucleiSummary>("nuclei_summary");
+}
+
 export interface JarmKnownPayload {
   name: string;
   notes: string | null;

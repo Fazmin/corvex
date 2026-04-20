@@ -18,6 +18,11 @@ pub struct TemplateStore {
     /// Upstream tag / version marker — parsed from a neighboring
     /// `MANIFEST.toml` when present.
     pub upstream_tag: Option<String>,
+    /// Upstream commit SHA from the bundle manifest, if present.
+    pub upstream_commit: Option<String>,
+    /// Template count recorded in the bundle manifest (may exceed
+    /// `len()` if some entries failed to classify as Supported).
+    pub manifest_template_count: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +48,7 @@ impl TemplateStore {
             return Ok(());
         }
         self.roots.push(root.to_path_buf());
+        self.ingest_manifest(root);
         for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
             if !entry.file_type().is_file() {
                 continue;
@@ -76,6 +82,31 @@ impl TemplateStore {
     fn record_skip(&mut self, reason: &SkipReason) {
         *self.skipped_by_bucket.entry(reason.bucket()).or_default() += 1;
         *self.skipped_by_detail.entry(reason.detail()).or_default() += 1;
+    }
+
+    /// Parse a sibling `MANIFEST.toml` if present — the `upstream_tag`,
+    /// `upstream_commit`, and `template_count` entries are written by
+    /// `scripts/refresh-nuclei-bundle.sh`. A missing manifest is not
+    /// an error.
+    fn ingest_manifest(&mut self, root: &Path) {
+        let path = root.join("MANIFEST.toml");
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        let parsed: toml_crate::Value = match text.parse() {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        if let Some(tag) = parsed.get("upstream_tag").and_then(|v| v.as_str()) {
+            self.upstream_tag = Some(tag.to_string());
+        }
+        if let Some(c) = parsed.get("upstream_commit").and_then(|v| v.as_str()) {
+            self.upstream_commit = Some(c.to_string());
+        }
+        if let Some(n) = parsed.get("template_count").and_then(|v| v.as_integer()) {
+            self.manifest_template_count = Some(n as usize);
+        }
     }
 
     pub fn len(&self) -> usize {

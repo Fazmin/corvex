@@ -60,7 +60,7 @@ redistributed.
 
 **License:** MIT (ProjectDiscovery)
 
-**Upstream:** https://github.com/projectdiscovery/nuclei-templates
+**Upstream:** https://github.com/projectdiscovery/nuclei-templates (tag v10.4.2, commit 8de881615f58b3427f0424338779d28de68d2ee1)
 
 ```
 MIT License

@@ -80,7 +80,7 @@ CHECK6PORT=443
 # Bundled critical+high+KEV templates ship under program/databases/nuclei/.
 # Optional Tier-2 extras can be downloaded into the user's data directory
 # and picked up automatically when use_downloaded_extras is true.
-nuclei.enabled=false
+nuclei.enabled=true
 nuclei.severity_filter=critical,high
 nuclei.tag_filter=
 nuclei.tag_exclude=

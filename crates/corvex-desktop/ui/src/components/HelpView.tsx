@@ -1226,6 +1226,22 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
               captured by its probes. The licence notice ships with the binary
               as <code>THIRD_PARTY_LICENSES.md</code>.
             </dd>
+            <dt>Nuclei templates</dt>
+            <dd>
+              Community-maintained YAML vulnerability templates
+              (ProjectDiscovery, MIT). A filtered subset — severity{" "}
+              <em>critical</em> / <em>high</em> plus the KEV tag — ships
+              bundled under <code>program/databases/nuclei/</code> and is
+              executed by the <code>nuclei</code> plugin during the active
+              phase. Each finding preserves the template id, per-template{" "}
+              <code>info.author</code> credit, and any CVE / CWE
+              classification; overlap with native plugins like{" "}
+              <code>spring4shell</code> / <code>shellshock</code> is
+              suppressed by{" "}
+              <code>program/databases/nuclei/overlap.toml</code>. Full
+              MIT notice with pinned upstream tag in{" "}
+              <code>THIRD_PARTY_LICENSES.md</code>.
+            </dd>
             <dt>JARM</dt>
             <dd>
               A 62-character hash that identifies a remote TLS stack by

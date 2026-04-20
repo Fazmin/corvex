@@ -12,6 +12,7 @@ pub mod attribution;
 pub mod dsl;
 pub mod executor;
 pub mod extractor;
+pub mod locate;
 pub mod matcher;
 pub mod overlap;
 pub mod parser;

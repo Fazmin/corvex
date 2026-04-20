@@ -15,8 +15,10 @@ tauri-build.workspace = true
 
 [dependencies]
 corvex-core.workspace = true
+corvex-nuclei.workspace = true
 corvex-plugins.workspace = true
 corvex-sonar.workspace = true
+toml_crate.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog = "2"
 tokio.workspace = true
