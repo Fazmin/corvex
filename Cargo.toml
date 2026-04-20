@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/corvex",
     "crates/corvex-core",
+    "crates/corvex-nuclei",
     "crates/corvex-plugins",
     "crates/corvex-sonar",
     "crates/corvex-desktop",
@@ -19,6 +20,7 @@ description = "Rust port of the Corvex web vulnerability scanner"
 
 [workspace.dependencies]
 corvex-core = { path = "crates/corvex-core" }
+corvex-nuclei = { path = "crates/corvex-nuclei" }
 corvex-plugins = { path = "crates/corvex-plugins" }
 corvex-sonar = { path = "crates/corvex-sonar" }
 

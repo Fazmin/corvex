@@ -8,6 +8,7 @@ description = "Built-in plugins for the Rust port of Corvex"
 
 [dependencies]
 corvex-core.workspace = true
+corvex-nuclei.workspace = true
 tokio.workspace = true
 hyper.workspace = true
 http.workspace = true

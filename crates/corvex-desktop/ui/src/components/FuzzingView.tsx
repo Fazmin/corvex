@@ -198,6 +198,14 @@ export const MODULES: FuzzerModule[] = [
     injectionTypes: ["Query", "Body", "Cookie"],
     payloads: "class.module.classLoader.resources.context.parent.pipeline.first.pattern=CORVSPRING-42be17, bracket-nested variant",
   },
+  {
+    name: "nuclei",
+    category: "cve",
+    status: "ready",
+    description: "Runs community-maintained vulnerability templates (MIT-licensed, ProjectDiscovery) against every crawled origin. HTTP-protocol subset only in v1: status/word/regex/size/binary/dsl matchers, batteringram/pitchfork/clusterbomb payload modes, regex/kval/dsl/json extractors. A critical+high+KEV-filtered subset ships bundled under program/databases/nuclei/; the full ~12k library can be fetched on demand. Opt-in via the nuclei.enabled config key; findings are deduplicated against VulnDB and an overlap.toml skiplist so native plugins aren't double-reported.",
+    injectionTypes: ["Path", "Header", "Query", "Body"],
+    payloads: "Per-template YAML — matchers keyed off response status/body/headers, with full attribution preserved per template author.",
+  },
 ];
 
 const STATUS_COLORS: Record<string, string> = {

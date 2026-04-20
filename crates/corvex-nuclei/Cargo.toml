@@ -1,0 +1,33 @@
+[package]
+name = "corvex-nuclei"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Nuclei-format HTTP template parser and executor"
+
+[dependencies]
+corvex-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+indexmap.workspace = true
+regex.workspace = true
+fancy-regex.workspace = true
+md-5.workspace = true
+sha2.workspace = true
+base64.workspace = true
+hex.workspace = true
+rand.workspace = true
+url.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+walkdir.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+toml_crate.workspace = true
+time.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

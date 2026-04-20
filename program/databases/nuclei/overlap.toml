@@ -1,0 +1,22 @@
+# Plugin-overlap skiplist.
+#
+# When a listed corvex plugin is enabled, the corresponding nuclei
+# template ids are suppressed so the same vulnerability isn't flagged
+# twice for the same origin.
+#
+# Format:
+#   [by_plugin]
+#   "<corvex-plugin-name>" = ["<nuclei-template-id>", ...]
+
+[by_plugin]
+"spring4shell" = [
+    "CVE-2022-22965",
+    "spring-cloud-function-rce",
+]
+"shellshock" = [
+    "CVE-2014-6271",
+    "CVE-2014-6278",
+]
+"ms10_070" = [
+    "CVE-2010-3332",
+]

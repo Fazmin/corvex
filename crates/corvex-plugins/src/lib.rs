@@ -32,6 +32,7 @@ pub mod msgs;
 pub mod multiple_index;
 pub mod negotiate;
 pub mod netservices;
+pub mod nuclei_plugin;
 pub mod open_redirect_plugin;
 pub mod options;
 pub mod optionsbleed;
@@ -108,6 +109,8 @@ pub fn register_all() -> PluginRegistry {
         Arc::new(ssti_plugin::SstiPlugin::default()),
         Arc::new(xxe_plugin::XxePlugin::default()),
         Arc::new(spring4shell_plugin::Spring4ShellPlugin::default()),
+        // Nuclei-format template engine — weight 70, Active hook, opt-in.
+        Arc::new(nuclei_plugin::NucleiPlugin::default()),
         // The big one — runs db_tests. Weight 99 = last.
         Arc::new(tests_plugin::TestsPlugin::default()),
     ];

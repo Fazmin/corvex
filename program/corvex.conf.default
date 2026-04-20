@@ -76,6 +76,17 @@ FAILURES=20
 CHECK6HOST=ipv6.google.com
 CHECK6PORT=443
 
+# Nuclei-format template engine (opt-in active-phase scan).
+# Bundled critical+high+KEV templates ship under program/databases/nuclei/.
+# Optional Tier-2 extras can be downloaded into the user's data directory
+# and picked up automatically when use_downloaded_extras is true.
+nuclei.enabled=false
+nuclei.severity_filter=critical,high
+nuclei.tag_filter=
+nuclei.tag_exclude=
+nuclei.max_concurrent=16
+nuclei.use_downloaded_extras=true
+
 # SQL Direct Database Reporting
 # Database type: mysql or postgresql
 #DB_TYPE=mysql
