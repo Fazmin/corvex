@@ -2459,3 +2459,205 @@ button[disabled] {
   border-color: rgba(200, 160, 60, 0.5);
   color: #e7c06a;
 }
+
+/* ---------------------------------------------------------------- */
+/* Proxy — intercept tab                                            */
+/* ---------------------------------------------------------------- */
+
+.proxy-intercept {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 14px;
+}
+
+.proxy-mode-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.proxy-intercept-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 14px;
+  min-height: 420px;
+}
+
+.proxy-intercept-queue h4 {
+  margin: 0 0 8px;
+  font-size: calc(var(--font-base) - 1px);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.proxy-intercept-queue ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.proxy-intercept-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  cursor: pointer;
+  font-size: calc(var(--font-base) - 1px);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.proxy-intercept-item:hover {
+  border-color: var(--border-strong, var(--border));
+}
+
+.proxy-intercept-item.active {
+  border-color: var(--accent);
+  background: var(--panel);
+}
+
+.proxy-intercept-url {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+}
+
+.proxy-intercept-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.proxy-intercept-toolbar {
+  font-size: calc(var(--font-base) - 1px);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.proxy-wire-editor {
+  flex: 1;
+  min-height: 280px;
+  width: 100%;
+  padding: 10px 12px;
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  tab-size: 2;
+}
+
+.proxy-intercept-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.proxy-detail-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Proxy — replay tab                                                */
+/* ---------------------------------------------------------------- */
+
+.proxy-replay {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 14px;
+}
+
+.proxy-replay-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.proxy-replay-toolbar code {
+  font-family: var(--mono, monospace);
+  background: var(--panel-alt);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.proxy-replay-toolbar > div {
+  display: flex;
+  gap: 6px;
+}
+
+.proxy-replay-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  min-height: 420px;
+}
+
+.proxy-replay-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.proxy-replay-pane h4 {
+  margin: 0;
+  font-size: calc(var(--font-base) - 1px);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.proxy-response-headers {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 140px;
+  overflow: auto;
+}
+
+.proxy-response-body {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 320px;
+  overflow: auto;
+}

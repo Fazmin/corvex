@@ -39,8 +39,15 @@ use tokio_util::sync::CancellationToken;
 use corvex_core::http::{client::HttpClient, request::Request as CoreRequest, response::Response as CoreResponse};
 use corvex_core::state::GlobalState;
 
+use base64::Engine;
+
 use crate::ca::Authority;
 use crate::exchange::{Exchange, ExchangeOrigin, InterceptMarks, ScopeDecision, SessionId};
+use crate::intercept::{
+    InterceptMode, InterceptPhase, InterceptQueue, InterceptVerdict, PendingIntercept,
+    INTERCEPT_TIMEOUT,
+};
+use crate::parser::parse_request;
 use crate::scope::ScopeRules;
 use crate::writer::ExchangeWriter;
 
@@ -49,6 +56,8 @@ pub(crate) struct ListenerCtx {
     pub authority: Arc<Authority>,
     pub session_id: SessionId,
     pub scope: Arc<tokio::sync::RwLock<ScopeRules>>,
+    pub intercept_mode: Arc<tokio::sync::RwLock<InterceptMode>>,
+    pub intercept_queue: InterceptQueue,
     pub writer: ExchangeWriter,
     pub broadcast: broadcast::Sender<Exchange>,
     pub captured: Arc<AtomicU64>,
@@ -158,7 +167,7 @@ async fn handle_plain(
 ) -> anyhow::Result<HyperResponse<Full<Bytes>>> {
     let (parts, body) = req.into_parts();
     let body_bytes = body.collect().await?.to_bytes().to_vec();
-    let core_req = to_core_request(&parts, body_bytes, inner_https, None)?;
+    let mut core_req = to_core_request(&parts, body_bytes, inner_https, None)?;
 
     let scope = {
         let rules = ctx.scope.read().await;
@@ -171,6 +180,43 @@ async fn handle_plain(
 
     let origin = ExchangeOrigin::Proxy { client_addr: peer };
     let mut exchange = Exchange::new(ctx.session_id, origin, core_req.clone(), scope);
+
+    // Intercept: only pause in-scope exchanges. Out-of-scope traffic
+    // would otherwise spam the intercept queue with browser background
+    // noise.
+    if scope == ScopeDecision::InScope {
+        let mode = *ctx.intercept_mode.read().await;
+        if mode.should_pause_request() {
+            match pause_for_verdict(&ctx, &exchange, &core_req, InterceptPhase::Request).await {
+                Some(Verdict::Forward) => {
+                    exchange.intercepted |= InterceptMarks::REQUEST_PAUSED;
+                }
+                Some(Verdict::Edited(new_req)) => {
+                    exchange.intercepted |=
+                        InterceptMarks::REQUEST_PAUSED | InterceptMarks::REQUEST_EDITED;
+                    core_req = new_req.clone();
+                    exchange.request = new_req;
+                    exchange.size_request = exchange.request.body.len() as u64;
+                }
+                Some(Verdict::Drop) => {
+                    exchange.intercepted |= InterceptMarks::REQUEST_PAUSED;
+                    exchange.duration_ms = Some(0);
+                    exchange.completed_at = Some(time::OffsetDateTime::now_utc());
+                    persist_and_broadcast(&ctx, exchange);
+                    return Ok(text_response(
+                        StatusCode::BAD_GATEWAY,
+                        "corvex-proxy: request dropped by user",
+                    ));
+                }
+                None => {
+                    // Timeout or parse failure — proceed with the
+                    // original request; the warning has already been
+                    // logged.
+                    exchange.intercepted |= InterceptMarks::REQUEST_PAUSED;
+                }
+            }
+        }
+    }
 
     let started = std::time::Instant::now();
     let result = ctx.upstream.send(&core_req).await;
@@ -459,4 +505,72 @@ fn persist_and_broadcast(ctx: &ListenerCtx, mut exchange: Exchange) {
 pub(crate) fn build_upstream() -> HttpClient {
     let state = Arc::new(GlobalState::new());
     HttpClient::new(state, 60)
+}
+
+/// Internal verdict representation — resolved after re-parsing edited
+/// bytes so the caller doesn't have to know about parse failures.
+enum Verdict {
+    Forward,
+    Edited(CoreRequest),
+    Drop,
+}
+
+async fn pause_for_verdict(
+    ctx: &Arc<ListenerCtx>,
+    exchange: &Exchange,
+    current: &CoreRequest,
+    phase: InterceptPhase,
+) -> Option<Verdict> {
+    let snapshot = PendingIntercept {
+        id: exchange.id,
+        phase,
+        method: current.method.clone(),
+        host: current.host.clone(),
+        port: current.port,
+        scheme: if current.ssl { "https".into() } else { "http".into() },
+        uri: current.uri.clone(),
+        raw_bytes_base64: base64::engine::general_purpose::STANDARD.encode(current.to_wire()),
+    };
+    let rx = ctx.intercept_queue.pause(snapshot);
+    let verdict = match tokio::time::timeout(INTERCEPT_TIMEOUT, rx).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(_)) => {
+            tracing::warn!(target: "proxy", "intercept sender dropped before verdict");
+            return None;
+        }
+        Err(_) => {
+            tracing::warn!(
+                target: "proxy",
+                "intercept {} timed out after {}s — auto-forwarding",
+                exchange.id,
+                INTERCEPT_TIMEOUT.as_secs()
+            );
+            return None;
+        }
+    };
+    match verdict {
+        InterceptVerdict::Forward => Some(Verdict::Forward),
+        InterceptVerdict::Drop => Some(Verdict::Drop),
+        InterceptVerdict::ForwardEdited { bytes } => {
+            match parse_request(&bytes, &current.host, current.port, current.ssl) {
+                Ok(mut edited) => {
+                    // Keep the forced Connection: close invariant that
+                    // the upstream read loop depends on.
+                    edited.headers.shift_remove("connection");
+                    edited.headers.shift_remove("Connection");
+                    edited
+                        .headers
+                        .insert("Connection".into(), "close".into());
+                    Some(Verdict::Edited(edited))
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "proxy",
+                        "edited request failed to parse, using original: {e}"
+                    );
+                    Some(Verdict::Forward)
+                }
+            }
+        }
+    }
 }

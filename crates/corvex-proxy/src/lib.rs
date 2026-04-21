@@ -17,7 +17,10 @@
 
 pub mod ca;
 pub mod exchange;
+pub mod intercept;
 mod listener;
+pub mod parser;
+pub mod replay;
 pub mod scope;
 pub mod store;
 mod writer;
@@ -27,6 +30,10 @@ pub use exchange::{
     Exchange, ExchangeId, ExchangeOrigin, ExchangeSummary, InterceptMarks, ScopeDecision,
     SessionId,
 };
+pub use intercept::{
+    InterceptMode, InterceptPhase, InterceptQueue, InterceptVerdict, PendingIntercept,
+};
+pub use replay::{run_replay, ReplayError, ReplayInput};
 pub use scope::{ScopeDecision as ScopeRuleDecision, ScopeRules};
 pub use store::ProxyDb;
 
@@ -40,6 +47,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::listener::ListenerCtx;
 use crate::writer::ExchangeWriter;
+
+use corvex_core::http::client::HttpClient;
 
 /// Runtime configuration for a proxy session, supplied by the desktop
 /// frontend when the user clicks Start.
@@ -80,6 +89,13 @@ pub struct ProxyState {
     db: Arc<ProxyDb>,
     /// Active scope rules. Live-updatable from the Settings tab.
     scope: Arc<RwLock<ScopeRules>>,
+    /// Intercept-mode toggle (off/request/response/both).
+    intercept_mode: Arc<RwLock<InterceptMode>>,
+    /// Pending intercept queue. Shared between the listener and the
+    /// Tauri command layer.
+    intercept_queue: InterceptQueue,
+    /// Upstream client reused by the proxy listener and by replay.
+    upstream: Arc<HttpClient>,
     /// Currently-running listener handle, if any.
     running: RwLock<Option<RunningSession>>,
     /// Read-only fan-out channel for live exchange events.
@@ -100,6 +116,9 @@ impl ProxyState {
             authority,
             db,
             scope: Arc::new(RwLock::new(ScopeRules::default())),
+            intercept_mode: Arc::new(RwLock::new(InterceptMode::Off)),
+            intercept_queue: InterceptQueue::new(),
+            upstream: Arc::new(listener::build_upstream()),
             running: RwLock::new(None),
             tx,
         }
@@ -107,6 +126,43 @@ impl ProxyState {
 
     pub fn scope(&self) -> Arc<RwLock<ScopeRules>> {
         self.scope.clone()
+    }
+
+    pub fn intercept_queue(&self) -> &InterceptQueue {
+        &self.intercept_queue
+    }
+
+    pub async fn intercept_mode(&self) -> InterceptMode {
+        *self.intercept_mode.read().await
+    }
+
+    pub async fn set_intercept_mode(&self, mode: InterceptMode) {
+        *self.intercept_mode.write().await = mode;
+        // When toggling off, release every pending request so the
+        // client isn't left hanging.
+        if mode == InterceptMode::Off {
+            self.intercept_queue.drop_all();
+        }
+    }
+
+    pub fn upstream_client(&self) -> Arc<HttpClient> {
+        self.upstream.clone()
+    }
+
+    pub fn session_id(&self) -> Option<SessionId> {
+        // RwLock is async; use try_read so this helper stays sync.
+        let g = self.running.try_read().ok()?;
+        g.as_ref().map(|s| s.session_id)
+    }
+
+    /// Persist an exchange and broadcast it so the UI updates live.
+    /// Replay + Checks both go through this to stay consistent with
+    /// the listener path.
+    pub fn record_exchange(&self, exchange: Exchange) {
+        let _ = self.tx.send(exchange.clone());
+        if let Err(e) = self.db.insert_exchange(&exchange) {
+            tracing::warn!(target: "proxy", "insert replay exchange failed: {e}");
+        }
     }
 
     pub fn authority(&self) -> &Arc<Authority> {
@@ -169,15 +225,16 @@ impl ProxyState {
         let captured = Arc::new(AtomicU64::new(0));
 
         let (writer, _writer_handle) = ExchangeWriter::spawn(self.db.clone());
-        let upstream = Arc::new(listener::build_upstream());
         let ctx = Arc::new(ListenerCtx {
             authority: self.authority.clone(),
             session_id,
             scope: self.scope.clone(),
+            intercept_mode: self.intercept_mode.clone(),
+            intercept_queue: self.intercept_queue.clone(),
             writer,
             broadcast: self.tx.clone(),
             captured: captured.clone(),
-            upstream,
+            upstream: self.upstream.clone(),
         });
 
         let listen = config.listen;
@@ -205,6 +262,9 @@ impl ProxyState {
 
     /// Stop the listener if running. Idempotent.
     pub async fn stop(&self) -> anyhow::Result<()> {
+        // Drop any pending intercepts so the listener's oneshot
+        // receivers don't hang on shutdown.
+        self.intercept_queue.drop_all();
         let mut slot = self.running.write().await;
         if let Some(session) = slot.take() {
             session.cancel.cancel();

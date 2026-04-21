@@ -96,6 +96,24 @@ fn main() {
                             }
                         }
                     });
+                    // Fan out pending intercepts to the UI so the
+                    // Intercept tab can react without polling.
+                    let handle = app.handle().clone();
+                    let mut irx = state.intercept_queue().subscribe();
+                    tauri::async_runtime::spawn(async move {
+                        loop {
+                            match irx.recv().await {
+                                Ok(pending) => {
+                                    let _ =
+                                        handle.emit("proxy://intercept-pending", pending);
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                    return;
+                                }
+                            }
+                        }
+                    });
                     app.manage(state);
                     tracing::info!(target: "proxy", "proxy state ready");
                 }
@@ -145,6 +163,12 @@ fn main() {
             proxy_cmd::proxy_export_ca_pem,
             proxy_cmd::exchanges_list,
             proxy_cmd::exchange_get,
+            proxy_cmd::intercept_set_mode,
+            proxy_cmd::intercept_get_mode,
+            proxy_cmd::intercept_pending_list,
+            proxy_cmd::intercept_resolve,
+            proxy_cmd::intercept_drop_all,
+            proxy_cmd::replay_send,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

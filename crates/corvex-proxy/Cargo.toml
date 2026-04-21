@@ -48,6 +48,7 @@ url.workspace = true
 # Simple bounded LRU for per-SNI leaf cert cache.
 lru = "0.12"
 bitflags = "2"
+base64.workspace = true
 
 [dev-dependencies]
 hyper = { workspace = true, features = ["server", "http1", "client"] }

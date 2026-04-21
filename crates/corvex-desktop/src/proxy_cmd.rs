@@ -9,9 +9,10 @@
 use std::sync::Arc;
 
 use corvex_proxy::{
-    Exchange, ExchangeId, ExchangeSummary, ProxyConfig, ProxyState, ProxyStatus, SessionId,
+    run_replay, Exchange, ExchangeId, ExchangeSummary, InterceptMode, InterceptVerdict,
+    PendingIntercept, ProxyConfig, ProxyState, ProxyStatus, ReplayInput, SessionId,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::error::{AppError, AppResult};
@@ -150,4 +151,160 @@ pub async fn exchange_get(
 #[allow(dead_code)]
 pub fn exchange_summary_payload(ex: &Exchange) -> ExchangeSummary {
     ex.summary()
+}
+
+// --- Phase 2: intercept + replay ---------------------------------------
+
+#[tauri::command]
+pub async fn intercept_set_mode(
+    state: State<'_, Arc<ProxyState>>,
+    mode: InterceptMode,
+) -> AppResult<()> {
+    state.set_intercept_mode(mode).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn intercept_get_mode(
+    state: State<'_, Arc<ProxyState>>,
+) -> AppResult<InterceptMode> {
+    Ok(state.intercept_mode().await)
+}
+
+#[tauri::command]
+pub async fn intercept_pending_list(
+    state: State<'_, Arc<ProxyState>>,
+) -> AppResult<Vec<PendingIntercept>> {
+    Ok(state.intercept_queue().pending())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum InterceptVerdictInput {
+    Forward,
+    ForwardEdited { bytes_base64: String },
+    Drop,
+}
+
+#[tauri::command]
+pub async fn intercept_resolve(
+    state: State<'_, Arc<ProxyState>>,
+    id: ExchangeId,
+    verdict: InterceptVerdictInput,
+) -> AppResult<()> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    let translated = match verdict {
+        InterceptVerdictInput::Forward => InterceptVerdict::Forward,
+        InterceptVerdictInput::Drop => InterceptVerdict::Drop,
+        InterceptVerdictInput::ForwardEdited { bytes_base64 } => {
+            let bytes = B64
+                .decode(bytes_base64.as_bytes())
+                .map_err(|e| AppError::Other(format!("base64: {e}")))?;
+            InterceptVerdict::ForwardEdited { bytes }
+        }
+    };
+    state
+        .intercept_queue()
+        .resolve(id, translated)
+        .map_err(|e| AppError::Other(format!("intercept_resolve: {e}")))
+}
+
+#[tauri::command]
+pub async fn intercept_drop_all(state: State<'_, Arc<ProxyState>>) -> AppResult<()> {
+    state.intercept_queue().drop_all();
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReplayResult {
+    pub id: String,
+    pub status: Option<u16>,
+    pub duration_ms: Option<u64>,
+    pub response_headers: Vec<(String, String)>,
+    pub response_body_base64: Option<String>,
+}
+
+#[tauri::command]
+pub async fn replay_send(
+    state: State<'_, Arc<ProxyState>>,
+    base_id: ExchangeId,
+    edited_bytes_base64: Option<String>,
+) -> AppResult<ReplayResult> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+
+    let session_id = state
+        .session_id()
+        .ok_or_else(|| AppError::Other("no active proxy session".into()))?;
+
+    // Hydrate the base request from the stored exchange so the user
+    // doesn't have to ship it on every send.
+    let db = state.db().clone();
+    let stored = tauri::async_runtime::spawn_blocking(move || db.get_exchange_raw(&base_id))
+        .await
+        .map_err(|e| AppError::Other(format!("join: {e}")))?
+        .map_err(|e| AppError::Other(format!("get_exchange: {e}")))?
+        .ok_or_else(|| AppError::Other(format!("base exchange not found: {base_id}")))?;
+
+    let headers: indexmap::IndexMap<String, String> =
+        bincode::deserialize(&stored.req_headers)
+            .map_err(|e| AppError::Other(format!("decode headers: {e}")))?;
+
+    let mut base = corvex_core::http::request::Request::new(
+        &stored.host,
+        stored.port,
+        &stored.method,
+        &compose_uri(&stored.path, stored.query.as_deref()),
+    );
+    base.ssl = stored.scheme == "https";
+    base.headers = headers;
+    base.body = stored.req_body.unwrap_or_default();
+    // Ensure Connection: close for corvex-core's close-delimited reads.
+    base.headers.shift_remove("connection");
+    base.headers.shift_remove("Connection");
+    base.headers.insert("Connection".into(), "close".into());
+
+    let edited_bytes = edited_bytes_base64
+        .map(|s| B64.decode(s.as_bytes()))
+        .transpose()
+        .map_err(|e| AppError::Other(format!("base64: {e}")))?;
+
+    let input = ReplayInput {
+        session_id,
+        base,
+        base_id,
+        edited_bytes,
+    };
+
+    let client = state.upstream_client();
+    let exchange = run_replay(client, input)
+        .await
+        .map_err(|e| AppError::Other(format!("replay: {e}")))?;
+
+    let result = ReplayResult {
+        id: exchange.id.to_string(),
+        status: exchange.response.as_ref().map(|r| r.status),
+        duration_ms: exchange.duration_ms,
+        response_headers: exchange
+            .response
+            .as_ref()
+            .map(|r| r.headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default(),
+        response_body_base64: exchange
+            .response
+            .as_ref()
+            .map(|r| B64.encode(&r.body)),
+    };
+
+    // Persist + broadcast so the replayed request shows up in Traffic
+    // under its own row with origin Replay{parent}.
+    state.record_exchange(exchange);
+
+    Ok(result)
+}
+
+fn compose_uri(path: &str, query: Option<&str>) -> String {
+    match query {
+        Some(q) if !q.is_empty() => format!("{path}?{q}"),
+        _ => path.to_string(),
+    }
 }

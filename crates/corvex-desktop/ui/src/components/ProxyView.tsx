@@ -1,13 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   exchangesList,
+  exchangeGet,
+  interceptDropAll,
+  interceptGetMode,
+  interceptPendingList,
+  interceptResolve,
+  interceptSetMode,
+  onInterceptPending,
   onProxyExchange,
   proxyExportCaPem,
   proxyStart,
   proxyStatus,
   proxyStop,
+  replaySend,
   type ExchangeSummary,
+  type InterceptMode,
+  type PendingIntercept,
   type ProxyStatus,
+  type ReplayResult,
 } from "../api";
 
 type Tab = "traffic" | "intercept" | "replay" | "checks" | "settings";
@@ -34,6 +45,7 @@ export function ProxyView() {
   const [listen, setListen] = useState<string>("127.0.0.1:8888");
   const [tab, setTab] = useState<Tab>("traffic");
   const [exchanges, setExchanges] = useState<ExchangeSummary[]>([]);
+  const [replayBase, setReplayBase] = useState<ExchangeSummary | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -179,10 +191,19 @@ export function ProxyView() {
 
         <div className="proxy-tab-body">
           {tab === "traffic" && (
-            <ProxyTrafficTab exchanges={exchanges} running={running} />
+            <ProxyTrafficTab
+              exchanges={exchanges}
+              running={running}
+              onSendToReplay={(ex) => {
+                setReplayBase(ex);
+                setTab("replay");
+              }}
+            />
           )}
-          {tab === "intercept" && <ProxyPlaceholderTab kind="intercept" />}
-          {tab === "replay" && <ProxyPlaceholderTab kind="replay" />}
+          {tab === "intercept" && <ProxyInterceptTab />}
+          {tab === "replay" && (
+            <ProxyReplayTab base={replayBase} onChangeBase={setReplayBase} />
+          )}
           {tab === "checks" && <ProxyPlaceholderTab kind="checks" />}
           {tab === "settings" && <ProxySettingsTab />}
         </div>
@@ -194,9 +215,11 @@ export function ProxyView() {
 function ProxyTrafficTab({
   exchanges,
   running,
+  onSendToReplay,
 }: {
   exchanges: ExchangeSummary[];
   running: boolean;
+  onSendToReplay: (ex: ExchangeSummary) => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -277,6 +300,18 @@ function ProxyTrafficTab({
                         <dt>MIME</dt><dd>{ex.mime ?? "-"}</dd>
                         <dt>Scope</dt><dd>{ex.scope}</dd>
                       </dl>
+                      <div className="proxy-detail-actions">
+                        <button
+                          type="button"
+                          className="chip"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSendToReplay(ex);
+                          }}
+                        >
+                          Send to Replay
+                        </button>
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -726,18 +761,8 @@ function SetupTroubleshoot() {
   );
 }
 
-function ProxyPlaceholderTab({ kind }: { kind: "intercept" | "replay" | "checks" }) {
+function ProxyPlaceholderTab({ kind }: { kind: "checks" }) {
   const copy: Record<typeof kind, { title: string; body: string }> = {
-    intercept: {
-      title: "Intercept",
-      body:
-        "Pause, inspect, and edit requests as they flow through the proxy. Arriving in the next milestone.",
-    },
-    replay: {
-      title: "Replay",
-      body:
-        "Resend any captured request with edits; compare responses side-by-side. Arriving after Intercept.",
-    },
     checks: {
       title: "Checks",
       body:
@@ -757,4 +782,391 @@ function humanSize(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// --- Intercept tab -------------------------------------------------------
+
+const INTERCEPT_MODES: { value: InterceptMode; label: string }[] = [
+  { value: "off", label: "Off" },
+  { value: "request", label: "Request" },
+  { value: "response", label: "Response" },
+  { value: "both", label: "Both" },
+];
+
+function ProxyInterceptTab() {
+  const [mode, setMode] = useState<InterceptMode>("off");
+  const [pending, setPending] = useState<PendingIntercept[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editor, setEditor] = useState<string>("");
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const selected = useMemo(
+    () => pending.find((p) => p.id === selectedId) ?? null,
+    [pending, selectedId],
+  );
+
+  const refresh = useCallback(async () => {
+    try {
+      const [m, list] = await Promise.all([
+        interceptGetMode(),
+        interceptPendingList(),
+      ]);
+      setMode(m);
+      setPending(list);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    let unlisten: (() => void) | null = null;
+    onInterceptPending(() => {
+      refresh();
+    })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [refresh]);
+
+  // Reset editor when a new pending item is selected or pending list
+  // changes out from under us.
+  useEffect(() => {
+    if (!selected) {
+      setEditor("");
+      setDirty(false);
+      return;
+    }
+    try {
+      const decoded = atob(selected.raw_bytes_base64);
+      setEditor(decoded);
+      setDirty(false);
+    } catch {
+      setEditor("");
+    }
+  }, [selected]);
+
+  const handleModeChange = async (m: InterceptMode) => {
+    setError(null);
+    try {
+      await interceptSetMode(m);
+      setMode(m);
+      if (m === "off") {
+        // Backend releases pending exchanges when switching off;
+        // refresh so the UI doesn't show stale rows.
+        await refresh();
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleForward = async () => {
+    if (!selected) return;
+    setError(null);
+    try {
+      if (dirty) {
+        const encoded = btoa(editor);
+        await interceptResolve(selected.id, {
+          kind: "forward_edited",
+          bytes_base64: encoded,
+        });
+      } else {
+        await interceptResolve(selected.id, { kind: "forward" });
+      }
+      await refresh();
+      setSelectedId(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleDrop = async () => {
+    if (!selected) return;
+    setError(null);
+    try {
+      await interceptResolve(selected.id, { kind: "drop" });
+      await refresh();
+      setSelectedId(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleDropAll = async () => {
+    setError(null);
+    try {
+      await interceptDropAll();
+      await refresh();
+      setSelectedId(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <div className="proxy-intercept">
+      <section>
+        <h3>Intercept mode</h3>
+        <div className="proxy-mode-row">
+          {INTERCEPT_MODES.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              className={`chip${mode === m.value ? " active" : ""}`}
+              onClick={() => handleModeChange(m.value)}
+            >
+              {m.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="chip"
+            onClick={handleDropAll}
+            disabled={pending.length === 0}
+            title="Release every pending intercept with Forward"
+          >
+            Drop all
+          </button>
+        </div>
+        <p className="muted">
+          When intercept is on, in-scope requests pause here before the
+          proxy forwards them. Pick one from the queue below to inspect
+          or edit before forwarding. Out-of-scope traffic is never
+          paused — configure scope rules on the Settings tab.
+        </p>
+        {error && <div className="proxy-error">{error}</div>}
+      </section>
+
+      <div className="proxy-intercept-layout">
+        <aside className="proxy-intercept-queue">
+          <h4>Pending ({pending.length})</h4>
+          {pending.length === 0 ? (
+            <p className="muted">No paused exchanges.</p>
+          ) : (
+            <ul>
+              {pending.map((p) => (
+                <li
+                  key={p.id}
+                  className={`proxy-intercept-item${
+                    selectedId === p.id ? " active" : ""
+                  }`}
+                  onClick={() => setSelectedId(p.id)}
+                >
+                  <span className="badge-inline">{p.method}</span>
+                  <span className="proxy-intercept-url">
+                    {p.scheme}://{p.host}:{p.port}
+                    {p.uri}
+                  </span>
+                  <span className="muted">{p.phase}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
+
+        <div className="proxy-intercept-editor">
+          {selected ? (
+            <>
+              <div className="proxy-intercept-toolbar">
+                <span className="muted">
+                  Edit the raw HTTP/1 bytes below. Keep the blank line
+                  between headers and body. Changes only go on the wire
+                  when you click Forward.
+                </span>
+              </div>
+              <textarea
+                className="proxy-wire-editor"
+                value={editor}
+                spellCheck={false}
+                onChange={(e) => {
+                  setEditor(e.target.value);
+                  setDirty(true);
+                }}
+              />
+              <div className="proxy-intercept-actions">
+                <button
+                  type="button"
+                  className="chip active"
+                  onClick={handleForward}
+                >
+                  {dirty ? "Forward edited" : "Forward"}
+                </button>
+                <button type="button" className="chip" onClick={handleDrop}>
+                  Drop
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="muted">Pick a pending exchange to inspect.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Replay tab ----------------------------------------------------------
+
+function ProxyReplayTab({
+  base,
+  onChangeBase,
+}: {
+  base: ExchangeSummary | null;
+  onChangeBase: (ex: ExchangeSummary | null) => void;
+}) {
+  const [editor, setEditor] = useState<string>("");
+  const [initial, setInitial] = useState<string>("");
+  const [response, setResponse] = useState<ReplayResult | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!base) {
+      setEditor("");
+      setInitial("");
+      setResponse(null);
+      return;
+    }
+    // Hydrate the editor from the stored detail so edits start from the
+    // real wire bytes the proxy forwarded.
+    exchangeGet(base.id)
+      .then((detail) => {
+        if (!detail) return;
+        const lines: string[] = [];
+        const scheme = detail.scheme;
+        const path = detail.query
+          ? `${detail.path}?${detail.query}`
+          : detail.path;
+        lines.push(`${detail.method} ${path} HTTP/1.1`);
+        let hasHost = false;
+        for (const [k, v] of detail.request_headers) {
+          if (k.toLowerCase() === "host") hasHost = true;
+          lines.push(`${k}: ${v}`);
+        }
+        if (!hasHost) {
+          const needsPort =
+            (scheme === "http" && detail.port !== 80) ||
+            (scheme === "https" && detail.port !== 443);
+          lines.push(
+            `Host: ${detail.host}${needsPort ? `:${detail.port}` : ""}`,
+          );
+        }
+        const body = detail.request_body_base64
+          ? atob(detail.request_body_base64)
+          : "";
+        const raw = `${lines.join("\r\n")}\r\n\r\n${body}`;
+        setEditor(raw);
+        setInitial(raw);
+        setResponse(null);
+      })
+      .catch((e) => setError(String(e)));
+  }, [base]);
+
+  const dirty = editor !== initial;
+
+  const handleSend = async () => {
+    if (!base) return;
+    setSending(true);
+    setError(null);
+    try {
+      const edited = dirty ? btoa(editor) : null;
+      const r = await replaySend(base.id, edited);
+      setResponse(r);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (!base) {
+    return (
+      <div className="proxy-empty">
+        <h3>Replay</h3>
+        <p className="muted">
+          Expand any row in the Traffic tab and click{" "}
+          <strong>Send to Replay</strong> to load it here. Edit the raw
+          bytes and hit Send — the result is captured as a new row in
+          the Traffic log linked back to the original exchange.
+        </p>
+      </div>
+    );
+  }
+
+  const responseBody = response?.response_body_base64
+    ? (() => {
+        try {
+          return atob(response.response_body_base64);
+        } catch {
+          return "<binary body>";
+        }
+      })()
+    : "";
+
+  return (
+    <div className="proxy-replay">
+      <div className="proxy-replay-toolbar">
+        <span>
+          Base: <code>{base.method}</code> {base.scheme}://{base.host}
+          {base.path}
+        </span>
+        <div>
+          <button
+            type="button"
+            className="chip active"
+            disabled={sending}
+            onClick={handleSend}
+          >
+            {sending ? "Sending…" : dirty ? "Send (edited)" : "Send"}
+          </button>
+          <button
+            type="button"
+            className="chip"
+            onClick={() => onChangeBase(null)}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <div className="proxy-replay-split">
+        <div className="proxy-replay-pane">
+          <h4>Request</h4>
+          <textarea
+            className="proxy-wire-editor"
+            value={editor}
+            spellCheck={false}
+            onChange={(e) => setEditor(e.target.value)}
+          />
+        </div>
+        <div className="proxy-replay-pane">
+          <h4>Response</h4>
+          {response ? (
+            <>
+              <p className="muted">
+                Status <strong>{response.status ?? "—"}</strong> ·{" "}
+                {response.duration_ms ?? "?"} ms
+              </p>
+              <pre className="proxy-response-headers">
+                {response.response_headers
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join("\n")}
+              </pre>
+              <pre className="proxy-response-body">{responseBody}</pre>
+            </>
+          ) : (
+            <p className="muted">Hit Send to run the request.</p>
+          )}
+        </div>
+      </div>
+
+      {error && <div className="proxy-error">{error}</div>}
+    </div>
+  );
 }

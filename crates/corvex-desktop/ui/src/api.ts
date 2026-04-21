@@ -588,3 +588,73 @@ export function onProxyExchange(
 ): Promise<UnlistenFn> {
   return listen<ExchangeSummary>("proxy://exchange-new", (e) => cb(e.payload));
 }
+
+// --- Phase 2: intercept + replay -----------------------------------------
+
+export type InterceptMode = "off" | "request" | "response" | "both";
+export type InterceptPhase = "request" | "response";
+
+export interface PendingIntercept {
+  id: string;
+  phase: InterceptPhase;
+  method: string;
+  host: string;
+  port: number;
+  scheme: string;
+  uri: string;
+  raw_bytes_base64: string;
+}
+
+export type InterceptVerdictInput =
+  | { kind: "forward" }
+  | { kind: "forward_edited"; bytes_base64: string }
+  | { kind: "drop" };
+
+export interface ReplayResult {
+  id: string;
+  status: number | null;
+  duration_ms: number | null;
+  response_headers: [string, string][];
+  response_body_base64: string | null;
+}
+
+export function interceptGetMode(): Promise<InterceptMode> {
+  return invoke<InterceptMode>("intercept_get_mode");
+}
+
+export function interceptSetMode(mode: InterceptMode): Promise<void> {
+  return invoke<void>("intercept_set_mode", { mode });
+}
+
+export function interceptPendingList(): Promise<PendingIntercept[]> {
+  return invoke<PendingIntercept[]>("intercept_pending_list");
+}
+
+export function interceptResolve(
+  id: string,
+  verdict: InterceptVerdictInput,
+): Promise<void> {
+  return invoke<void>("intercept_resolve", { id, verdict });
+}
+
+export function interceptDropAll(): Promise<void> {
+  return invoke<void>("intercept_drop_all");
+}
+
+export function replaySend(
+  baseId: string,
+  editedBytesBase64: string | null,
+): Promise<ReplayResult> {
+  return invoke<ReplayResult>("replay_send", {
+    baseId,
+    editedBytesBase64,
+  });
+}
+
+export function onInterceptPending(
+  cb: (pending: PendingIntercept) => void,
+): Promise<UnlistenFn> {
+  return listen<PendingIntercept>("proxy://intercept-pending", (e) =>
+    cb(e.payload),
+  );
+}
