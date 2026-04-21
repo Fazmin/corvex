@@ -1,0 +1,218 @@
+# OWASP Top 10 taxonomy.
+#
+# This file is the single source of truth for OWASP category codes,
+# labels, descriptions, and the rules that classify a Nuclei template
+# (by tags + name) or a coded check into a category.
+#
+# ---------------------------------------------------------------------
+# To update when OWASP publishes a new Top 10:
+#
+#   1. Read the release notes at https://owasp.org/Top10/.
+#   2. Edit this file in place: bump `version` + `released`, replace
+#      the `categories` block with the new list, update the `classify`
+#      rules so tag patterns reflect any renamed / merged categories.
+#   3. Run `cargo test -p corvex-intel` — the round-trip tests catch
+#      YAML parse errors and missing categories the classifier points
+#      at.
+#   4. `cargo build` — the file is compile-time embedded via include_str!.
+# ---------------------------------------------------------------------
+#
+# This is the 2025 release. Notable changes vs 2021:
+#   - A02 is now Security Misconfiguration (promoted from A05:2021).
+#   - A03 is now Software Supply Chain Failures — absorbs the former
+#     A06:2021 Vulnerable and Outdated Components and expands scope.
+#   - A04 and A05 are Cryptographic Failures + Injection respectively
+#     (demoted from A02 and A03 in 2021).
+#   - A06 is Insecure Design (demoted from A04).
+#   - A07 is simply "Authentication Failures" — the 2021 prefix
+#     "Identification and" was dropped.
+#   - A09 is Security Logging and *Alerting* Failures (was "Monitoring").
+#   - A10 is the new "Mishandling of Exceptional Conditions".
+#   - SSRF is no longer a standalone category (folded into Injection).
+
+version: "2025"
+released: "2025"
+source: "https://owasp.org/Top10/2025/"
+
+# Category metadata. Order in this list only affects display — the
+# classifier below uses `code` to look up a category by name.
+categories:
+  - code: A01
+    label: Broken Access Control
+    description: >
+      Restrictions on what authenticated users are allowed to do are
+      often not properly enforced. Attackers exploit these flaws to
+      access other users' accounts, sensitive files, modify access
+      rights, or change data they shouldn't reach.
+    reference: https://owasp.org/Top10/2025/A01_2025-Broken_Access_Control/
+
+  - code: A02
+    label: Security Misconfiguration
+    description: >
+      Insecure default configurations, open cloud storage,
+      misconfigured HTTP headers, overly permissive cross-origin
+      rules, and verbose error messages that leak sensitive
+      information about the application or environment.
+    reference: https://owasp.org/Top10/2025/A02_2025-Security_Misconfiguration/
+
+  - code: A03
+    label: Software Supply Chain Failures
+    description: >
+      Risks from third-party dependencies, build-time tooling, and
+      distribution pipelines — running outdated or vulnerable
+      components, compromised update channels, dependency confusion,
+      typosquatting, and unsigned artefacts. Absorbs the 2021
+      "Vulnerable and Outdated Components" category.
+    reference: https://owasp.org/Top10/2025/A03_2025-Software_Supply_Chain_Failures/
+
+  - code: A04
+    label: Cryptographic Failures
+    description: >
+      Failures that expose sensitive data in transit or at rest —
+      weak or deprecated algorithms, improper key management,
+      hard-coded secrets, missing encryption on sensitive flows, and
+      cryptographic protocol misuse.
+    reference: https://owasp.org/Top10/2025/A04_2025-Cryptographic_Failures/
+
+  - code: A05
+    label: Injection
+    description: >
+      User-supplied data is interpreted as a command or query by the
+      application. Covers SQL, NoSQL, OS-command, LDAP, XPath, XXE,
+      SSTI, reflected/stored XSS, and — in the 2025 release —
+      Server-Side Request Forgery (SSRF) as an injection-family issue.
+    reference: https://owasp.org/Top10/2025/A05_2025-Injection/
+
+  - code: A06
+    label: Insecure Design
+    description: >
+      Flaws baked into the design or architecture such that a
+      faultless implementation would still be vulnerable. Covers
+      missing security controls, business-logic flaws, and the
+      absence of threat modelling / secure-by-design practices.
+    reference: https://owasp.org/Top10/2025/A06_2025-Insecure_Design/
+
+  - code: A07
+    label: Authentication Failures
+    description: >
+      Weaknesses in authentication and session management —
+      credential stuffing, default passwords, weak session IDs,
+      missing multi-factor authentication, insecure password storage,
+      and insufficient account-lockout or rate-limiting.
+    reference: https://owasp.org/Top10/2025/A07_2025-Authentication_Failures/
+
+  - code: A08
+    label: Software or Data Integrity Failures
+    description: >
+      Code or data that isn't protected against integrity violations —
+      insecure deserialization, unsigned updates, CI/CD pipelines
+      without supply-chain controls, and client-side data that is
+      trusted without verification.
+    reference: https://owasp.org/Top10/2025/A08_2025-Software_or_Data_Integrity_Failures/
+
+  - code: A09
+    label: Security Logging and Alerting Failures
+    description: >
+      Inadequate logging, detection, alerting, and active response.
+      Attacks go unnoticed, incident-response loops are long or
+      missing, and log data itself is frequently tampered with or
+      exposed. "Alerting" replaces 2021's "Monitoring" to emphasise
+      actionable telemetry.
+    reference: https://owasp.org/Top10/2025/A09_2025-Security_Logging_and_Alerting_Failures/
+
+  - code: A10
+    label: Mishandling of Exceptional Conditions
+    description: >
+      Security-relevant errors, exceptions, and edge cases that the
+      application fails to handle safely. Covers unchecked failure
+      paths, improper cleanup on error, exception-driven control
+      flow that bypasses authorisation, and race conditions during
+      exceptional execution.
+    reference: https://owasp.org/Top10/2025/A10_2025-Mishandling_of_Exceptional_Conditions/
+
+# Classification rules — tested in order; first match wins.
+# Each pattern is "tag:<needle>" (case-insensitive substring against
+# any tag) or "name:<needle>" (substring against template id or
+# check name). If nothing matches, `default_category` is used.
+#
+# These rules were ported from the 2021 file and re-routed to 2025
+# codes:
+#   - Injection family: A03:2021 → A05:2025
+#   - CVE / outdated components: A06:2021 → A03:2025 (supply chain)
+#   - Misconfig / exposure default: A05:2021 → A02:2025
+#   - Crypto failures: A02:2021 → A04:2025
+#   - Insecure design: A04:2021 → A06:2025
+#   - Logging & alerting: A09:2021 → A09:2025 (renamed, same code)
+#   - SSRF: A10:2021 → A05:2025 (folded into Injection)
+classify:
+  # Injection family first — SSRF is now an injection concern in 2025.
+  - any: ["tag:ssrf", "name:ssrf"]
+    category: A05
+  - any: ["tag:sqli", "tag:sql-injection", "name:sqli", "name:sql-injection"]
+    category: A05
+
+  # log4j is famously a vulnerable-component / supply-chain issue —
+  # route by name before the generic RCE rule below.
+  - any: ["name:log4j"]
+    category: A03
+
+  - any: ["tag:rce", "name:rce", "name:remote-code"]
+    category: A05
+  - any: ["tag:xss", "name:xss", "name:cross-site-scripting"]
+    category: A05
+  - any: ["tag:xxe", "name:xxe"]
+    category: A05
+  - any: ["tag:ssti", "name:template-injection"]
+    category: A05
+  - any: ["tag:injection"]
+    category: A05
+
+  # A01 Broken Access Control
+  - any:
+      - "tag:idor"
+      - "name:idor"
+      - "tag:auth-bypass"
+      - "name:auth-bypass"
+      - "tag:authorization"
+      - "name:open-redirect"
+      - "tag:redirect"
+      - "tag:lfi"
+      - "tag:traversal"
+      - "tag:path-traversal"
+    category: A01
+
+  # A07 Authentication Failures
+  - any:
+      - "tag:default-login"
+      - "tag:default-creds"
+      - "name:default-login"
+      - "name:weak-password"
+      - "tag:brute-force"
+    category: A07
+
+  # A03 Software Supply Chain Failures — absorbs the former "Vulnerable
+  # and Outdated Components". Bare CVE tags / names end up here.
+  - any:
+      - "tag:cve"
+      - "tag:cves"
+      - "name:cve-"
+      - "tag:supply-chain"
+      - "tag:dependency-confusion"
+    category: A03
+
+  # A04 Cryptographic Failures
+  - any: ["tag:crypto", "tag:tls", "tag:ssl", "name:weak-cipher"]
+    category: A04
+
+  # A06 Insecure Design
+  - any: ["tag:design", "name:business-logic"]
+    category: A06
+
+  # A09 Security Logging & Alerting Failures
+  - any: ["tag:logs", "tag:audit"]
+    category: A09
+
+# Default for uncategorised checks. OWASP scoping guidance places
+# long-tail misc checks under Security Misconfiguration, which is now
+# A02 in the 2025 release.
+default_category: A02

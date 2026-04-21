@@ -5,6 +5,7 @@
 //! streams findings + engine log lines back to the web frontend
 //! through Tauri events.
 
+mod check_bridge;
 mod commands;
 mod error;
 mod event_sink;
@@ -114,6 +115,12 @@ fn main() {
                             }
                         }
                     });
+                    // Hook the Checks engine onto the proxy exchange
+                    // stream. Passive findings stream in real time;
+                    // active runs are triggered explicitly from the UI.
+                    let bridge = Arc::new(check_bridge::CheckBridge::new());
+                    bridge.attach(state.clone(), app.handle().clone());
+                    app.manage(bridge);
                     app.manage(state);
                     tracing::info!(target: "proxy", "proxy state ready");
                 }
@@ -152,6 +159,7 @@ fn main() {
             commands::sonar_summary,
             commands::nuclei_summary,
             commands::nuclei_template_list,
+            commands::wappalyzer_summary,
             commands::nuclei_extras_download,
             commands::nuclei_extras_remove,
             commands::jarm_lookup,
@@ -169,6 +177,11 @@ fn main() {
             proxy_cmd::intercept_resolve,
             proxy_cmd::intercept_drop_all,
             proxy_cmd::replay_send,
+            proxy_cmd::checks_list,
+            proxy_cmd::findings_for_exchange,
+            proxy_cmd::findings_for_session,
+            proxy_cmd::checks_run,
+            proxy_cmd::owasp_taxonomy_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

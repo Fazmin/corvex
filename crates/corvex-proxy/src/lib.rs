@@ -35,7 +35,7 @@ pub use intercept::{
 };
 pub use replay::{run_replay, ReplayError, ReplayInput};
 pub use scope::{ScopeDecision as ScopeRuleDecision, ScopeRules};
-pub use store::ProxyDb;
+pub use store::{ProxyDb, StoredFinding};
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};

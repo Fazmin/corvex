@@ -265,6 +265,116 @@ impl ProxyDb {
     }
 }
 
+impl ProxyDb {
+    /// Insert a finding row linked to an exchange. Scan-run linkage is
+    /// optional — passive findings emitted on every exchange leave
+    /// `scan_run_id` null; active-check runs supply their run id.
+    pub fn insert_finding(&self, f: &StoredFinding) -> SqlResult<()> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        conn.execute(
+            "INSERT OR REPLACE INTO exchange_scan_findings (
+                id, scan_run_id, exchange_id, check_id, severity, title,
+                description, evidence, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                f.id,
+                f.scan_run_id,
+                f.exchange_id,
+                f.check_id,
+                f.severity,
+                f.title,
+                f.description,
+                f.evidence,
+                f.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn findings_for_exchange(&self, id: &ExchangeId) -> SqlResult<Vec<StoredFinding>> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let mut stmt = conn.prepare(
+            "SELECT id, scan_run_id, exchange_id, check_id, severity, title,
+                    description, evidence, created_at
+               FROM exchange_scan_findings
+              WHERE exchange_id = ?1
+              ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map(params![id.to_string()], |row| {
+            Ok(StoredFinding {
+                id: row.get(0)?,
+                scan_run_id: row.get(1)?,
+                exchange_id: row.get(2)?,
+                check_id: row.get(3)?,
+                severity: row.get(4)?,
+                title: row.get(5)?,
+                description: row.get(6)?,
+                evidence: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn findings_for_session(
+        &self,
+        session: &SessionId,
+        limit: usize,
+    ) -> SqlResult<Vec<StoredFinding>> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let mut stmt = conn.prepare(
+            "SELECT f.id, f.scan_run_id, f.exchange_id, f.check_id, f.severity, f.title,
+                    f.description, f.evidence, f.created_at
+               FROM exchange_scan_findings f
+               JOIN exchanges e ON e.id = f.exchange_id
+              WHERE e.session_id = ?1
+              ORDER BY f.created_at DESC
+              LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(
+            params![session.to_string(), limit as i64],
+            |row| {
+                Ok(StoredFinding {
+                    id: row.get(0)?,
+                    scan_run_id: row.get(1)?,
+                    exchange_id: row.get(2)?,
+                    check_id: row.get(3)?,
+                    severity: row.get(4)?,
+                    title: row.get(5)?,
+                    description: row.get(6)?,
+                    evidence: row.get(7)?,
+                    created_at: row.get(8)?,
+                })
+            },
+        )?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+}
+
+/// Row shape for a persisted finding. Pure serde-ready primitives — the
+/// desktop layer converts from `corvex-checks::Finding` into this
+/// before hitting SQLite.
+#[derive(Debug, Clone)]
+pub struct StoredFinding {
+    pub id: String,
+    pub scan_run_id: Option<String>,
+    pub exchange_id: String,
+    pub check_id: String,
+    pub severity: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub evidence: Option<Vec<u8>>,
+    pub created_at: i64,
+}
+
 /// Intermediate projection used by the detail command. Headers are
 /// bincoded `IndexMap<String,String>` blobs — the desktop command layer
 /// decodes them into a JSON-friendly shape before returning to the UI.

@@ -1181,6 +1181,34 @@ button.browse-btn:active {
   letter-spacing: 0;
 }
 
+.help-inline-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.help-inline-link:hover {
+  color: var(--accent-strong, var(--accent));
+}
+
+.help-cmd {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+
 .help-content p {
   margin: 6px 0 10px 0;
   color: var(--fg);
@@ -2176,14 +2204,23 @@ button[disabled] {
 .proxy-toolbar-left,
 .proxy-toolbar-right {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
 }
 
 .proxy-title {
   margin: 0;
-  font-size: calc(var(--font-base) + 4px);
+  font-size: calc(var(--font-base) + 2px);
   font-weight: 600;
+  line-height: 1.4;
+}
+
+.proxy-toolbar-left .badge-inline {
+  line-height: 1.4;
+  padding: 1px 8px;
+  /* Keep the badge text on the same baseline as the title so the pill
+     visually tracks the caps-text rather than floating below it. */
+  align-self: baseline;
 }
 
 .proxy-listen-label {
@@ -2660,4 +2697,297 @@ button[disabled] {
   word-break: break-all;
   max-height: 320px;
   overflow: auto;
+}
+
+/* ---------------------------------------------------------------- */
+/* Proxy — checks tab                                                */
+/* ---------------------------------------------------------------- */
+
+.proxy-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 0;
+  flex: 1 1 0;
+  min-height: 0;
+  /* Override the generic `.proxy-tab-body > *` scroll rule — the two
+     columns below own their own scroll, so the outer shell must clip
+     (not scroll) to avoid nested scrollbars. */
+  overflow: hidden;
+}
+
+.proxy-checks-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 400px) 1fr;
+  gap: 16px;
+  flex: 1 1 0;
+  min-height: 0;
+  /* Let both columns compute their own overflow — the row itself is
+     a bounded flex child of the tab body. */
+}
+
+.proxy-checks-library {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 6px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.proxy-checks-library h4,
+.proxy-checks-main h4 {
+  margin: 0 0 8px;
+  font-size: calc(var(--font-base) - 1px);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.proxy-checks-library-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.proxy-checks-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.proxy-checks-search .input {
+  flex: 1;
+  min-width: 140px;
+  padding: 4px 8px;
+  font-size: calc(var(--font-base) - 1px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  color: var(--fg);
+}
+
+.proxy-checks-search .input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.proxy-checks-search-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: calc(var(--font-base) - 2px);
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.proxy-checks-group-label {
+  font-weight: 600;
+  font-size: calc(var(--font-base) - 1px);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: help;
+}
+
+.proxy-checks-group-hint {
+  color: var(--muted);
+  font-size: calc(var(--font-base) - 3px);
+  font-weight: 400;
+}
+
+.proxy-taxonomy-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 2px 0 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.proxy-taxonomy-chip {
+  background: var(--accent);
+  color: var(--accent-fg, #fff);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: calc(var(--font-base) - 3px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.proxy-taxonomy-source {
+  margin-left: auto;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: calc(var(--font-base) - 2px);
+}
+
+.proxy-taxonomy-source:hover {
+  text-decoration: underline;
+}
+
+.proxy-checks-group ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.proxy-checks-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.proxy-checks-item label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.proxy-checks-kind {
+  color: var(--muted);
+  font-size: calc(var(--font-base) - 2px);
+  font-variant: small-caps;
+}
+
+.proxy-checks-name {
+  flex: 1;
+}
+
+.proxy-checks-desc {
+  color: var(--muted);
+  font-size: calc(var(--font-base) - 2px);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.proxy-checks-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.proxy-checks-targets {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.proxy-checks-targets li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.proxy-checks-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.proxy-findings {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.proxy-finding {
+  padding: 8px 10px;
+  border-left: 3px solid var(--border);
+  background: var(--panel-alt);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.proxy-finding.sev-critical,
+.proxy-finding.sev-high {
+  border-left-color: #e06363;
+}
+.proxy-finding.sev-medium {
+  border-left-color: #e7c06a;
+}
+.proxy-finding.sev-low {
+  border-left-color: #6ab5e7;
+}
+.proxy-finding.sev-info {
+  border-left-color: var(--muted);
+}
+
+.proxy-finding-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.proxy-finding-title {
+  flex: 1;
+  font-weight: 600;
+}
+
+.proxy-finding-check {
+  font-size: calc(var(--font-base) - 2px);
+  font-family: var(--mono, monospace);
+}
+
+.proxy-finding-desc {
+  color: var(--muted);
+  font-size: calc(var(--font-base) - 2px);
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.badge-inline.sev-critical,
+.badge-inline.sev-high {
+  background: rgba(224, 99, 99, 0.15);
+  border-color: rgba(224, 99, 99, 0.5);
+  color: #e88585;
+}
+.badge-inline.sev-medium {
+  background: rgba(231, 192, 106, 0.15);
+  border-color: rgba(231, 192, 106, 0.5);
+  color: #e7c06a;
+}
+.badge-inline.sev-low {
+  background: rgba(106, 181, 231, 0.15);
+  border-color: rgba(106, 181, 231, 0.5);
+  color: #6ab5e7;
+}
+.badge-inline.sev-info {
+  background: var(--panel-alt);
+  border-color: var(--border);
+  color: var(--muted);
 }

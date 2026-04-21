@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  checksList,
+  checksRun,
   exchangesList,
   exchangeGet,
+  findingsForSession,
   interceptDropAll,
   interceptGetMode,
   interceptPendingList,
@@ -9,13 +12,19 @@ import {
   interceptSetMode,
   onInterceptPending,
   onProxyExchange,
+  onScanFinding,
+  owaspTaxonomyInfo,
   proxyExportCaPem,
   proxyStart,
   proxyStatus,
   proxyStop,
   replaySend,
+  type CheckDescriptor,
   type ExchangeSummary,
+  type FindingRow,
   type InterceptMode,
+  type LiveFindingPayload,
+  type OwaspTaxonomyInfo,
   type PendingIntercept,
   type ProxyStatus,
   type ReplayResult,
@@ -46,6 +55,7 @@ export function ProxyView() {
   const [tab, setTab] = useState<Tab>("traffic");
   const [exchanges, setExchanges] = useState<ExchangeSummary[]>([]);
   const [replayBase, setReplayBase] = useState<ExchangeSummary | null>(null);
+  const [checkTargets, setCheckTargets] = useState<ExchangeSummary[]>([]);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -198,13 +208,28 @@ export function ProxyView() {
                 setReplayBase(ex);
                 setTab("replay");
               }}
+              onSendToChecks={(ex) => {
+                setCheckTargets((prev) =>
+                  prev.some((p) => p.id === ex.id) ? prev : [...prev, ex],
+                );
+                setTab("checks");
+              }}
             />
           )}
           {tab === "intercept" && <ProxyInterceptTab />}
           {tab === "replay" && (
             <ProxyReplayTab base={replayBase} onChangeBase={setReplayBase} />
           )}
-          {tab === "checks" && <ProxyPlaceholderTab kind="checks" />}
+          {tab === "checks" && (
+            <ProxyChecksTab
+              sessionId={status?.session_id ?? null}
+              targets={checkTargets}
+              onClearTargets={() => setCheckTargets([])}
+              onRemoveTarget={(id) =>
+                setCheckTargets((prev) => prev.filter((p) => p.id !== id))
+              }
+            />
+          )}
           {tab === "settings" && <ProxySettingsTab />}
         </div>
       </div>
@@ -216,10 +241,12 @@ function ProxyTrafficTab({
   exchanges,
   running,
   onSendToReplay,
+  onSendToChecks,
 }: {
   exchanges: ExchangeSummary[];
   running: boolean;
   onSendToReplay: (ex: ExchangeSummary) => void;
+  onSendToChecks: (ex: ExchangeSummary) => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -310,6 +337,16 @@ function ProxyTrafficTab({
                           }}
                         >
                           Send to Replay
+                        </button>
+                        <button
+                          type="button"
+                          className="chip"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSendToChecks(ex);
+                          }}
+                        >
+                          Send to Checks
                         </button>
                       </div>
                     </div>
@@ -761,22 +798,334 @@ function SetupTroubleshoot() {
   );
 }
 
-function ProxyPlaceholderTab({ kind }: { kind: "checks" }) {
-  const copy: Record<typeof kind, { title: string; body: string }> = {
-    checks: {
-      title: "Checks",
-      body:
-        "Run OWASP Top 10 checks against captured exchanges. Passive checks run automatically; active checks send probes on demand.",
-    },
+function ProxyChecksTab({
+  sessionId,
+  targets,
+  onClearTargets,
+  onRemoveTarget,
+}: {
+  sessionId: string | null;
+  targets: ExchangeSummary[];
+  onClearTargets: () => void;
+  onRemoveTarget: (id: string) => void;
+}) {
+  const [descriptors, setDescriptors] = useState<CheckDescriptor[]>([]);
+  const [enabled, setEnabled] = useState<Set<string>>(new Set());
+  const [findings, setFindings] = useState<FindingRow[]>([]);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState<string>("");
+  const [onlyEnabled, setOnlyEnabled] = useState<boolean>(false);
+  const [taxonomy, setTaxonomy] = useState<OwaspTaxonomyInfo | null>(null);
+
+  // Load the check catalog once.
+  useEffect(() => {
+    checksList()
+      .then((list) => {
+        setDescriptors(list);
+        // Default: all passive checks on (they run automatically anyway
+        // — the toggle is informative). Active checks are off.
+        const defaults = new Set(
+          list.filter((d) => d.kind === "passive").map((d) => d.id),
+        );
+        setEnabled(defaults);
+      })
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  // Load the OWASP taxonomy once so the banner + category tooltips
+  // always reflect the version shipped in the current binary.
+  useEffect(() => {
+    owaspTaxonomyInfo().then(setTaxonomy).catch(() => {});
+  }, []);
+
+  // Hydrate findings for the current session and stream new ones live.
+  useEffect(() => {
+    if (!sessionId) {
+      setFindings([]);
+      return;
+    }
+    findingsForSession(sessionId, 500).then(setFindings).catch(() => {});
+    let unlisten: (() => void) | null = null;
+    onScanFinding((live: LiveFindingPayload) => {
+      // Adapt the live payload to the stored-row shape.
+      setFindings((prev) => [
+        {
+          id: live.id,
+          exchange_id: live.exchange_id,
+          check_id: live.check_id,
+          severity:
+            (live.severity as FindingRow["severity"]) ?? "info",
+          title: live.title,
+          description: live.description,
+          evidence: live.evidence,
+          created_at_unix: Math.floor(Date.now() / 1000),
+        },
+        ...prev,
+      ]);
+    })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [sessionId]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return descriptors.filter((d) => {
+      if (onlyEnabled && !enabled.has(d.id)) return false;
+      if (!q) return true;
+      return (
+        d.name.toLowerCase().includes(q) ||
+        d.id.toLowerCase().includes(q) ||
+        d.category.toLowerCase().includes(q) ||
+        d.category_label.toLowerCase().includes(q) ||
+        d.kind.toLowerCase().includes(q) ||
+        d.description.toLowerCase().includes(q)
+      );
+    });
+  }, [descriptors, query, onlyEnabled, enabled]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, CheckDescriptor[]>();
+    for (const d of filtered) {
+      const key = `${d.category} — ${d.category_label}`;
+      const arr = map.get(key) ?? [];
+      arr.push(d);
+      map.set(key, arr);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtered]);
+
+  const totalCount = descriptors.length;
+  const visibleCount = filtered.length;
+
+  const toggle = (id: string) =>
+    setEnabled((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const activeSelected = Array.from(enabled).filter(
+    (id) => descriptors.find((d) => d.id === id)?.kind === "active",
+  );
+
+  const handleRun = async () => {
+    if (targets.length === 0 || activeSelected.length === 0) return;
+    setRunning(true);
+    setError(null);
+    try {
+      await checksRun(
+        targets.map((t) => t.id),
+        activeSelected,
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRunning(false);
+    }
   };
-  const c = copy[kind];
+
   return (
-    <div className="proxy-empty">
-      <h3>{c.title}</h3>
-      <p className="muted">{c.body}</p>
+    <div className="proxy-checks">
+      <section>
+        <h3>Checks</h3>
+        {taxonomy && (
+          <div className="proxy-taxonomy-banner" title={taxonomy.source ?? undefined}>
+            <span className="proxy-taxonomy-chip">OWASP Top 10</span>
+            <strong>v{taxonomy.version}</strong>
+            {taxonomy.released && (
+              <span className="muted">· released {taxonomy.released}</span>
+            )}
+            {taxonomy.source && (
+              <a
+                className="proxy-taxonomy-source"
+                href={taxonomy.source}
+                target="_blank"
+                rel="noreferrer"
+                title="Open the official OWASP Top 10 page in your browser"
+              >
+                owasp.org
+              </a>
+            )}
+          </div>
+        )}
+        <p className="muted">
+          Passive checks (
+          {descriptors.filter((d) => d.kind === "passive").length})
+          {" "}run automatically on every in-scope exchange. Active checks
+          send additional probes against the targets you queue below.
+          Category headers below are sourced from the active taxonomy —
+          hover ⓘ for the OWASP description.
+        </p>
+        {error && <div className="proxy-error">{error}</div>}
+      </section>
+
+      <div className="proxy-checks-layout">
+        <aside className="proxy-checks-library">
+          <div className="proxy-checks-library-head">
+            <h4>
+              Library (OWASP) · {visibleCount}
+              {visibleCount !== totalCount ? ` / ${totalCount}` : ""}
+            </h4>
+            <div className="proxy-checks-search">
+              <input
+                type="search"
+                className="input input-compact"
+                placeholder="Search by name, id, category, tag…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                spellCheck={false}
+              />
+              {query && (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setQuery("")}
+                  title="Clear search"
+                >
+                  clear
+                </button>
+              )}
+              <label className="proxy-checks-search-toggle">
+                <input
+                  type="checkbox"
+                  checked={onlyEnabled}
+                  onChange={(e) => setOnlyEnabled(e.target.checked)}
+                />
+                <span>Enabled only</span>
+              </label>
+            </div>
+          </div>
+          {grouped.length === 0 && (
+            <p className="muted">No checks match that search.</p>
+          )}
+          {grouped.map(([group, items]) => {
+            // Pick the description from the first descriptor in the
+            // group (they all share a category, so all descriptions
+            // are identical). Falls back to the first non-null.
+            const groupDescription =
+              items.find((d) => d.category_description)?.category_description ??
+              null;
+            return (
+            <div className="proxy-checks-group" key={group}>
+              <div
+                className="proxy-checks-group-label"
+                title={groupDescription ?? undefined}
+              >
+                {group}
+                {groupDescription && <span className="proxy-checks-group-hint">ⓘ</span>}
+              </div>
+              <ul>
+                {items.map((d) => (
+                  <li key={d.id} className="proxy-checks-item">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={enabled.has(d.id)}
+                        onChange={() => toggle(d.id)}
+                      />
+                      <span className={`badge-inline sev-${d.default_severity}`}>
+                        {d.default_severity}
+                      </span>
+                      <span className="proxy-checks-kind">{d.kind}</span>
+                      <span className="proxy-checks-name">{d.name}</span>
+                    </label>
+                    <div className="proxy-checks-desc">{d.description}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            );
+          })}
+        </aside>
+
+        <div className="proxy-checks-main">
+          <section>
+            <h4>Targets ({targets.length})</h4>
+            {targets.length === 0 ? (
+              <p className="muted">
+                Pick rows from the Traffic tab and click{" "}
+                <strong>Send to Checks</strong> to queue them here.
+              </p>
+            ) : (
+              <ul className="proxy-checks-targets">
+                {targets.map((t) => (
+                  <li key={t.id}>
+                    <span className="badge-inline">{t.method}</span>
+                    <span className="proxy-intercept-url">
+                      {t.scheme}://{t.host}
+                      {t.path}
+                    </span>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => onRemoveTarget(t.id)}
+                    >
+                      remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="proxy-checks-actions">
+              <button
+                type="button"
+                className="chip active"
+                disabled={running || activeSelected.length === 0 || targets.length === 0}
+                onClick={handleRun}
+              >
+                {running
+                  ? "Running…"
+                  : `Run ${activeSelected.length} active check(s) on ${targets.length} target(s)`}
+              </button>
+              <button
+                type="button"
+                className="chip"
+                disabled={targets.length === 0}
+                onClick={onClearTargets}
+              >
+                Clear targets
+              </button>
+            </div>
+          </section>
+
+          <section>
+            <h4>Findings ({findings.length})</h4>
+            {findings.length === 0 ? (
+              <p className="muted">No findings yet.</p>
+            ) : (
+              <ul className="proxy-findings">
+                {findings.map((f) => (
+                  <li key={f.id} className={`proxy-finding sev-${f.severity}`}>
+                    <div className="proxy-finding-head">
+                      <span className={`badge-inline sev-${f.severity}`}>
+                        {f.severity}
+                      </span>
+                      <span className="proxy-finding-title">{f.title}</span>
+                      <span className="muted proxy-finding-check">
+                        {f.check_id}
+                      </span>
+                    </div>
+                    {f.description && (
+                      <div className="proxy-finding-desc">{f.description}</div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
+
 
 function humanSize(n: number): string {
   if (n < 1024) return `${n} B`;

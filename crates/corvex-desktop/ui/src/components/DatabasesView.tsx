@@ -6,10 +6,12 @@ import {
   nucleiSummary,
   sonarSummary,
   vulndbSummary,
+  wappalyzerSummary,
   type DbSummary,
   type NucleiSummary,
   type SonarSummary,
   type VulnDbInfo,
+  type WappalyzerSummary,
 } from "../api";
 import { useSettings } from "../settings";
 import type { View } from "./Sidebar";
@@ -27,7 +29,7 @@ interface Cell {
   hint: string;
 }
 
-type DbTab = "web" | "probing" | "sca" | "fuzzing" | "nuclei";
+type DbTab = "web" | "probing" | "sca" | "fuzzing" | "nuclei" | "fingerprints";
 
 const TABS: { key: DbTab; label: string }[] = [
   { key: "web", label: "Web signatures" },
@@ -35,6 +37,7 @@ const TABS: { key: DbTab; label: string }[] = [
   { key: "sca", label: "SCA / VulnDB" },
   { key: "fuzzing", label: "Fuzzing" },
   { key: "nuclei", label: "Nuclei templates" },
+  { key: "fingerprints", label: "Fingerprints (Wappalyzer)" },
 ];
 
 interface Props {
@@ -107,6 +110,7 @@ export function DatabasesView({ onNavigate }: Props) {
       {tab === "sca" && <ScaTab onNavigate={onNavigate} />}
       {tab === "fuzzing" && <FuzzingTab onNavigate={onNavigate} />}
       {tab === "nuclei" && <NucleiTab onNavigate={onNavigate} />}
+      {tab === "fingerprints" && <FingerprintsTab onNavigate={onNavigate} />}
     </div>
   );
 }
@@ -755,6 +759,147 @@ function NucleiTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
         onNavigate={onNavigate}
         view="fuzzing"
         label="Nuclei engine module card, severity/tag filters → Fuzzing view"
+      />
+    </>
+  );
+}
+
+/* ====================================================================== */
+/* Tab 6 — Fingerprints (Wappalyzer)                                       */
+/* ====================================================================== */
+
+function FingerprintsTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
+  const [summary, setSummary] = useState<WappalyzerSummary | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    wappalyzerSummary()
+      .then((s) => {
+        setSummary(s);
+        setErr(null);
+      })
+      .catch((e: unknown) => {
+        setErr(
+          typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
+        );
+      });
+  }, []);
+
+  if (err) {
+    return <div className="empty">Failed to load fingerprint summary: {err}</div>;
+  }
+  if (!summary) return <div className="empty">Loading…</div>;
+
+  const total = summary.loaded_count + summary.seed_count;
+
+  const cells: Cell[] = [
+    {
+      label: "Active fingerprints",
+      value: total,
+      hint: "Total technology fingerprints available to the Stack Fingerprint passive check (upstream dataset + compile-time seed).",
+    },
+    {
+      label: "Upstream loaded",
+      value: summary.loaded_count,
+      hint: "Wappalyzer-schema entries loaded from the vendored dataset on disk.",
+    },
+    {
+      label: "Seed fallback",
+      value: summary.seed_count,
+      hint: "Compile-time entries built into the binary — covers the most common stacks so detection works even without the upstream drop.",
+    },
+    {
+      label: "Upstream source",
+      value: summary.upstream ?? "—",
+      hint: "Project the dataset was pulled from.",
+    },
+  ];
+
+  return (
+    <>
+      <div
+        className="sub"
+        style={{ marginBottom: 10, lineHeight: 1.5 }}
+      >
+        Wappalyzer-compatible technology fingerprints power the{" "}
+        <strong>Stack Fingerprint</strong> passive check on the Proxy view —
+        detecting the web server, framework, language, CMS, CDN, analytics
+        and JS libraries behind every captured response. The engine keeps the
+        upstream dataset and a compile-time seed side by side: upstream wins
+        on versions, the seed fills gaps so detection still works if the
+        vendored data is missing.
+      </div>
+
+      <div className="info-grid">
+        {cells.map((c) => (
+          <InfoCell key={c.label} cell={c} />
+        ))}
+      </div>
+
+      {summary.top_categories.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div
+            style={{
+              fontSize: "calc(var(--font-base) - 1px)",
+              fontWeight: 600,
+              marginBottom: 8,
+              color: "var(--muted)",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            Top categories ({summary.top_categories.length} shown)
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+              gap: 6,
+            }}
+          >
+            {summary.top_categories.map(([name, count]) => (
+              <div
+                key={name}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "6px 10px",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--panel-alt)",
+                  fontSize: "calc(var(--font-base) - 1px)",
+                }}
+              >
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    marginRight: 8,
+                  }}
+                  title={name}
+                >
+                  {name}
+                </span>
+                <span
+                  style={{
+                    fontVariantNumeric: "tabular-nums",
+                    color: "var(--muted)",
+                  }}
+                >
+                  {count.toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <ViewLink
+        onNavigate={onNavigate}
+        view="proxy"
+        label="Stack Fingerprint check lives under Proxy → Checks"
       />
     </>
   );

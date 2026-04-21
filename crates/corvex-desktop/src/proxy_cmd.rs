@@ -10,11 +10,12 @@ use std::sync::Arc;
 
 use corvex_proxy::{
     run_replay, Exchange, ExchangeId, ExchangeSummary, InterceptMode, InterceptVerdict,
-    PendingIntercept, ProxyConfig, ProxyState, ProxyStatus, ReplayInput, SessionId,
+    PendingIntercept, ProxyConfig, ProxyState, ProxyStatus, ReplayInput, SessionId, StoredFinding,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::check_bridge::CheckBridge;
 use crate::error::{AppError, AppResult};
 
 #[derive(Debug, Clone, Serialize)]
@@ -306,5 +307,272 @@ fn compose_uri(path: &str, query: Option<&str>) -> String {
     match query {
         Some(q) if !q.is_empty() => format!("{path}?{q}"),
         _ => path.to_string(),
+    }
+}
+
+// --- Phase 3: checks ----------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CheckDescriptorPayload {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub category_label: String,
+    /// Full prose description of the OWASP category, sourced from the
+    /// active `top10.yaml` taxonomy. Powers tooltips on the Checks
+    /// library group headers.
+    pub category_description: Option<String>,
+    pub kind: String,
+    pub default_severity: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OwaspTaxonomyInfo {
+    pub version: String,
+    pub released: Option<String>,
+    pub source: Option<String>,
+    pub categories: Vec<OwaspCategoryInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OwaspCategoryInfo {
+    pub code: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub reference: Option<String>,
+}
+
+/// Metadata describing the active OWASP Top 10 taxonomy — version,
+/// release date, upstream link, and the full category list. Used by
+/// the Checks tab to render the "OWASP Top 10 vYYYY" banner and
+/// category tooltips.
+#[tauri::command]
+pub async fn owasp_taxonomy_info() -> AppResult<OwaspTaxonomyInfo> {
+    let tax = corvex_intel::owasp::default_taxonomy();
+    Ok(OwaspTaxonomyInfo {
+        version: tax.version.clone(),
+        released: tax.released.clone(),
+        source: tax.source.clone(),
+        categories: tax
+            .categories
+            .iter()
+            .map(|c| OwaspCategoryInfo {
+                code: c.code.clone(),
+                label: c.label.clone(),
+                description: c.description.clone(),
+                reference: c.reference.clone(),
+            })
+            .collect(),
+    })
+}
+
+#[tauri::command]
+pub async fn checks_list(
+    bridge: State<'_, Arc<CheckBridge>>,
+) -> AppResult<Vec<CheckDescriptorPayload>> {
+    // Resolve labels from the active OWASP taxonomy at render time so
+    // swapping `top10.yaml` to a newer release picks up immediately
+    // without touching any Rust source.
+    let taxonomy = corvex_intel::owasp::default_taxonomy();
+    Ok(bridge
+        .registry
+        .descriptors()
+        .into_iter()
+        .map(|d| {
+            let code = d.category.code().to_string();
+            let category = taxonomy.category(&code);
+            let label = category
+                .map(|c| c.label.clone())
+                .unwrap_or_else(|| "Uncategorised".to_string());
+            let description = category.and_then(|c| c.description.clone());
+            CheckDescriptorPayload {
+                id: d.id,
+                name: d.name,
+                category: code,
+                category_label: label,
+                category_description: description,
+                kind: match d.kind {
+                    corvex_checks::CheckKind::Passive => "passive".to_string(),
+                    corvex_checks::CheckKind::Active => "active".to_string(),
+                },
+                default_severity: d.default_severity.as_str().to_string(),
+                description: d.description,
+            }
+        })
+        .collect())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FindingRow {
+    pub id: String,
+    pub exchange_id: String,
+    pub check_id: String,
+    pub severity: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub evidence: serde_json::Value,
+    pub created_at_unix: i64,
+}
+
+#[tauri::command]
+pub async fn findings_for_exchange(
+    state: State<'_, Arc<ProxyState>>,
+    id: ExchangeId,
+) -> AppResult<Vec<FindingRow>> {
+    let db = state.db().clone();
+    let rows = tauri::async_runtime::spawn_blocking(move || db.findings_for_exchange(&id))
+        .await
+        .map_err(|e| AppError::Other(format!("join: {e}")))?
+        .map_err(|e| AppError::Other(format!("findings_for_exchange: {e}")))?;
+    Ok(rows.into_iter().map(stored_to_row).collect())
+}
+
+#[tauri::command]
+pub async fn findings_for_session(
+    state: State<'_, Arc<ProxyState>>,
+    session: SessionId,
+    limit: Option<usize>,
+) -> AppResult<Vec<FindingRow>> {
+    let limit = limit.unwrap_or(500).clamp(1, 5000);
+    let db = state.db().clone();
+    let rows =
+        tauri::async_runtime::spawn_blocking(move || db.findings_for_session(&session, limit))
+            .await
+            .map_err(|e| AppError::Other(format!("join: {e}")))?
+            .map_err(|e| AppError::Other(format!("findings_for_session: {e}")))?;
+    Ok(rows.into_iter().map(stored_to_row).collect())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChecksRunSummary {
+    pub ran: Vec<String>,
+    pub findings: usize,
+}
+
+#[tauri::command]
+pub async fn checks_run(
+    state: State<'_, Arc<ProxyState>>,
+    bridge: State<'_, Arc<CheckBridge>>,
+    app: tauri::AppHandle,
+    target_ids: Vec<ExchangeId>,
+    check_ids: Vec<String>,
+) -> AppResult<ChecksRunSummary> {
+    use tauri::Emitter;
+    let client = state.upstream_client();
+    let ctx = corvex_checks::CheckCtx { client };
+    let registry = bridge.registry.clone();
+    let db = state.db().clone();
+
+    let mut total = 0usize;
+
+    for target_id in &target_ids {
+        // Hydrate the target exchange so active checks have a full
+        // request to mutate.
+        let Some(target_exchange) = hydrate_exchange(&state, *target_id).await? else {
+            continue;
+        };
+
+        let findings = registry
+            .run_active(&ctx, &target_exchange, &check_ids)
+            .await;
+
+        total += findings.len();
+        for finding in &findings {
+            let stored = StoredFinding {
+                id: finding.id.to_string(),
+                scan_run_id: None,
+                exchange_id: finding.exchange_id.to_string(),
+                check_id: finding.check_id.clone(),
+                severity: finding.severity.as_str().to_string(),
+                title: finding.title.clone(),
+                description: finding.description.clone(),
+                evidence: Some(
+                    serde_json::to_vec(&finding.evidence)
+                        .map_err(|e| AppError::Other(format!("evidence: {e}")))?,
+                ),
+                created_at: finding.created_at.unix_timestamp(),
+            };
+            let db_clone = db.clone();
+            let stored_clone = stored.clone();
+            tauri::async_runtime::spawn_blocking(move || db_clone.insert_finding(&stored_clone))
+                .await
+                .map_err(|e| AppError::Other(format!("join: {e}")))?
+                .map_err(|e| AppError::Other(format!("insert finding: {e}")))?;
+
+            let payload = crate::check_bridge::FindingPayload::from(&target_exchange, finding);
+            let _ = app.emit("proxy://scan-finding", payload);
+        }
+    }
+
+    Ok(ChecksRunSummary {
+        ran: check_ids,
+        findings: total,
+    })
+}
+
+async fn hydrate_exchange(
+    state: &State<'_, Arc<ProxyState>>,
+    id: ExchangeId,
+) -> AppResult<Option<Exchange>> {
+    let db = state.db().clone();
+    let stored = tauri::async_runtime::spawn_blocking(move || db.get_exchange_raw(&id))
+        .await
+        .map_err(|e| AppError::Other(format!("join: {e}")))?
+        .map_err(|e| AppError::Other(format!("get_exchange: {e}")))?;
+    let Some(stored) = stored else {
+        return Ok(None);
+    };
+
+    let headers: indexmap::IndexMap<String, String> = bincode::deserialize(&stored.req_headers)
+        .map_err(|e| AppError::Other(format!("decode headers: {e}")))?;
+    let mut req = corvex_core::http::request::Request::new(
+        &stored.host,
+        stored.port,
+        &stored.method,
+        &compose_uri(&stored.path, stored.query.as_deref()),
+    );
+    req.ssl = stored.scheme == "https";
+    req.headers = headers;
+    req.body = stored.req_body.unwrap_or_default();
+    req.headers.shift_remove("connection");
+    req.headers.shift_remove("Connection");
+    req.headers.insert("Connection".into(), "close".into());
+
+    let session_id = state
+        .session_id()
+        .ok_or_else(|| AppError::Other("no active proxy session".into()))?;
+
+    let origin = corvex_proxy::ExchangeOrigin::Check {
+        check_id: "active".into(),
+        parent: id,
+    };
+    let exchange = Exchange::new(
+        session_id,
+        origin,
+        req,
+        corvex_proxy::ScopeDecision::InScope,
+    );
+    // Preserve the parent id as the target — checks still attach their
+    // findings to the user-selected row, not the synthetic parent.
+    let mut exchange = exchange;
+    exchange.id = id;
+    Ok(Some(exchange))
+}
+
+fn stored_to_row(s: StoredFinding) -> FindingRow {
+    let evidence: serde_json::Value = s
+        .evidence
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null);
+    FindingRow {
+        id: s.id,
+        exchange_id: s.exchange_id,
+        check_id: s.check_id,
+        severity: s.severity,
+        title: s.title,
+        description: s.description,
+        evidence,
+        created_at_unix: s.created_at,
     }
 }

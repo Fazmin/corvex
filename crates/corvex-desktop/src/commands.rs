@@ -1180,6 +1180,75 @@ pub async fn nuclei_summary() -> NucleiSummary {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct WappalyzerSummary {
+    /// True when the vendored upstream dataset was found on disk.
+    pub loaded: bool,
+    /// Absolute path the dataset was loaded from. `None` when only the
+    /// seed is active.
+    pub root: Option<String>,
+    /// Number of runtime-loaded fingerprints (0 when the user hasn't
+    /// run the refresh script).
+    pub loaded_count: usize,
+    /// Number of compile-time seed fingerprints — always present as a
+    /// safety net so detection works even when `loaded_count == 0`.
+    pub seed_count: usize,
+    /// Top categories by fingerprint count, capped at 15. Each pair is
+    /// `(category, count)`.
+    pub top_categories: Vec<(String, usize)>,
+    /// Upstream project as recorded in `UPSTREAM_LICENSE.md`.
+    pub upstream: Option<String>,
+    /// Pinned ref (tag or branch) the dataset was refreshed from.
+    pub upstream_ref: Option<String>,
+    /// Short commit SHA recorded at refresh time.
+    pub upstream_commit: Option<String>,
+    /// ISO date (YYYY-MM-DD) the refresh script was last run.
+    pub refreshed_at: Option<String>,
+    /// License name lifted from the first line of
+    /// `UPSTREAM_LICENSE.md`, e.g. "MIT".
+    pub license: Option<String>,
+}
+
+/// Summary of the bundled Wappalyzer-compatible fingerprint dataset.
+/// Used by the Databases view. The source of truth for detection is
+/// corvex-intel's runtime loader + the compile-time seed — this
+/// command reports both.
+#[tauri::command]
+pub async fn wappalyzer_summary() -> WappalyzerSummary {
+    use corvex_intel::fingerprint::{embedded_dataset, SEED_FINGERPRINTS};
+    use std::collections::HashMap;
+
+    // The dataset is compile-time embedded — always available at
+    // runtime regardless of CWD, installation path, or whether the
+    // source tree is shipped alongside the binary.
+    let loaded = embedded_dataset();
+
+    let mut by_cat: HashMap<String, usize> = HashMap::new();
+    for fp in loaded {
+        *by_cat.entry(fp.category.clone()).or_default() += 1;
+    }
+    let mut top_categories: Vec<(String, usize)> = by_cat.into_iter().collect();
+    top_categories.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    top_categories.truncate(15);
+
+    WappalyzerSummary {
+        loaded: !loaded.is_empty(),
+        root: Some("embedded in binary".to_string()),
+        loaded_count: loaded.len(),
+        seed_count: SEED_FINGERPRINTS.len(),
+        top_categories,
+        // Upstream/ref/commit/refreshed/license are intentionally left
+        // blank here — the Databases view no longer surfaces them; any
+        // future datasets-admin view can re-parse UPSTREAM_LICENSE.md
+        // from the crate source if needed.
+        upstream: None,
+        upstream_ref: None,
+        upstream_commit: None,
+        refreshed_at: None,
+        license: None,
+    }
+}
+
 /// Enumerate every template on disk — supported AND skipped — with
 /// enough metadata for the Help view's "All bundled Nuclei templates"
 /// list to render a filterable table. Re-walks the bundle each call;

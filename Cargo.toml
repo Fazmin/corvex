@@ -7,6 +7,8 @@ members = [
     "crates/corvex-plugins",
     "crates/corvex-sonar",
     "crates/corvex-proxy",
+    "crates/corvex-intel",
+    "crates/corvex-checks",
     "crates/corvex-desktop",
     "crates/vulndb-builder",
 ]
@@ -25,6 +27,8 @@ corvex-nuclei = { path = "crates/corvex-nuclei" }
 corvex-plugins = { path = "crates/corvex-plugins" }
 corvex-sonar = { path = "crates/corvex-sonar" }
 corvex-proxy = { path = "crates/corvex-proxy" }
+corvex-intel = { path = "crates/corvex-intel" }
+corvex-checks = { path = "crates/corvex-checks" }
 
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }

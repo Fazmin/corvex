@@ -658,3 +658,112 @@ export function onInterceptPending(
     cb(e.payload),
   );
 }
+
+// --- Phase 3: checks -----------------------------------------------------
+
+export interface CheckDescriptor {
+  id: string;
+  name: string;
+  category: string;       // "A01"..."A10" (codes come from the active taxonomy)
+  category_label: string; // human-readable label
+  category_description: string | null;
+  kind: "passive" | "active";
+  default_severity: "info" | "low" | "medium" | "high" | "critical";
+  description: string;
+}
+
+export interface OwaspCategoryInfo {
+  code: string;
+  label: string;
+  description: string | null;
+  reference: string | null;
+}
+
+export interface OwaspTaxonomyInfo {
+  version: string;           // e.g. "2025"
+  released: string | null;
+  source: string | null;
+  categories: OwaspCategoryInfo[];
+}
+
+export function owaspTaxonomyInfo(): Promise<OwaspTaxonomyInfo> {
+  return invoke<OwaspTaxonomyInfo>("owasp_taxonomy_info");
+}
+
+export interface FindingRow {
+  id: string;
+  exchange_id: string;
+  check_id: string;
+  severity: "info" | "low" | "medium" | "high" | "critical";
+  title: string;
+  description: string | null;
+  evidence: unknown;
+  created_at_unix: number;
+}
+
+export interface ChecksRunSummary {
+  ran: string[];
+  findings: number;
+}
+
+export interface LiveFindingPayload {
+  id: string;
+  exchange_id: string;
+  check_id: string;
+  severity: string;
+  title: string;
+  description: string | null;
+  evidence: unknown;
+  host: string;
+  path: string;
+}
+
+export function checksList(): Promise<CheckDescriptor[]> {
+  return invoke<CheckDescriptor[]>("checks_list");
+}
+
+export function findingsForExchange(id: string): Promise<FindingRow[]> {
+  return invoke<FindingRow[]>("findings_for_exchange", { id });
+}
+
+export function findingsForSession(
+  session: string,
+  limit = 500,
+): Promise<FindingRow[]> {
+  return invoke<FindingRow[]>("findings_for_session", { session, limit });
+}
+
+export function checksRun(
+  targetIds: string[],
+  checkIds: string[],
+): Promise<ChecksRunSummary> {
+  return invoke<ChecksRunSummary>("checks_run", {
+    targetIds,
+    checkIds,
+  });
+}
+
+export function onScanFinding(
+  cb: (finding: LiveFindingPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<LiveFindingPayload>("proxy://scan-finding", (e) => cb(e.payload));
+}
+
+// --- Wappalyzer fingerprint dataset --------------------------------------
+
+export interface WappalyzerSummary {
+  loaded: boolean;
+  root: string | null;
+  loaded_count: number;
+  seed_count: number;
+  top_categories: [string, number][];
+  upstream: string | null;
+  upstream_ref: string | null;
+  upstream_commit: string | null;
+  refreshed_at: string | null;
+  license: string | null;
+}
+
+export function wappalyzerSummary(): Promise<WappalyzerSummary> {
+  return invoke<WappalyzerSummary>("wappalyzer_summary");
+}

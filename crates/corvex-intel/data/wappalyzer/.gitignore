@@ -1,0 +1,3 @@
+# Vendored upstream data is deliberately tracked — the refresh script
+# overwrites these when updating, and we commit the result. Nothing to
+# ignore here today, but this file locks in the intent.

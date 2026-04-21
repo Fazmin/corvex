@@ -1,0 +1,37 @@
+[package]
+name = "corvex-checks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Modular OWASP Top 10 checks — passive analyzers and active probes — for corvex."
+
+[dependencies]
+corvex-core.workspace = true
+corvex-proxy.workspace = true
+corvex-intel.workspace = true
+corvex-nuclei.workspace = true
+
+tokio.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+url.workspace = true
+indexmap.workspace = true
+rand.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+time.workspace = true
+once_cell.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "macros", "test-util"] }
+hyper = { workspace = true, features = ["server", "http1"] }
+hyper-util = { workspace = true, features = ["server", "tokio", "http1"] }
+http-body-util.workspace = true
+bytes.workspace = true
+urlencoding = "2"

@@ -1,0 +1,15 @@
+[package]
+name = "corvex-intel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Embedded datasets — OWASP header baseline, payload banks — for corvex-checks."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+once_cell.workspace = true
+regex.workspace = true
+tracing.workspace = true

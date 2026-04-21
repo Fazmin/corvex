@@ -12,6 +12,7 @@ interface Section {
 const SECTIONS: Section[] = [
   { id: "getting-started", title: "Getting started" },
   { id: "views", title: "Views" },
+  { id: "proxy", title: "Proxy, Intercept, Replay & Checks" },
   { id: "service-probing", title: "Service probing" },
   { id: "scenarios", title: "Scenario recipes" },
   { id: "scan-form", title: "Scan form reference" },
@@ -382,6 +383,28 @@ export function HelpView() {
             </li>
           </ul>
 
+          <h4>Proxy</h4>
+          <p>
+            An interactive HTTP(S) proxy with a live Traffic log, request
+            Intercept queue, request Replay editor, and OWASP-categorised
+            Checks. Unlike the Dashboard (which sends its own requests) the
+            Proxy view sits between your browser and real targets — point your
+            browser at <code>127.0.0.1:8888</code>, install the local
+            certificate authority once, and every page you load lands in the
+            Traffic tab in real time. See the dedicated{" "}
+            <button
+              type="button"
+              className="help-inline-link"
+              onClick={() => {
+                const el = document.getElementById("proxy");
+                el?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            >
+              Proxy, Intercept, Replay &amp; Checks
+            </button>{" "}
+            section below for the full walkthrough.
+          </p>
+
           <h4>Settings</h4>
           <p>
             Theme (system / light / dark), font size (small → xlarge), reset
@@ -394,6 +417,504 @@ export function HelpView() {
 
           <h4>Help</h4>
           <p>You're reading it.</p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        <section id="proxy">
+          <h3>Proxy, Intercept, Replay &amp; Checks</h3>
+          <p>
+            The Proxy is an intercepting HTTP/HTTPS proxy built into the app.
+            It captures every request your browser makes, stores them locally,
+            and layers four interactive tools on top:{" "}
+            <strong>Traffic</strong> (live log), <strong>Intercept</strong>{" "}
+            (pause &amp; edit before forwarding), <strong>Replay</strong>{" "}
+            (resend any captured request with edits), and{" "}
+            <strong>Checks</strong> (run OWASP Top 10 analyzers against your
+            traffic). A fifth tab, <strong>Settings</strong>, holds the
+            first-time setup guide.
+          </p>
+
+          <h4>How it fits together</h4>
+          <p>
+            A single mental model covers the whole feature:
+          </p>
+          <ol className="numbered">
+            <li>
+              Your browser is configured to send all traffic to{" "}
+              <code>127.0.0.1:8888</code>.
+            </li>
+            <li>
+              corvex terminates the TLS connection using its local certificate
+              authority (CA), decrypts the request, logs it to the{" "}
+              <strong>Traffic</strong> tab, and forwards it to the real
+              server.
+            </li>
+            <li>
+              If <strong>Intercept</strong> mode is on, the request pauses
+              here and waits for you to forward / edit / drop it before it
+              goes out.
+            </li>
+            <li>
+              The server's response comes back; corvex logs it, runs the
+              enabled passive <strong>Checks</strong> against it, then hands
+              the response to the browser. From the browser's perspective
+              nothing unusual happened.
+            </li>
+            <li>
+              You can right-click any captured request → <strong>Send to
+              Replay</strong> to resend it (edited or not), or{" "}
+              <strong>Send to Checks</strong> to queue it for active probes.
+            </li>
+          </ol>
+
+          <h4>One-time setup (do this before first use)</h4>
+          <p>
+            Nothing works until the browser trusts the local CA. The Proxy
+            tab's <strong>Settings</strong> sub-tab has the guided flow, but
+            here's the short version:
+          </p>
+          <ol className="numbered">
+            <li>
+              Open <strong>Proxy → Settings → Certificate authority</strong>.
+              Click <em>Show CA certificate</em> and save the PEM block to a
+              file called <code>corvex-ca.crt</code>.
+            </li>
+            <li>
+              Install it into your OS trust store:
+              <ul>
+                <li>
+                  <strong>Windows:</strong>{" "}
+                  <code>certutil -addstore -user Root corvex-ca.crt</code>
+                </li>
+                <li>
+                  <strong>macOS:</strong>{" "}
+                  <code>
+                    security add-trusted-cert -d -r trustRoot -k
+                    ~/Library/Keychains/login.keychain corvex-ca.crt
+                  </code>{" "}
+                  — then open Keychain Access and flip the entry to{" "}
+                  <em>Always Trust</em>.
+                </li>
+                <li>
+                  <strong>Linux (Debian/Ubuntu):</strong>{" "}
+                  <code>sudo cp corvex-ca.crt /usr/local/share/ca-certificates/</code>{" "}
+                  then{" "}
+                  <code>sudo update-ca-certificates</code>.
+                </li>
+              </ul>
+            </li>
+            <li>
+              Point your browser at the proxy. Firefox has its own trust
+              store and its own proxy settings — see <em>Proxy → Settings →
+              Browser setup</em> for per-browser walkthroughs covering
+              Firefox, Chrome / Edge / Brave, Safari, <code>curl</code>,{" "}
+              <code>wget</code>, and PowerShell.
+            </li>
+          </ol>
+          <p className="callout">
+            The CA is generated once on first app launch and stored under
+            your app-data directory. Re-installing corvex does not invalidate
+            it — you only go through the OS trust step once per machine per
+            browser.
+          </p>
+
+          <h4>Starting the proxy</h4>
+          <p>
+            In the Proxy toolbar, the listen address defaults to{" "}
+            <code>127.0.0.1:8888</code> (loopback-only for safety). Click{" "}
+            <strong>Start</strong>. The status pill flips to{" "}
+            <em>Running</em>. Clicking the button again stops the listener;
+            pending intercepts are auto-released and any open connections
+            drain cleanly.
+          </p>
+          <p>
+            To capture traffic from a phone or another machine on your LAN,
+            change the listen address to your LAN IP (e.g.{" "}
+            <code>192.168.1.10:8888</code>), install the CA on the target
+            device, and set the device's Wi-Fi proxy to the same host:port.
+            Only do this on trusted networks — the proxy does not
+            authenticate clients.
+          </p>
+
+          <h4>Traffic tab — inspecting captured requests</h4>
+          <p>
+            Every in- and out-of-scope request lands here as a row. Columns:
+            row number, HTTP method, response status, URL, response size,
+            duration. Click any row to expand an inline detail panel showing
+            origin, host:port, MIME type, and scope classification.
+          </p>
+          <p>
+            Two actions live in the expanded panel:
+          </p>
+          <ul>
+            <li>
+              <strong>Send to Replay</strong> — switches to the Replay tab
+              with this request pre-loaded into the editor.
+            </li>
+            <li>
+              <strong>Send to Checks</strong> — queues this request as a
+              target for the Checks tab's active-probe runner.
+            </li>
+          </ul>
+          <p>
+            <strong>Example.</strong> You browse{" "}
+            <code>https://juice-shop.example/api/Users/6</code>. A row
+            appears: <code>GET</code> · <code>200</code> ·{" "}
+            <code>/api/Users/6</code> · 312 B · 84 ms. Expand it, click{" "}
+            <strong>Send to Replay</strong>, change the trailing{" "}
+            <code>6</code> to <code>7</code>, click Send — you see the
+            response for a different user's profile as a new row in the
+            Traffic log linked back to the original.
+          </p>
+
+          <h4>Intercept tab — pause, edit, forward</h4>
+          <p>
+            Intercept is off by default (pass-through). Turn it on from the
+            mode row:
+          </p>
+          <ul>
+            <li>
+              <strong>Off</strong> — nothing pauses.
+            </li>
+            <li>
+              <strong>Request</strong> — pauses before the request goes
+              upstream. Most common mode when testing.
+            </li>
+            <li>
+              <strong>Response</strong> — pauses after the server replies,
+              before the response reaches the browser. Handler arrives with
+              Phase 4.
+            </li>
+            <li>
+              <strong>Both</strong> — pauses at both sides.
+            </li>
+          </ul>
+          <p>
+            Only <em>in-scope</em> requests pause — browser background
+            traffic (analytics, telemetry) is logged but never interrupts
+            you. Scope rules are authored in Settings; the default is
+            "capture everything, intercept none" until you add rules.
+          </p>
+          <p>
+            When a request pauses, a row appears in the <em>Pending</em>{" "}
+            queue on the left (method, URL, phase). Click it and the right
+            pane fills with the raw HTTP/1 bytes ready for editing. Three
+            buttons wait at the bottom:
+          </p>
+          <ul>
+            <li>
+              <strong>Forward</strong> — send the bytes as-is. (The button
+              re-labels to <strong>Forward edited</strong> the moment you
+              touch the editor.)
+            </li>
+            <li>
+              <strong>Drop</strong> — refuse the request. The browser
+              receives a <code>502 Bad Gateway</code>.
+            </li>
+            <li>
+              <strong>Drop all</strong> (above the queue) — release every
+              pending intercept with Forward. Useful when switching mode
+              back to Off.
+            </li>
+          </ul>
+          <p>
+            <strong>Example of an edit.</strong> A login form submits{" "}
+            <code>POST /auth/login</code> with a JSON body:
+          </p>
+          <pre className="help-cmd">
+{`POST /auth/login HTTP/1.1
+Host: target.example
+Content-Type: application/json
+Content-Length: 43
+
+{"email":"alice@x.com","password":"hunter2"}`}
+          </pre>
+          <p>
+            Change <code>hunter2</code> to <code>' OR 1=1 --</code> in the
+            editor, click <strong>Forward edited</strong>. The backend
+            re-parses your bytes and sends them upstream. If the parse
+            fails (e.g. you accidentally deleted the blank line between
+            headers and body), the exchange stays paused and the UI shows a
+            parse error instead of silently corrupting the wire request.
+          </p>
+          <p className="callout">
+            Safety net: if you walk away, every pending intercept
+            auto-forwards after 5 minutes so upstream sockets don't leak.
+            <code>Connection: close</code> is forced on every forwarded
+            request — don't worry about keep-alive semantics.
+          </p>
+
+          <h4>Replay tab — resend with edits</h4>
+          <p>
+            Replay takes a captured request as a base and lets you send
+            variants of it on demand, without the browser or the intercept
+            queue in the loop. Each replay runs through the same low-level
+            HTTP client the scanner uses, so you control the wire exactly.
+          </p>
+          <p>
+            Workflow:
+          </p>
+          <ol className="numbered">
+            <li>
+              On the Traffic tab, expand any row → <strong>Send to
+              Replay</strong>. The Replay tab loads the full raw request
+              (request line + headers + blank line + body) into the left
+              pane.
+            </li>
+            <li>
+              Edit anything. Change the method, tweak a header, add a query
+              parameter, modify the body. Keep the blank line between
+              headers and body intact.
+            </li>
+            <li>
+              Click <strong>Send</strong> (or <strong>Send (edited)</strong>{" "}
+              when the editor is dirty). The right pane shows status,
+              duration, response headers, and body.
+            </li>
+            <li>
+              Every replay is captured as its own row in the Traffic log
+              with origin <em>replay</em>, linked back to the parent. You
+              can replay a replay, stack edits, and compare length /
+              status deltas.
+            </li>
+          </ol>
+          <p>
+            <strong>Example — IDOR probe.</strong> Base request:{" "}
+            <code>GET /api/orders/1042</code> returning a 2.4 KB JSON body.
+            In Replay, change <code>1042</code> to <code>1043</code>, send.
+            If the response is another 2.4 KB body (different order ID),
+            the endpoint may be missing an access-control check. If it's a
+            403, access control is enforced.
+          </p>
+
+          <h4>Checks tab — OWASP analyzers</h4>
+          <p>
+            The Checks tab runs analyzers against traffic and shows their
+            findings. Two kinds:
+          </p>
+          <ul>
+            <li>
+              <strong>Passive</strong> — run automatically on every in-scope
+              captured response. No extra network traffic; they inspect
+              what's already there.
+            </li>
+            <li>
+              <strong>Active</strong> — send probe requests on demand
+              against targets you queue. Run them only against systems you
+              own or have permission to test.
+            </li>
+          </ul>
+          <p>
+            The <strong>Library</strong> pane on the left lists every
+            available check grouped by OWASP Top 10 category (A01..A10).
+            Each row is a checkbox with a severity badge, kind (passive /
+            active), name, and description. A sticky search bar at the top
+            filters across name, stable id, category, kind, and description
+            — type <code>sqli</code>, <code>xss</code>, or <code>A03</code>{" "}
+            to narrow a library of thousands down to just the relevant
+            rows. Tick <em>Enabled only</em> to see just what you've
+            selected.
+          </p>
+          <p>
+            Bundled coded checks ship out of the box:
+          </p>
+          <ul>
+            <li>
+              <strong>Missing Security Headers (A05, passive)</strong> — one
+              finding per missing CSP / HSTS (on HTTPS) /
+              X-Content-Type-Options / X-Frame-Options (satisfied by{" "}
+              <code>CSP: frame-ancestors</code>) / Referrer-Policy /
+              Permissions-Policy.
+            </li>
+            <li>
+              <strong>Verbose Errors / Stack Traces (A05, passive)</strong>{" "}
+              — regex bank covering Java, PHP, .NET, Node.js, Python,
+              Laravel Whoops, Django DEBUG, Flask Werkzeug, Ruby.
+            </li>
+            <li>
+              <strong>Version Disclosure (A06, passive)</strong> — extracts
+              product + version from Server / X-Powered-By / X-AspNet-Version
+              headers and HTML <code>&lt;meta name=generator&gt;</code>.
+            </li>
+            <li>
+              <strong>Insecure Cookie Flags (A02, passive)</strong> — one
+              finding per Set-Cookie missing Secure (on HTTPS), HttpOnly, or
+              SameSite.
+            </li>
+            <li>
+              <strong>Stack Fingerprint (A06, passive)</strong> — identifies
+              the web framework, server, and language behind every response
+              using a Wappalyzer-compatible matcher. Emits one Info finding
+              listing every detected product with its version where the
+              regex captured one.
+            </li>
+            <li>
+              <strong>Reflected XSS (A03, active)</strong> — injects a
+              unique canary into each query parameter across several
+              context-breakers (attribute break, script break, svg
+              onload). Reports a parameter only when the payload survives
+              unencoded in the response.
+            </li>
+            <li>
+              <strong>Error-based SQL Injection (A03, active)</strong> —
+              sends boundary-breaking payloads (<code>'</code>,{" "}
+              <code>"</code>, <code>')</code>, <code>' OR '1'='1</code>)
+              per parameter and matches responses against the existing
+              corvex SQLi error-signature bank.
+            </li>
+            <li>
+              <strong>Open Redirect (A01, active)</strong> — substitutes
+              URL-shaped parameter values with the RFC 2606 sentinel{" "}
+              <code>corvex-redirect-canary.invalid</code>; reports any
+              endpoint that redirects to it.
+            </li>
+          </ul>
+          <p>
+            Bundled <strong>Nuclei templates</strong> (~6,000) are also
+            exposed here, one row per template, OWASP-categorised by the
+            classifier (SQLi → A03, SSRF → A10, CVE tags → A06, etc.).
+            These run passively against captured responses whose request
+            path matches the template's base path — no extra requests go
+            out.
+          </p>
+
+          <h4>Running active checks</h4>
+          <ol className="numbered">
+            <li>
+              From the Traffic tab, expand rows you want to probe and
+              click <strong>Send to Checks</strong>. They appear under{" "}
+              <em>Targets</em> on the Checks tab.
+            </li>
+            <li>
+              In the Library pane, tick the active checks you want to run
+              (e.g. <em>Reflected XSS</em>, <em>Error-based SQLi</em>).
+            </li>
+            <li>
+              Click <strong>Run N active check(s) on M target(s)</strong>.
+            </li>
+            <li>
+              Findings stream into the right pane as they're produced. Each
+              finding has a severity stripe, title, check id, and a short
+              description. The evidence JSON (matched payload, reflected
+              canary, captured version, etc.) is stored alongside the
+              finding for later inspection.
+            </li>
+          </ol>
+
+          <h4>Stack fingerprinting — the Wappalyzer dataset</h4>
+          <p>
+            Stack fingerprints power two things: the <em>Stack Fingerprint
+            </em> passive finding you'll see on most exchanges, and (in a
+            follow-up iteration) the Banner-CVE cross-reference. The engine
+            follows the Wappalyzer technology schema — a battle-tested
+            format that describes products as regex patterns against HTTP
+            headers, cookies, response HTML, meta tags, URL paths, and
+            implied-by relationships.
+          </p>
+          <p>
+            Out of the box the project ships with a large upstream
+            technology dataset (thousands of fingerprints across CMSes,
+            e-commerce platforms, analytics, JS libraries, web servers,
+            CDNs and more) plus a small hand-curated seed as a safety net.
+            Managing, refreshing, and auditing that dataset lives under
+            its own help section — this page only covers how detection
+            flows through the Checks pipeline.
+          </p>
+          <p>
+            <strong>Example — what a detection looks like.</strong> Browse{" "}
+            <code>https://shop.example/</code>. The Stack Fingerprint check
+            emits an Info finding like:
+          </p>
+          <pre className="help-cmd">
+{`Stack detected: Cloudflare, nginx 1.24.0, PHP 8.2.4,
+                WordPress 6.4.2, jQuery 3.7.1, Bootstrap 5.3.2`}
+          </pre>
+          <p>
+            The evidence JSON records how each tech was matched (header,
+            cookie, HTML pattern, URL) so you can audit false positives.
+          </p>
+
+          <h4>Settings tab — first-time setup guide</h4>
+          <p>
+            Instead of a single wall of configuration, Settings is broken
+            into five chipped sub-sections:
+          </p>
+          <ol className="numbered">
+            <li>
+              <strong>Overview</strong> — jump-links to the three setup
+              steps.
+            </li>
+            <li>
+              <strong>Certificate authority</strong> — export the CA PEM,
+              show the stored path, and per-OS install commands.
+            </li>
+            <li>
+              <strong>Browser setup</strong> — full walkthroughs for Firefox
+              (manual proxy + Authorities import), Chromium browsers
+              (FoxyProxy / SwitchyOmega and system-wide fallback), Safari
+              (System Settings → Network → Proxies), plus copy-pasteable{" "}
+              <code>curl</code>, <code>wget</code>, POSIX <code>http_proxy</code>{" "}
+              env vars, and PowerShell <code>$env:HTTPS_PROXY</code>.
+            </li>
+            <li>
+              <strong>Verify</strong> — step-by-step smoke check.
+            </li>
+            <li>
+              <strong>Troubleshooting</strong> — five common failure modes
+              (cert warnings, loopback bypass, 502 hangs, CA not ready, port
+              collision) and the fixes.
+            </li>
+          </ol>
+
+          <h4>Where the data lives</h4>
+          <p>
+            All proxy data is stored in the same SQLite database the rest of
+            the app uses (<code>history.sqlite</code> in the app-data dir):
+          </p>
+          <ul>
+            <li>
+              <code>proxy_sessions</code> — one row per{" "}
+              <em>Start → Stop</em> cycle.
+            </li>
+            <li>
+              <code>exchanges</code> — captured request/response pairs with
+              headers, bodies, timings, scope, intercept flags.
+            </li>
+            <li>
+              <code>scan_runs</code> — active-check run metadata.
+            </li>
+            <li>
+              <code>exchange_scan_findings</code> — findings linked back to
+              their parent exchange.
+            </li>
+          </ul>
+          <p>
+            The CA certificate + private key live under{" "}
+            <code>&lt;app-data&gt;/proxy/ca/ca.pem</code> and{" "}
+            <code>ca.key</code> (0600 on Unix). Never share the private key.
+          </p>
+
+          <h4>Safety notes</h4>
+          <ul>
+            <li>
+              Listen address defaults to loopback. Only change it to a LAN
+              address on trusted networks — the proxy doesn't authenticate
+              clients and your CA would become trusted on any machine that
+              routes through it.
+            </li>
+            <li>
+              Active checks send actual payloads (<code>' OR 1=1</code>,
+              <code>&lt;svg/onload=</code> canaries, redirect sentinels) to
+              target servers. Only run them against systems you own or have
+              written permission to test.
+            </li>
+            <li>
+              HTTPS MITM works only against targets that rely on the OS/
+              browser trust store. Apps with <em>certificate pinning</em>{" "}
+              (many mobile banking apps) will reject the minted leaf cert —
+              this is by design and not something trusting the CA can fix.
+            </li>
+          </ul>
         </section>
 
         {/* ------------------------------------------------------------------ */}
@@ -845,6 +1366,256 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
               The file is written with a timestamped name like{" "}
               <code>corvex-findings-20260417-104233.json</code> to your browser's
               default Downloads folder.
+            </li>
+          </ol>
+
+          <h4>11. Capture and audit a login flow through the proxy</h4>
+          <p>
+            When the target does a real login in a real browser, you see
+            every redirect, every cookie, and every CSRF token the way the
+            app would hand them out. This is useful for documenting the
+            auth flow, grabbing a real session cookie for Replay, or
+            seeding the Checks tab with post-login URLs that need an
+            authenticated session.
+          </p>
+          <ol className="numbered">
+            <li>
+              Switch to the <strong>Proxy</strong> view. If the status
+              pill says <em>Stopped</em>, click <strong>Start</strong>.
+            </li>
+            <li>
+              In your browser, set the HTTP(S) proxy to{" "}
+              <code>127.0.0.1:8888</code> and make sure the corvex CA is
+              trusted (see{" "}
+              <em>Proxy, Intercept, Replay &amp; Checks → One-time setup
+              </em>{" "}
+              if this is your first run).
+            </li>
+            <li>
+              Visit the app's login page, type credentials, submit. The
+              browser may redirect once or twice before landing on the
+              dashboard.
+            </li>
+            <li>
+              Back in corvex, open the <strong>Traffic</strong> tab. You'll
+              see a row for every request — the login <code>POST</code>,
+              the 302 redirects, the follow-up <code>GET</code>s, the
+              static assets.
+            </li>
+            <li>
+              Click the login <code>POST</code> row to expand it. You'll
+              see method, status, and host. Click <strong>Send to
+              Replay</strong> — the full raw request (including any
+              <code>Cookie</code> header and submitted form body) loads
+              into the Replay editor.
+            </li>
+            <li>
+              Click any post-login page (dashboard, profile, account
+              settings) in the Traffic tab, expand, click{" "}
+              <strong>Send to Checks</strong>. They queue up on the
+              Checks tab with the real session cookie attached.
+            </li>
+          </ol>
+
+          <h4>
+            12. Tamper with a request on the wire using Intercept
+          </h4>
+          <p>
+            The classic authorization-bypass probe — edit a submitted
+            form value <em>after</em> the browser's client-side JavaScript
+            has validated it but before the server sees it.
+          </p>
+          <ol className="numbered">
+            <li>
+              In the Proxy view, open the <strong>Intercept</strong> tab
+              and set the mode chip to <strong>Request</strong>.
+            </li>
+            <li>
+              Go back to your browser and trigger the action you want to
+              tamper with — for example a "change account email" form or
+              a cart checkout POST.
+            </li>
+            <li>
+              The browser hangs waiting for the response. In corvex, a
+              new row appears in the Intercept <em>Pending</em> queue.
+              Click it.
+            </li>
+            <li>
+              The editor on the right shows the raw HTTP/1 bytes:
+              <pre className="help-cmd">
+{`POST /api/account HTTP/1.1
+Host: target.example
+Content-Type: application/json
+Cookie: session=abc123...
+Content-Length: 52
+
+{"email":"alice@corp.com","role":"user"}`}
+              </pre>
+              Change <code>"role":"user"</code> to{" "}
+              <code>"role":"admin"</code>. Keep the blank line between
+              headers and body intact.
+            </li>
+            <li>
+              The Forward button auto-relabels to <strong>Forward
+              edited</strong>. Click it. corvex re-parses your bytes,
+              forwards the modified request upstream, and returns the
+              real response to the browser.
+            </li>
+            <li>
+              If the server accepted it, check the Traffic tab — the
+              edited request shows up with the{" "}
+              <em>request-edited</em> intercept flag set. If the server
+              rejected it (403 / 400), you've confirmed the role check
+              is server-side.
+            </li>
+          </ol>
+          <p className="callout">
+            Forgotten an intercept? Every paused request auto-forwards
+            after 5 minutes so upstream sockets don't leak. Hit{" "}
+            <strong>Drop all</strong> above the queue to release
+            everything pending in one go.
+          </p>
+
+          <h4>
+            13. Hunt reflected XSS across an app with proxy-driven
+            targets
+          </h4>
+          <p>
+            Unlike the Dashboard's Active Fuzzing (which crawls), this
+            scenario uses your real browser as the crawler: you click
+            through the app, corvex captures every endpoint, then active
+            checks run only against what you actually visited.
+          </p>
+          <ol className="numbered">
+            <li>
+              Start the Proxy and browse the app end-to-end — every
+              search box, every filter, every profile form. The Traffic
+              tab populates with one row per request.
+            </li>
+            <li>
+              Open the <strong>Checks</strong> tab. In the library
+              search, type <code>xss</code>. Tick{" "}
+              <em>Reflected XSS (active)</em>.
+            </li>
+            <li>
+              On the Traffic tab, expand any <code>GET</code> with a
+              query string (search results, filter pages) and click{" "}
+              <strong>Send to Checks</strong>. Repeat for every
+              interesting endpoint — they pile up in the Targets list.
+            </li>
+            <li>
+              Back on the Checks tab, click{" "}
+              <strong>Run 1 active check(s) on N target(s)</strong>. A
+              canary token like <code>cvxXSS7f3ad019</code> is injected
+              into each query parameter across several context-breakers
+              (<code>&lt;svg/onload=</code>, <code>"&gt;&lt;script&gt;</code>,
+              attribute breaks, etc.).
+            </li>
+            <li>
+              Findings stream into the panel on the right. A High-severity
+              <em>Reflected XSS</em> finding names the parameter, the
+              payload that landed, and the reflection context. Clean
+              parameters silently contribute nothing.
+            </li>
+          </ol>
+
+          <h4>14. SQL-injection probe against a specific parameter</h4>
+          <p>
+            Same workflow as above but with the error-based SQLi check,
+            reusing corvex's DBMS error-signature bank.
+          </p>
+          <ol className="numbered">
+            <li>
+              Capture the target request through the proxy — for example
+              a search form submit:{" "}
+              <code>GET /search?q=hello&amp;page=1</code>.
+            </li>
+            <li>
+              Expand the row, <strong>Send to Checks</strong>.
+            </li>
+            <li>
+              On the Checks tab, search <code>sqli</code>, tick{" "}
+              <em>Error-based SQL Injection (active)</em>, Run.
+            </li>
+            <li>
+              corvex sends one baseline request (unmodified) plus six
+              boundary-probe variants per parameter:{" "}
+              <code>'</code>, <code>"</code>, <code>')</code>,{" "}
+              <code>")</code>, <code>' OR '1'='1</code>,{" "}
+              <code>" OR "1"="1</code>. A finding fires only when the
+              probe response contains a DBMS error signature the baseline
+              didn't — suppresses pre-existing error pages.
+            </li>
+            <li>
+              The evidence JSON names the param, payload, detected DBMS
+              (MySQL / PostgreSQL / MSSQL / Oracle / SQLite …) and every
+              matched signature string.
+            </li>
+          </ol>
+
+          <h4>15. Replay an IDOR probe to compare two object IDs</h4>
+          <p>
+            When access-control checks are missing, changing a numeric
+            ID in a URL lets you read another user's data. Replay makes
+            this a two-click check.
+          </p>
+          <ol className="numbered">
+            <li>
+              While logged in as your test user, visit a per-object
+              resource — for example the JSON API behind a profile page:
+              <code>GET /api/orders/1042</code>.
+            </li>
+            <li>
+              In the Traffic tab, expand that row →{" "}
+              <strong>Send to Replay</strong>. The full request (with
+              session cookies) loads into the editor.
+            </li>
+            <li>
+              Edit the <em>request line only</em> — change{" "}
+              <code>/api/orders/1042</code> to{" "}
+              <code>/api/orders/1043</code>. Leave every header alone
+              so the session cookie still goes out.
+            </li>
+            <li>
+              Click <strong>Send (edited)</strong>. The response pane
+              shows the raw result.
+            </li>
+            <li>
+              Compare: a 200 with a different-sized body = suspicious
+              (you probably just read another user's data). A 403 = the
+              access-control check is working. Every replay is itself
+              captured as a new Traffic row with origin <em>replay</em>{" "}
+              linked back to the parent, so you can stack variants and
+              compare deltas.
+            </li>
+          </ol>
+
+          <h4>16. Find missing security headers across a site</h4>
+          <p>
+            Zero-effort passive audit. You don't tick any checks or
+            queue targets — just browse the app with the proxy on.
+          </p>
+          <ol className="numbered">
+            <li>Start the Proxy. Browse the site normally.</li>
+            <li>
+              Switch to the <strong>Checks</strong> tab. The{" "}
+              <em>Findings</em> pane on the right fills in real time as
+              passive checks run on every response.
+            </li>
+            <li>
+              Type <code>header</code> into the library search to see
+              the <em>Missing Security Headers</em> check — one Low
+              finding per missing CSP / HSTS / X-Content-Type-Options /
+              X-Frame-Options / Referrer-Policy / Permissions-Policy. If
+              a CSP is present and already covers{" "}
+              <code>frame-ancestors</code>, X-Frame-Options is
+              deliberately not flagged.
+            </li>
+            <li>
+              Passive <em>Verbose Errors</em>, <em>Version Disclosure</em>,{" "}
+              <em>Insecure Cookie Flags</em>, and{" "}
+              <em>Stack Fingerprint</em> findings also appear without any
+              further action — they run on every in-scope response.
             </li>
           </ol>
         </section>
@@ -1344,6 +2115,224 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
               <code>cpe:2.3:a:openbsd:openssh:9.6p1:*:*:*:*:*:*:*</code>.
               Probe fingerprints emit CPE strings so the result cross-links
               directly to the vulnerability database.
+            </dd>
+          </dl>
+
+          <h4>Proxy &amp; traffic interception</h4>
+          <dl className="kv">
+            <dt>Proxy (MITM)</dt>
+            <dd>
+              A local HTTP/1 listener that sits between a browser and the
+              real servers it wants to reach. "MITM" stands for
+              man-in-the-middle — the proxy decrypts TLS with its own
+              certificate, logs the request, forwards it to the real
+              origin, then re-encrypts the response on the way back.
+              Everything happens on loopback by default
+              (<code>127.0.0.1:8888</code>).
+              <br />
+              <em>Example:</em> your browser thinks it's talking to{" "}
+              <code>https://shop.example/</code>. It's actually talking
+              to corvex, which is talking to <code>shop.example</code> on
+              its behalf.
+            </dd>
+
+            <dt>Certificate Authority (CA)</dt>
+            <dd>
+              A self-signed root certificate that corvex generates on
+              first launch and uses to mint per-site leaf certificates
+              during interception. The browser only trusts the CA if you
+              install it in the OS trust store; without that, HTTPS pages
+              show a cert warning and the MITM fails.
+              <br />
+              <em>Where:</em> CA cert + key live under{" "}
+              <code>&lt;app-data&gt;/proxy/ca/</code>. Export the cert
+              via <em>Proxy → Settings → Certificate authority</em>.
+            </dd>
+
+            <dt>SNI leaf certificate</dt>
+            <dd>
+              The per-host cert the proxy generates on the fly when your
+              browser opens a connection. The browser tells corvex which
+              hostname it wants via SNI (Server Name Indication), and
+              corvex mints a short-lived cert for exactly that hostname,
+              signed by the local CA. Cached for 512 hosts per session.
+            </dd>
+
+            <dt>CONNECT tunnel</dt>
+            <dd>
+              The HTTP method a browser uses to ask a proxy to open a
+              raw TCP tunnel for HTTPS. The browser sends{" "}
+              <code>CONNECT shop.example:443 HTTP/1.1</code>; corvex
+              replies <code>200 Connection Established</code>, then
+              terminates TLS on that tunnel so it can see the plain
+              request.
+            </dd>
+
+            <dt>Exchange</dt>
+            <dd>
+              One request/response pair captured through the proxy. Has a
+              ULID-style ID, a session ID, timing info, scope
+              classification, and intercept flags. Every row in the
+              Traffic tab is an Exchange. Replayed or check-generated
+              requests become their own Exchanges linked back to the
+              parent.
+            </dd>
+
+            <dt>Scope</dt>
+            <dd>
+              A classification applied to every Exchange: in-scope,
+              out-of-scope, or excluded. The traffic log captures
+              everything either way, but <em>interactive features</em>{" "}
+              (Intercept, Replay edits, active Checks) only act on
+              in-scope exchanges. Scope rules live under Settings and
+              default to "everything is in scope" until you add
+              includes/excludes.
+            </dd>
+
+            <dt>Intercept mode</dt>
+            <dd>
+              A four-state toggle on the Intercept tab: <em>Off</em>{" "}
+              (pass-through), <em>Request</em> (pause before the request
+              goes upstream), <em>Response</em> (pause before the
+              response reaches the browser), <em>Both</em>. Only
+              in-scope exchanges pause; the rest pass through silently.
+            </dd>
+
+            <dt>Pending intercept</dt>
+            <dd>
+              A paused Exchange waiting for your verdict. Each one has a
+              oneshot channel on the backend — once you click Forward /
+              Forward edited / Drop, the request continues (or is
+              refused with 502). Auto-forwarded after 5 minutes if
+              ignored so upstream sockets don't leak.
+            </dd>
+
+            <dt>Replay</dt>
+            <dd>
+              Resending any captured Exchange with optional edits. Unlike
+              the browser, Replay bypasses the listener and goes through
+              corvex's low-level HTTP client so you control the wire
+              exactly. Each Replay creates a child Exchange linked back
+              to the original.
+            </dd>
+          </dl>
+
+          <h4>Checks &amp; findings</h4>
+          <dl className="kv">
+            <dt>Check</dt>
+            <dd>
+              An analyzer that looks at an Exchange and emits zero or
+              more findings. Two kinds:{" "}
+              <em>passive</em> (inspects what's already captured — runs
+              for free on every in-scope response) and <em>active</em>{" "}
+              (sends additional probe requests on demand).
+            </dd>
+
+            <dt>Passive check</dt>
+            <dd>
+              Cheap, synchronous, side-effect-free. Examples shipped:
+              Missing Security Headers, Verbose Errors, Version
+              Disclosure, Insecure Cookie Flags, Stack Fingerprint, plus
+              every bundled Nuclei template that can be evaluated
+              without extra requests.
+            </dd>
+
+            <dt>Active check</dt>
+            <dd>
+              Sends crafted requests and interprets the responses.
+              Examples shipped: Reflected XSS (canary + context
+              breakers), Error-based SQLi (boundary probes + DBMS
+              signature bank), Open Redirect (RFC 2606 sentinel host).
+              Run these only against systems you own or have written
+              permission to test.
+            </dd>
+
+            <dt>Finding</dt>
+            <dd>
+              A single issue raised by one check against one Exchange.
+              Has a stable check id, severity (Info / Low / Medium /
+              High / Critical), title, description, and a free-form
+              evidence JSON blob (matched payload, captured version,
+              reflected canary, etc.). Persisted to{" "}
+              <code>exchange_scan_findings</code>.
+            </dd>
+
+            <dt>OWASP Top 10 (2021)</dt>
+            <dd>
+              The industry-standard taxonomy for web vulnerabilities.
+              corvex groups every Check by category:{" "}
+              <code>A01</code> Broken Access Control,{" "}
+              <code>A02</code> Cryptographic Failures,{" "}
+              <code>A03</code> Injection,{" "}
+              <code>A04</code> Insecure Design,{" "}
+              <code>A05</code> Security Misconfiguration,{" "}
+              <code>A06</code> Vulnerable &amp; Outdated Components,{" "}
+              <code>A07</code> Identification &amp; Auth Failures,{" "}
+              <code>A08</code> Software &amp; Data Integrity Failures,{" "}
+              <code>A09</code> Logging &amp; Monitoring Failures,{" "}
+              <code>A10</code> Server-Side Request Forgery. Used to
+              group the Checks library in the UI.
+            </dd>
+
+            <dt>Canary</dt>
+            <dd>
+              A unique token injected into a parameter so a matching
+              reflection in the response is unambiguously caused by your
+              probe and not by pre-existing content. Example:{" "}
+              <code>cvxXSS7f3ad019</code>. The Reflected XSS check pairs
+              it with context-breakers like{" "}
+              <code>"&gt;&lt;svg/onload=cvxXSS7f3ad019&gt;</code>.
+            </dd>
+
+            <dt>Sentinel host</dt>
+            <dd>
+              The Open Redirect check substitutes URL-shaped parameter
+              values with <code>corvex-redirect-canary.invalid</code> —
+              an RFC 2606 reserved TLD that provably can't resolve to a
+              real server. If the target redirects to this host in its{" "}
+              <code>Location</code> header, the check is certain the
+              redirect was user-controlled without any network risk.
+            </dd>
+
+            <dt>Context breaker</dt>
+            <dd>
+              A payload template designed to break out of the HTML
+              context it lands in. For attribute-context:{" "}
+              <code>"&gt;&lt;svg/onload=…&gt;</code>. For script-context:{" "}
+              <code>&lt;/script&gt;&lt;…&gt;</code>. Reflected XSS
+              rotates through several so a single parameter gets tested
+              against every likely rendering path.
+            </dd>
+
+            <dt>Stack fingerprint</dt>
+            <dd>
+              The detected web framework / server / language stack
+              behind a response. Example:{" "}
+              <em>nginx 1.24.0, PHP 8.2.4, WordPress 6.4.2, jQuery
+              3.7.1</em>. Runs on every in-scope response as a passive
+              check; feeds future CVE cross-referencing work.
+            </dd>
+
+            <dt>Wappalyzer schema</dt>
+            <dd>
+              The industry-standard fingerprint format corvex uses to
+              describe a technology: regex patterns against HTTP
+              headers, cookies, HTML body, <code>&lt;meta&gt;</code>{" "}
+              tags, and URL paths, plus "implied-by" relationships
+              (WordPress implies PHP). The engine is schema-compatible
+              so upstream datasets can drop in; management of that data
+              lives in its own help section.
+            </dd>
+
+            <dt>Nuclei template</dt>
+            <dd>
+              A YAML file from the{" "}
+              <code>projectdiscovery/nuclei-templates</code> project
+              that describes a vulnerability as a path + a set of
+              matchers (word, regex, status, DSL). corvex bundles
+              thousands; the Checks tab surfaces each one as a
+              togglable library entry, classified into an OWASP
+              category by tag heuristic.
             </dd>
           </dl>
         </section>
