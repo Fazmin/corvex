@@ -75,11 +75,12 @@ pub(crate) async fn serve(
             accept = tcp.accept() => {
                 match accept {
                     Ok((stream, peer)) => {
+                        tracing::debug!(target: "proxy", "accepted connection from {peer}");
                         let ctx = ctx.clone();
                         let cancel = cancel.clone();
                         tokio::spawn(async move {
                             if let Err(e) = serve_conn(stream, peer, ctx, cancel).await {
-                                tracing::debug!(target: "proxy", "conn {peer} ended: {e}");
+                                tracing::warn!(target: "proxy", "conn {peer} ended: {e}");
                             }
                         });
                     }
@@ -118,6 +119,13 @@ async fn handle_top(
     ctx: Arc<ListenerCtx>,
     cancel: CancellationToken,
 ) -> hyper::Result<HyperResponse<Full<Bytes>>> {
+    tracing::debug!(
+        target: "proxy",
+        "incoming {} {} from {}",
+        req.method(),
+        req.uri(),
+        peer
+    );
     if req.method() == Method::CONNECT {
         match handle_connect(req, peer, ctx, cancel).await {
             Ok(resp) => Ok(resp),
@@ -348,6 +356,15 @@ fn to_core_request(
             format!("{host}:{port}")
         },
     );
+
+    // corvex-core's raw HTTP client reads responses until EOF, so the
+    // upstream must close the socket after the reply. Force
+    // `Connection: close` on every forwarded request regardless of what
+    // the browser asked for. A future revision can add keep-alive
+    // support driven by the client's Content-Length / chunked framing.
+    headers.shift_remove("connection");
+    headers.shift_remove("Connection");
+    headers.insert("Connection".to_string(), "close".to_string());
 
     Ok(CoreRequest {
         method: parts.method.to_string(),
