@@ -69,7 +69,34 @@ fn main() {
             // disabled.
             match open_proxy(app) {
                 Ok(state) => {
-                    app.manage(Arc::new(state));
+                    let state = Arc::new(state);
+                    // Drain the broadcast channel into Tauri events so
+                    // the UI gets live `proxy://exchange-new` pushes for
+                    // every captured exchange. A lagging receiver drops
+                    // older messages — the UI can always catch up by
+                    // calling `exchanges_list` against the persisted log.
+                    let handle = app.handle().clone();
+                    let mut rx = state.subscribe_exchanges();
+                    tauri::async_runtime::spawn(async move {
+                        loop {
+                            match rx.recv().await {
+                                Ok(exchange) => {
+                                    let _ = handle
+                                        .emit("proxy://exchange-new", exchange.summary());
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                    tracing::warn!(
+                                        target: "proxy",
+                                        "exchange broadcast lagged — {n} events dropped"
+                                    );
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                    return;
+                                }
+                            }
+                        }
+                    });
+                    app.manage(state);
                     tracing::info!(target: "proxy", "proxy state ready");
                 }
                 Err(e) => {

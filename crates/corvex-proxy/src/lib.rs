@@ -17,8 +17,10 @@
 
 pub mod ca;
 pub mod exchange;
+mod listener;
 pub mod scope;
 pub mod store;
+mod writer;
 
 pub use ca::{Authority, CaConfig};
 pub use exchange::{
@@ -29,11 +31,15 @@ pub use scope::{ScopeDecision as ScopeRuleDecision, ScopeRules};
 pub use store::ProxyDb;
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
+
+use crate::listener::ListenerCtx;
+use crate::writer::ExchangeWriter;
 
 /// Runtime configuration for a proxy session, supplied by the desktop
 /// frontend when the user clicks Start.
@@ -72,6 +78,8 @@ pub struct ProxyState {
     authority: Arc<Authority>,
     /// SQLite-backed storage for captured exchanges and scan findings.
     db: Arc<ProxyDb>,
+    /// Active scope rules. Live-updatable from the Settings tab.
+    scope: Arc<RwLock<ScopeRules>>,
     /// Currently-running listener handle, if any.
     running: RwLock<Option<RunningSession>>,
     /// Read-only fan-out channel for live exchange events.
@@ -79,11 +87,10 @@ pub struct ProxyState {
 }
 
 struct RunningSession {
-    #[allow(dead_code)]
     cancel: CancellationToken,
     session_id: SessionId,
     listen: SocketAddr,
-    captured: Arc<std::sync::atomic::AtomicU64>,
+    captured: Arc<AtomicU64>,
 }
 
 impl ProxyState {
@@ -92,9 +99,14 @@ impl ProxyState {
         Self {
             authority,
             db,
+            scope: Arc::new(RwLock::new(ScopeRules::default())),
             running: RwLock::new(None),
             tx,
         }
+    }
+
+    pub fn scope(&self) -> Arc<RwLock<ScopeRules>> {
+        self.scope.clone()
     }
 
     pub fn authority(&self) -> &Arc<Authority> {
@@ -121,7 +133,7 @@ impl ProxyState {
                 listen: Some(s.listen),
                 session_id: Some(s.session_id),
                 ca_ready,
-                exchanges_captured: s.captured.load(std::sync::atomic::Ordering::Relaxed),
+                exchanges_captured: s.captured.load(Ordering::Relaxed),
             },
             None => ProxyStatus {
                 running: false,
@@ -133,25 +145,61 @@ impl ProxyState {
         }
     }
 
-    /// Start the listener. Phase 1 stub — installs a running session
-    /// record and generates a session id, but does not yet bind a
-    /// TCP listener. The listener implementation lands in a follow-up.
+    /// Start the listener and begin accepting browser connections.
+    ///
+    /// Spawns three cooperating tasks: the hyper-based listener, the
+    /// batched SQLite writer, and a drain task that fans broadcast
+    /// exchanges out to subscribers. Cancelling the returned session
+    /// (via [`ProxyState::stop`]) unwinds all three cleanly.
     pub async fn start(&self, config: ProxyConfig) -> anyhow::Result<SessionId> {
         let mut slot = self.running.write().await;
         if slot.is_some() {
             anyhow::bail!("proxy is already running");
         }
         self.authority.ensure_ready()?;
+
         let session_id = SessionId::new();
-        self.db
-            .insert_session(&session_id, &config.listen.to_string(), config.note.as_deref())?;
-        *slot = Some(RunningSession {
-            cancel: CancellationToken::new(),
+        self.db.insert_session(
+            &session_id,
+            &config.listen.to_string(),
+            config.note.as_deref(),
+        )?;
+
+        let cancel = CancellationToken::new();
+        let captured = Arc::new(AtomicU64::new(0));
+
+        let (writer, _writer_handle) = ExchangeWriter::spawn(self.db.clone());
+        let upstream = Arc::new(listener::build_upstream());
+        let ctx = Arc::new(ListenerCtx {
+            authority: self.authority.clone(),
             session_id,
-            listen: config.listen,
-            captured: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            scope: self.scope.clone(),
+            writer,
+            broadcast: self.tx.clone(),
+            captured: captured.clone(),
+            upstream,
         });
-        tracing::info!(target: "proxy", %session_id, listen = %config.listen, "proxy session started");
+
+        let listen = config.listen;
+        let task_cancel = cancel.clone();
+        tokio::spawn(async move {
+            if let Err(e) = listener::serve(listen, ctx, task_cancel).await {
+                tracing::error!(target: "proxy", "listener exited: {e}");
+            }
+        });
+
+        *slot = Some(RunningSession {
+            cancel,
+            session_id,
+            listen,
+            captured,
+        });
+        tracing::info!(
+            target: "proxy",
+            session = %session_id,
+            listen = %listen,
+            "proxy session started"
+        );
         Ok(session_id)
     }
 
@@ -161,7 +209,11 @@ impl ProxyState {
         if let Some(session) = slot.take() {
             session.cancel.cancel();
             self.db.finish_session(&session.session_id)?;
-            tracing::info!(target: "proxy", session = %session.session_id, "proxy session stopped");
+            tracing::info!(
+                target: "proxy",
+                session = %session.session_id,
+                "proxy session stopped"
+            );
         }
         Ok(())
     }
