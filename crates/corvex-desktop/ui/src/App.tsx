@@ -30,6 +30,7 @@ import { PluginsView } from "./components/PluginsView";
 import { DatabasesView } from "./components/DatabasesView";
 import { FuzzingView } from "./components/FuzzingView";
 import { ProbingView } from "./components/ProbingView";
+import { ProxyView } from "./components/ProxyView";
 import { ScaView } from "./components/ScaView";
 import { SettingsView } from "./components/SettingsView";
 import { HelpView } from "./components/HelpView";
@@ -372,6 +373,7 @@ export default function App() {
     plugins: "Plugins",
     probing: "Service Probing",
     fuzzing: "Active Fuzzing",
+    proxy: "Proxy",
     databases: "Databases",
     sca: "Software Composition Analysis",
     settings: "Settings",
@@ -503,6 +505,11 @@ export default function App() {
           {view === "sca" && (
             <div className="dashboard single-pane">
               <ScaView />
+            </div>
+          )}
+          {view === "proxy" && (
+            <div className="dashboard single-pane">
+              <ProxyView />
             </div>
           )}
           {view === "settings" && (

@@ -104,6 +104,17 @@ export function FuzzingIcon({ size = 18 }: IconProps) {
   );
 }
 
+export function ProxyIcon({ size = 18 }: IconProps) {
+  return (
+    <svg {...stroke(size)} aria-hidden>
+      <rect x="2" y="5" width="8" height="6" rx="1.5" />
+      <rect x="14" y="13" width="8" height="6" rx="1.5" />
+      <path d="M10 8h5a3 3 0 0 1 3 3v2" />
+      <path d="M14 16H9a3 3 0 0 1-3-3v-2" />
+    </svg>
+  );
+}
+
 export function ScaIcon({ size = 18 }: IconProps) {
   return (
     <svg {...stroke(size)} aria-hidden>

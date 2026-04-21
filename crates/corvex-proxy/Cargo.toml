@@ -1,0 +1,50 @@
+[package]
+name = "corvex-proxy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Interactive HTTP(S) intercepting proxy and Checks engine for Corvex."
+
+[dependencies]
+corvex-core.workspace = true
+
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+
+# Server-side HTTP. The workspace hyper feature set is client-only; the
+# proxy listener needs "server" (and later "http2") so we extend here.
+hyper = { workspace = true, features = ["server", "http1", "http2"] }
+hyper-util = { workspace = true, features = ["server", "server-auto", "tokio", "http1", "http2"] }
+http.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+
+# TLS stack — same OpenSSL we already ship for the outbound HTTP client.
+openssl.workspace = true
+tokio-openssl.workspace = true
+
+# Persistence shares the existing rusqlite version. The proxy opens its
+# own Connection to the same DB file; WAL mode handles the concurrency.
+rusqlite.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+bincode.workspace = true
+
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+once_cell.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+indexmap.workspace = true
+time = { workspace = true, features = ["serde"] }
+rand.workspace = true
+regex.workspace = true
+url.workspace = true
+
+# Simple bounded LRU for per-SNI leaf cert cache.
+lru = "0.12"
+bitflags = "2"

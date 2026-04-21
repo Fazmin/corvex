@@ -490,3 +490,101 @@ export function historyClear(): Promise<number> {
 export function historyDelete(id: number): Promise<number> {
   return invoke<number>("history_delete", { id });
 }
+
+// --- Proxy and Checks ----------------------------------------------------
+
+export interface ProxyStatus {
+  running: boolean;
+  listen: string | null;
+  session_id: string | null;
+  ca_ready: boolean;
+  exchanges_captured: number;
+}
+
+export interface ProxyConfig {
+  listen: string; // "host:port"
+  note?: string | null;
+}
+
+export type ProxyScope = "in" | "out" | "excluded";
+
+export interface ExchangeSummary {
+  id: string;
+  session_id: string;
+  origin_kind: string;
+  method: string;
+  scheme: string;
+  host: string;
+  port: number;
+  path: string;
+  status: number | null;
+  mime: string | null;
+  size_request: number;
+  size_response: number;
+  started_at: string;
+  duration_ms: number | null;
+  scope: ProxyScope;
+  intercepted: number;
+  tags: string[];
+  query: string | null;
+}
+
+export interface ExchangeDetail {
+  id: string;
+  method: string;
+  scheme: string;
+  host: string;
+  port: number;
+  path: string;
+  query: string | null;
+  status: number | null;
+  request_headers: [string, string][];
+  request_body_base64: string | null;
+  response_headers: [string, string][];
+  response_body_base64: string | null;
+  started_at_unix: number;
+  duration_ms: number | null;
+}
+
+export interface ExportedCa {
+  path: string;
+  pem: string;
+}
+
+export function proxyStatus(): Promise<ProxyStatus> {
+  return invoke<ProxyStatus>("proxy_status");
+}
+
+export function proxyStart(config?: ProxyConfig): Promise<string> {
+  return invoke<string>("proxy_start", { config: config ?? null });
+}
+
+export function proxyStop(): Promise<void> {
+  return invoke<void>("proxy_stop");
+}
+
+export function proxyExportCaPem(): Promise<ExportedCa> {
+  return invoke<ExportedCa>("proxy_export_ca_pem");
+}
+
+export function exchangesList(
+  session: string,
+  limit = 200,
+  offset = 0,
+): Promise<ExchangeSummary[]> {
+  return invoke<ExchangeSummary[]>("exchanges_list", { session, limit, offset });
+}
+
+export function exchangeGet(id: string): Promise<ExchangeDetail | null> {
+  return invoke<ExchangeDetail | null>("exchange_get", { id });
+}
+
+/** Live exchange events emitted by the proxy listener once a session is
+ *  active. Wiring lands with the listener milestone — the helper is
+ *  here now so views can subscribe against the finalised channel name
+ *  without a churn later. */
+export function onProxyExchange(
+  cb: (summary: ExchangeSummary) => void,
+): Promise<UnlistenFn> {
+  return listen<ExchangeSummary>("proxy://exchange-new", (e) => cb(e.payload));
+}

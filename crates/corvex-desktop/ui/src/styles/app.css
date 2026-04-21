@@ -2149,3 +2149,208 @@ button[disabled] {
   animation: scan-pulse 1.2s ease-in-out infinite;
   flex-shrink: 0;
 }
+
+/* ---------------------------------------------------------------- */
+/* Proxy view                                                       */
+/* ---------------------------------------------------------------- */
+
+.proxy-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.proxy-toolbar {
+  padding: 12px 16px;
+}
+
+.proxy-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.proxy-toolbar-left,
+.proxy-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.proxy-title {
+  margin: 0;
+  font-size: calc(var(--font-base) + 4px);
+  font-weight: 600;
+}
+
+.proxy-listen-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(var(--font-base) - 1px);
+  color: var(--muted);
+}
+
+.proxy-listen-label .input {
+  width: 180px;
+  padding: 4px 8px;
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  color: var(--fg);
+}
+
+.proxy-listen-label .input:disabled {
+  opacity: 0.6;
+}
+
+.proxy-error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--danger, #a33);
+  color: var(--danger, #c55);
+  border-radius: var(--radius-sm);
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.proxy-tabs {
+  padding: 10px 16px 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.proxy-tab-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.proxy-tab-body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.proxy-empty {
+  padding: 24px 8px;
+}
+
+.proxy-empty h3 {
+  margin: 0 0 8px;
+  font-size: var(--font-base);
+  font-weight: 600;
+}
+
+.proxy-empty p {
+  margin: 6px 0;
+  line-height: 1.5;
+}
+
+.proxy-traffic-table {
+  width: 100%;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.proxy-row {
+  cursor: pointer;
+}
+
+.proxy-row:hover {
+  background: var(--panel-hover, var(--panel-alt));
+}
+
+.proxy-row.scope-out td {
+  color: var(--muted);
+}
+
+.proxy-url {
+  font-family: var(--mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0;
+}
+
+.proxy-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 8px 0;
+}
+
+.proxy-settings section h3 {
+  margin: 0 0 6px;
+  font-size: var(--font-base);
+  font-weight: 600;
+}
+
+.proxy-settings .muted {
+  margin: 4px 0 10px;
+}
+
+.proxy-pem {
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 3px);
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.proxy-instructions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.proxy-instructions li {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+  font-size: calc(var(--font-base) - 1px);
+  line-height: 1.5;
+}
+
+.proxy-instructions code {
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* Data-attribute coloured pill for the proxy status chip. */
+.badge-inline[data-status="running"] {
+  background: rgba(80, 200, 120, 0.15);
+  border-color: rgba(80, 200, 120, 0.5);
+  color: #6ad68a;
+}
+
+.badge-inline[data-status="stopped"] {
+  background: var(--panel-alt);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.badge-inline[data-status="warn"] {
+  background: rgba(200, 160, 60, 0.15);
+  border-color: rgba(200, 160, 60, 0.5);
+  color: #e7c06a;
+}

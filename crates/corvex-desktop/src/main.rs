@@ -12,10 +12,12 @@ mod history;
 mod log_bridge;
 mod params;
 mod probe_state;
+mod proxy_cmd;
 mod scan_state;
 
 use std::sync::Arc;
 
+use corvex_proxy::{Authority, CaConfig, ProxyDb, ProxyState};
 use history::HistoryDb;
 use probe_state::ProbeRegistry;
 use scan_state::ScanRegistry;
@@ -58,6 +60,23 @@ fn main() {
                 }
             }
 
+            // Register proxy state. The authority persists its CA under
+            // `<app_data_dir>/proxy/ca/`; the proxy DB opens a second
+            // connection to the shared `history.sqlite` file (WAL mode
+            // lets multiple connections coexist). Any failure here is
+            // non-fatal — the rest of the app keeps working, the Proxy
+            // view shows an error and the "Export CA" button is
+            // disabled.
+            match open_proxy(app) {
+                Ok(state) => {
+                    app.manage(Arc::new(state));
+                    tracing::info!(target: "proxy", "proxy state ready");
+                }
+                Err(e) => {
+                    tracing::error!(target: "proxy", "failed to init proxy: {e}");
+                }
+            }
+
             // Forward every buffered + future tracing line to the frontend.
             // `setup` is called before Tauri starts its own runtime on this
             // thread, so `tokio::spawn` would panic ("no reactor running").
@@ -93,6 +112,12 @@ fn main() {
             commands::jarm_lookup,
             commands::probe_start,
             commands::probe_cancel,
+            proxy_cmd::proxy_status,
+            proxy_cmd::proxy_start,
+            proxy_cmd::proxy_stop,
+            proxy_cmd::proxy_export_ca_pem,
+            proxy_cmd::exchanges_list,
+            proxy_cmd::exchange_get,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -107,4 +132,22 @@ fn open_history(app: &tauri::App) -> anyhow::Result<HistoryDb> {
     let path = dir.join("history.sqlite");
     tracing::info!(target: "history", "opening history db at {}", path.display());
     HistoryDb::open(&path).map_err(|e| anyhow::anyhow!("sqlite: {e}"))
+}
+
+fn open_proxy(app: &tauri::App) -> anyhow::Result<ProxyState> {
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| anyhow::anyhow!("app_data_dir: {e}"))?;
+    let ca_dir = base.join("proxy").join("ca");
+    let db_path = base.join("history.sqlite");
+
+    tracing::info!(target: "proxy", "initialising CA at {}", ca_dir.display());
+    let authority = Authority::load_or_generate(CaConfig::for_dir(&ca_dir))
+        .map_err(|e| anyhow::anyhow!("ca init: {e}"))?;
+
+    tracing::info!(target: "proxy", "opening proxy db at {}", db_path.display());
+    let db = ProxyDb::open(&db_path).map_err(|e| anyhow::anyhow!("proxy db: {e}"))?;
+
+    Ok(ProxyState::new(Arc::new(authority), Arc::new(db)))
 }

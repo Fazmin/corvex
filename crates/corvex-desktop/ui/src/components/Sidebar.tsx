@@ -11,6 +11,7 @@ import {
   NewScanIcon,
   PluginsIcon,
   ProbingIcon,
+  ProxyIcon,
   ScaIcon,
   SettingsIcon,
 } from "./Icons";
@@ -22,6 +23,7 @@ export type View =
   | "databases"
   | "fuzzing"
   | "probing"
+  | "proxy"
   | "sca"
   | "settings"
   | "help";
@@ -91,6 +93,11 @@ export function Sidebar({
       view: "fuzzing",
       icon: <FuzzingIcon size={collapsed ? 22 : 18} />,
       label: "Fuzzing",
+    },
+    {
+      view: "proxy",
+      icon: <ProxyIcon size={collapsed ? 22 : 18} />,
+      label: "Proxy",
     },
     {
       view: "databases",
