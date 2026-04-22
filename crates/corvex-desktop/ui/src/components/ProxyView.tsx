@@ -79,7 +79,14 @@ export function ProxyView() {
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     onProxyExchange((summary) => {
-      setExchanges((prev) => [summary, ...prev].slice(0, 1000));
+      // Dedupe by exchange id — in React 18 strict-mode the effect
+      // mounts the listener twice in dev builds, and the backend can
+      // also emit a refresh for the same exchange when its intercept
+      // state or tags change. Either way we want one row per id.
+      setExchanges((prev) => {
+        if (prev.some((p) => p.id === summary.id)) return prev;
+        return [summary, ...prev].slice(0, 1000);
+      });
     })
       .then((fn) => {
         unlisten = fn;
@@ -100,7 +107,14 @@ export function ProxyView() {
       return;
     }
     exchangesList(session, 500, 0)
-      .then(setExchanges)
+      .then((rows) => {
+        // Dedupe defensively so a stale React mount or a race with
+        // the live listener can't produce two rows sharing an id.
+        const seen = new Set<string>();
+        setExchanges(
+          rows.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true))),
+        );
+      })
       .catch((e) => setError(String(e)));
   }, [status?.session_id]);
 
@@ -319,34 +333,63 @@ function ProxyTrafficTab({
               {open && (
                 <tr className="finding-detail-row" key={`${ex.id}-detail`}>
                   <td colSpan={6}>
-                    <div className="finding-detail">
-                      <dl>
-                        <dt>Id</dt><dd>{ex.id}</dd>
-                        <dt>Origin</dt><dd>{ex.origin_kind}</dd>
-                        <dt>Host</dt><dd>{ex.host}:{ex.port}</dd>
-                        <dt>MIME</dt><dd>{ex.mime ?? "-"}</dd>
-                        <dt>Scope</dt><dd>{ex.scope}</dd>
-                      </dl>
+                    <div className="proxy-detail-compact">
+                      <div className="proxy-detail-fields">
+                        <div className="proxy-detail-line">
+                          <span className="proxy-field" title={ex.id}>
+                            <span className="proxy-field-k">ID</span>
+                            <span className="proxy-field-v mono trunc">
+                              {ex.id}
+                            </span>
+                          </span>
+                          <span className="proxy-field">
+                            <span className="proxy-field-k">Origin</span>
+                            <span className="proxy-field-v">{ex.origin_kind}</span>
+                          </span>
+                          <span className="proxy-field">
+                            <span className="proxy-field-k">Host</span>
+                            <span className="proxy-field-v mono">
+                              {ex.host}:{ex.port}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="proxy-detail-line">
+                          <span className="proxy-field">
+                            <span className="proxy-field-k">MIME</span>
+                            <span className="proxy-field-v">
+                              {ex.mime ?? "-"}
+                            </span>
+                          </span>
+                          <span className="proxy-field">
+                            <span className="proxy-field-k">Scope</span>
+                            <span
+                              className={`proxy-field-v scope-${ex.scope}`}
+                            >
+                              {ex.scope}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
                       <div className="proxy-detail-actions">
                         <button
                           type="button"
-                          className="chip"
+                          className="proxy-send-btn"
                           onClick={(e) => {
                             e.stopPropagation();
                             onSendToReplay(ex);
                           }}
                         >
-                          Send to Replay
+                          Send to Replay →
                         </button>
                         <button
                           type="button"
-                          className="chip"
+                          className="proxy-send-btn"
                           onClick={(e) => {
                             e.stopPropagation();
                             onSendToChecks(ex);
                           }}
                         >
-                          Send to Checks
+                          Send to Checks →
                         </button>
                       </div>
                     </div>

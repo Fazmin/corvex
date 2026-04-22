@@ -2608,9 +2608,107 @@ button[disabled] {
 }
 
 .proxy-detail-actions {
-  margin-top: 8px;
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Compact expand-row layout: fields flow as inline pills on the left,
+   primary actions anchor right so they catch the eye at a glance. */
+.proxy-detail-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.proxy-detail-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+/* Two rows inside the fields column: ID/Origin/Host on top, MIME/Scope
+   underneath. Each row wraps on its own if the window is narrow. */
+.proxy-detail-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: center;
+  min-width: 0;
+}
+
+.proxy-field {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.proxy-field-k {
+  color: var(--muted);
+  font-size: calc(var(--font-base) - 2px);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.proxy-field-v {
+  color: var(--fg);
+}
+
+.proxy-field-v.mono {
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+}
+
+.proxy-field-v.trunc {
+  display: inline-block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.proxy-field-v.scope-in_scope,
+.proxy-field-v.scope-InScope {
+  color: #6ad68a;
+}
+
+.proxy-field-v.scope-out,
+.proxy-field-v.scope-OutOfScope {
+  color: var(--muted);
+}
+
+.proxy-field-v.scope-excluded,
+.proxy-field-v.scope-Excluded {
+  color: #e7c06a;
+}
+
+/* Discreet send-buttons — ghost style, accent text and border only, so
+   they stay out of the way but still read as a clear secondary action. */
+.proxy-send-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  font-size: calc(var(--font-base) - 2px);
+  font-weight: 500;
+  cursor: pointer;
+  line-height: 1.4;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.proxy-send-btn:hover {
+  border-color: var(--accent);
+  background: var(--panel-alt);
 }
 
 /* ---------------------------------------------------------------- */
