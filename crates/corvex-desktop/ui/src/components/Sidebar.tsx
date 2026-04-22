@@ -97,7 +97,7 @@ export function Sidebar({
     {
       view: "proxy",
       icon: <ProxyIcon size={collapsed ? 22 : 18} />,
-      label: "Proxy",
+      label: "Intercept",
     },
     {
       view: "databases",

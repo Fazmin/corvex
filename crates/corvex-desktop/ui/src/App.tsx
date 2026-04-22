@@ -373,7 +373,7 @@ export default function App() {
     plugins: "Plugins",
     probing: "Service Probing",
     fuzzing: "Active Fuzzing",
-    proxy: "Proxy",
+    proxy: "Intercept",
     databases: "Databases",
     sca: "Software Composition Analysis",
     settings: "Settings",
