@@ -223,7 +223,43 @@ async fn handle_plain(
     let elapsed_ms = started.elapsed().as_millis() as u64;
 
     match result {
-        Ok(resp) => {
+        Ok(mut resp) => {
+            // Response-phase intercept: pause again if the mode demands
+            // it and the exchange is in-scope. Out-of-scope traffic is
+            // never paused so scope's "log all / gate interactive" rule
+            // keeps holding on the response side too.
+            if exchange.scope == ScopeDecision::InScope {
+                let mode = *ctx.intercept_mode.read().await;
+                if mode.should_pause_response() {
+                    match pause_for_response_verdict(&ctx, &exchange, &core_req, &resp).await
+                    {
+                        Some(ResponseVerdict::Forward) => {
+                            exchange.intercepted |= InterceptMarks::RESPONSE_PAUSED;
+                        }
+                        Some(ResponseVerdict::Edited(new_resp)) => {
+                            exchange.intercepted |= InterceptMarks::RESPONSE_PAUSED
+                                | InterceptMarks::RESPONSE_EDITED;
+                            resp = new_resp;
+                        }
+                        Some(ResponseVerdict::Drop) => {
+                            exchange.intercepted |= InterceptMarks::RESPONSE_PAUSED;
+                            exchange.response = None;
+                            exchange.duration_ms = Some(elapsed_ms);
+                            exchange.completed_at =
+                                Some(time::OffsetDateTime::now_utc());
+                            persist_and_broadcast(&ctx, exchange);
+                            return Ok(text_response(
+                                StatusCode::BAD_GATEWAY,
+                                "corvex-proxy: response dropped by user",
+                            ));
+                        }
+                        None => {
+                            exchange.intercepted |= InterceptMarks::RESPONSE_PAUSED;
+                        }
+                    }
+                }
+            }
+
             let hyper_resp = build_hyper_response(&resp);
             exchange.response = Some(resp);
             exchange.duration_ms = Some(elapsed_ms);
@@ -515,6 +551,14 @@ enum Verdict {
     Drop,
 }
 
+/// Same shape as [`Verdict`] but for the response-phase pause, carrying
+/// the already-reparsed [`CoreResponse`] if the user edited the bytes.
+enum ResponseVerdict {
+    Forward,
+    Edited(CoreResponse),
+    Drop,
+}
+
 async fn pause_for_verdict(
     ctx: &Arc<ListenerCtx>,
     exchange: &Exchange,
@@ -572,5 +616,54 @@ async fn pause_for_verdict(
                 }
             }
         }
+    }
+}
+
+async fn pause_for_response_verdict(
+    ctx: &Arc<ListenerCtx>,
+    exchange: &Exchange,
+    current: &CoreRequest,
+    resp: &CoreResponse,
+) -> Option<ResponseVerdict> {
+    let snapshot = PendingIntercept {
+        id: exchange.id,
+        phase: InterceptPhase::Response,
+        method: current.method.clone(),
+        host: current.host.clone(),
+        port: current.port,
+        scheme: if current.ssl { "https".into() } else { "http".into() },
+        uri: current.uri.clone(),
+        raw_bytes_base64: base64::engine::general_purpose::STANDARD.encode(resp.to_wire()),
+    };
+    let rx = ctx.intercept_queue.pause(snapshot);
+    let verdict = match tokio::time::timeout(INTERCEPT_TIMEOUT, rx).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(_)) => {
+            tracing::warn!(target: "proxy", "intercept sender dropped before response verdict");
+            return None;
+        }
+        Err(_) => {
+            tracing::warn!(
+                target: "proxy",
+                "response intercept {} timed out after {}s — auto-forwarding",
+                exchange.id,
+                INTERCEPT_TIMEOUT.as_secs()
+            );
+            return None;
+        }
+    };
+    match verdict {
+        InterceptVerdict::Forward => Some(ResponseVerdict::Forward),
+        InterceptVerdict::Drop => Some(ResponseVerdict::Drop),
+        InterceptVerdict::ForwardEdited { bytes } => match CoreResponse::parse(&bytes) {
+            Ok(edited) => Some(ResponseVerdict::Edited(edited)),
+            Err(e) => {
+                tracing::warn!(
+                    target: "proxy",
+                    "edited response failed to parse, using original: {e}"
+                );
+                Some(ResponseVerdict::Forward)
+            }
+        },
     }
 }

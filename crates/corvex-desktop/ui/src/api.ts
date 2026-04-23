@@ -567,6 +567,25 @@ export function proxyExportCaPem(): Promise<ExportedCa> {
   return invoke<ExportedCa>("proxy_export_ca_pem");
 }
 
+export interface ScopeRule {
+  host: string;
+  path_regex?: string | null;
+  port?: number | null;
+}
+
+export interface ScopeRules {
+  include: ScopeRule[];
+  exclude: ScopeRule[];
+}
+
+export function scopeGet(): Promise<ScopeRules> {
+  return invoke<ScopeRules>("scope_get");
+}
+
+export function scopeSet(rules: ScopeRules): Promise<void> {
+  return invoke<void>("scope_set", { rules });
+}
+
 export function exchangesList(
   session: string,
   limit = 200,

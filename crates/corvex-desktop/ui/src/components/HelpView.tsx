@@ -581,12 +581,17 @@ export function HelpView() {
               upstream. Most common mode when testing.
             </li>
             <li>
-              <strong>Response</strong> — pauses after the server replies,
-              before the response reaches the browser. Handler arrives with
-              Phase 4.
+              <strong>Response</strong> — pauses after the upstream server
+              replies, before the response reaches the browser. You edit
+              the status line, headers, or body on the wire — useful for
+              simulating error states, flipping feature-flag JSON, or
+              stripping security headers to test how the client copes.
             </li>
             <li>
-              <strong>Both</strong> — pauses at both sides.
+              <strong>Both</strong> — pauses at both sides. Each exchange
+              hits the Pending queue twice: once with the{" "}
+              <code>→ req</code> badge on the way out, once with the{" "}
+              <code>← resp</code> badge on the way back.
             </li>
           </ul>
           <p>
@@ -596,20 +601,28 @@ export function HelpView() {
             "capture everything, intercept none" until you add rules.
           </p>
           <p>
-            When a request pauses, a row appears in the <em>Pending</em>{" "}
-            queue on the left (method, URL, phase). Click it and the right
-            pane fills with the raw HTTP/1 bytes ready for editing. Three
-            buttons wait at the bottom:
+            When an exchange pauses, a row appears in the <em>Pending</em>{" "}
+            queue on the left. The phase badge tells you which side is
+            frozen: an amber <code>→ req</code> means the request is held
+            before going upstream; a blue <code>← resp</code> means the
+            upstream reply is held before reaching the client. Click the
+            row and the right pane fills with the raw HTTP/1 bytes ready
+            for editing. Three buttons wait at the bottom (their labels
+            re-phrase based on phase — e.g.{" "}
+            <strong>Forward request</strong> vs{" "}
+            <strong>Forward response</strong>):
           </p>
           <ul>
             <li>
               <strong>Forward</strong> — send the bytes as-is. (The button
-              re-labels to <strong>Forward edited</strong> the moment you
+              re-labels to <strong>Forward edited…</strong> the moment you
               touch the editor.)
             </li>
             <li>
-              <strong>Drop</strong> — refuse the request. The browser
-              receives a <code>502 Bad Gateway</code>.
+              <strong>Drop</strong> — refuse the exchange. On the request
+              phase the browser receives a <code>502 Bad Gateway</code>;
+              on the response phase the browser also receives a{" "}
+              <code>502</code> — the upstream's real reply is discarded.
             </li>
             <li>
               <strong>Drop all</strong> (above the queue) — release every
@@ -618,8 +631,8 @@ export function HelpView() {
             </li>
           </ul>
           <p>
-            <strong>Example of an edit.</strong> A login form submits{" "}
-            <code>POST /auth/login</code> with a JSON body:
+            <strong>Example 1 — edit a request.</strong> A login form
+            submits <code>POST /auth/login</code> with a JSON body:
           </p>
           <pre className="help-cmd">
 {`POST /auth/login HTTP/1.1
@@ -631,17 +644,134 @@ Content-Length: 43
           </pre>
           <p>
             Change <code>hunter2</code> to <code>' OR 1=1 --</code> in the
-            editor, click <strong>Forward edited</strong>. The backend
-            re-parses your bytes and sends them upstream. If the parse
-            fails (e.g. you accidentally deleted the blank line between
-            headers and body), the exchange stays paused and the UI shows a
-            parse error instead of silently corrupting the wire request.
+            editor, click <strong>Forward edited request</strong>. The
+            backend re-parses your bytes and sends them upstream. If the
+            parse fails (e.g. you accidentally deleted the blank line
+            between headers and body), the exchange is released with the
+            original bytes and a warning is logged instead of silently
+            corrupting the wire request.
+          </p>
+          <p>
+            <strong>Example 2 — edit a response.</strong> Set mode to{" "}
+            <strong>Response</strong>, load{" "}
+            <code>https://httpbin.org/get</code> in your browser. The
+            upstream reply pauses with a <code>← resp</code> badge:
+          </p>
+          <pre className="help-cmd">
+{`HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 17
+
+{"ok":true}`}
+          </pre>
+          <p>
+            Rewrite the status line to{" "}
+            <code>HTTP/1.1 403 Forbidden</code>, swap the body for{" "}
+            <code>{`{"error":"denied"}`}</code>, update{" "}
+            <code>Content-Length</code> to match (17 bytes → 18), click{" "}
+            <strong>Forward edited response</strong>. The browser sees a
+            403 as if the server sent it — the real server never knows.
+            Handy for probing how a client handles error paths you can't
+            trigger naturally (quota exceeded, auth expired, upstream
+            outage). Same mechanics work for injecting debug headers,
+            stripping <code>Content-Security-Policy</code> to test CSP
+            fallbacks, or flipping a feature-flag JSON boolean before the
+            SPA renders.
           </p>
           <p className="callout">
             Safety net: if you walk away, every pending intercept
             auto-forwards after 5 minutes so upstream sockets don't leak.
             <code>Connection: close</code> is forced on every forwarded
-            request — don't worry about keep-alive semantics.
+            request — don't worry about keep-alive semantics. Edited
+            bytes that fail to parse as valid HTTP fall back to the
+            original (warning logged), so a typo won't silently corrupt
+            the stream.
+          </p>
+
+          <h4>Settings · Scope rules — what gets paused and checked</h4>
+          <p>
+            Scope decides which exchanges active features touch. The
+            Traffic log always captures everything; scope gates
+            intercept, replay, and active Checks so incidental background
+            traffic (analytics beacons, favicon fetches, tabs from other
+            apps) never interrupts you. Rules live under{" "}
+            <em>Proxy → Settings → Scope rules</em> and persist across
+            restarts in <code>history.sqlite</code>.
+          </p>
+          <p>
+            Two lists, evaluated in order:
+          </p>
+          <ul>
+            <li>
+              <strong>Exclude</strong> — matches always win. Any request
+              matching an exclude rule is marked out-of-scope, even if an
+              include rule would otherwise cover it.
+            </li>
+            <li>
+              <strong>Include</strong> — if empty, every non-excluded
+              request is in-scope (the default "log all" behaviour).
+              Otherwise, only requests matching at least one include rule
+              count.
+            </li>
+          </ul>
+          <p>
+            Each rule has three fields:
+          </p>
+          <ul>
+            <li>
+              <strong>Host</strong> — exact match (
+              <code>api.example.com</code>) or leading wildcard (
+              <code>*.example.com</code> matches the apex and any
+              sub-domain). Blank matches any host.
+            </li>
+            <li>
+              <strong>Path regex</strong> — Rust regex evaluated against
+              the request path (without query string). Blank matches any
+              path. A malformed regex fails closed — the rule never
+              matches rather than silently widening scope.
+            </li>
+            <li>
+              <strong>Port</strong> — single port filter. Blank matches
+              any port.
+            </li>
+          </ul>
+          <p>
+            <strong>Example — narrow scope for a bug-bounty target.</strong>{" "}
+            You're testing <code>app.acme.test</code> and don't want your
+            other open tabs spamming the Intercept queue. Add one include
+            rule:
+          </p>
+          <pre className="help-cmd">
+{`Host:       *.acme.test
+Path regex: (blank)
+Port:       (blank)`}
+          </pre>
+          <p>
+            Save. The instant a new request comes in, only the Acme hosts
+            pause. A few minutes later you notice the site's analytics
+            beacon (<code>metrics.acme.test/collect</code>) keeps pausing
+            and getting in the way — add an exclude rule:
+          </p>
+          <pre className="help-cmd">
+{`Host:       metrics.acme.test
+Path regex: ^/collect
+Port:       (blank)`}
+          </pre>
+          <p>
+            Save again. Metrics beacons now pass through without pausing;
+            the rest of <code>*.acme.test</code> still funnels into
+            Intercept. In the Traffic log, each row's <em>Scope</em> field
+            reads <code>in</code>, <code>out</code>, or{" "}
+            <code>excluded</code> so you can see what scope decided at
+            the time — updates only apply to new requests, so anything
+            already sitting in the Pending queue keeps its original
+            classification.
+          </p>
+          <p className="callout">
+            Save is explicit: your in-progress edits don't apply until you
+            click <strong>Save scope rules</strong>. Path regexes are
+            validated at Save time, so a bad pattern surfaces as an error
+            instead of fail-closing every future match.
           </p>
 
           <h4>Replay tab — resend with edits</h4>
@@ -1618,6 +1748,152 @@ Content-Length: 52
               further action — they run on every in-scope response.
             </li>
           </ol>
+
+          <h4>
+            17. Narrow scope to one target so background noise stops
+            cluttering Intercept
+          </h4>
+          <p>
+            You just started intercepting and every tab, every favicon,
+            every analytics beacon from every open window is piling up in
+            the Pending queue. Fix: configure scope rules so only the
+            target you're testing is in-scope; everything else flows
+            through the Traffic log without ever pausing.
+          </p>
+          <ol className="numbered">
+            <li>
+              In the Proxy view, open <strong>Settings →{" "}
+              <em>4. Scope rules</em></strong>. Both lists start empty —
+              that's the "log all, intercept all" default.
+            </li>
+            <li>
+              Click <strong>+ Add include rule</strong>. Fill in the host
+              field with <code>*.acme.test</code> (leading wildcard
+              matches any sub-domain plus the apex). Leave path and port
+              blank.
+            </li>
+            <li>
+              Click <strong>Save scope rules</strong>. The banner flips
+              to "Saved — applies to new requests." Rules live in{" "}
+              <code>history.sqlite</code>, so they survive a restart.
+            </li>
+            <li>
+              Back on the Traffic tab, newly-captured rows show a{" "}
+              <em>Scope</em> field in the expanded detail. Requests
+              matching the include rule read <code>in</code>; everything
+              else reads <code>out</code>. Out-of-scope rows are still
+              captured and visible — they just never pause the browser.
+            </li>
+            <li>
+              Turn on Intercept → Request (or Both). Only the Acme hosts
+              pause now. Go back to Settings and add an{" "}
+              <strong>exclude</strong> rule for{" "}
+              <code>metrics.acme.test</code> with path regex{" "}
+              <code>^/collect</code> to suppress the site's own telemetry
+              without taking the whole host out of scope.
+            </li>
+          </ol>
+          <p className="callout">
+            Scope decisions are captured at the moment each request is
+            classified. Editing rules only affects new requests —
+            exchanges already waiting in the Pending queue keep their
+            original classification. Clearing the Pending queue with{" "}
+            <strong>Drop all</strong> is the clean way to reset after a
+            scope change.
+          </p>
+
+          <h4>
+            18. Simulate an error response without touching the server
+          </h4>
+          <p>
+            Your SPA probably has a "session expired" or "quota exceeded"
+            error branch that's hard to trigger from the outside. The
+            response-phase intercept lets you hand the browser any
+            response you want — the real server never knows you tampered
+            with its reply.
+          </p>
+          <ol className="numbered">
+            <li>
+              In the Intercept tab, set mode to <strong>Response</strong>.
+              If this is noisy, first narrow scope (scenario 17) so only
+              the target app's responses pause.
+            </li>
+            <li>
+              Trigger the action you want to test in the browser — e.g.
+              loading a profile page, calling{" "}
+              <code>GET /api/me</code>.
+            </li>
+            <li>
+              The upstream reply pauses with a blue{" "}
+              <code>← resp</code> badge. Click it. The editor shows:
+              <pre className="help-cmd">
+{`HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 42
+
+{"id":42,"email":"alice@acme.test"}`}
+              </pre>
+            </li>
+            <li>
+              Rewrite the status line to{" "}
+              <code>HTTP/1.1 401 Unauthorized</code>. Replace the body
+              with <code>{`{"error":"token_expired"}`}</code>. Update{" "}
+              <code>Content-Length</code> to match the new body length
+              (the upstream's 42-byte JSON becomes a 27-byte one). The
+              blank line between headers and body is mandatory.
+            </li>
+            <li>
+              Click <strong>Forward edited response</strong>. The
+              browser's fetch promise resolves with a 401, and the SPA
+              runs whatever its "session expired" handler does — ideally
+              kicking you to the login page. The Traffic row records the
+              intercepted reply with the <em>response-edited</em> flag so
+              you can compare the original upstream bytes vs what the
+              client actually consumed.
+            </li>
+          </ol>
+          <p>
+            Same pattern works for: stripping{" "}
+            <code>Content-Security-Policy</code> to test the CSP
+            fallback, flipping a feature-flag JSON boolean before the SPA
+            renders, injecting{" "}
+            <code>X-Debug-*</code> headers the real server would never
+            send, or returning <code>429 Too Many Requests</code> to
+            exercise client-side backoff logic.
+          </p>
+
+          <h4>
+            19. Drop a response to simulate upstream failure mid-flight
+          </h4>
+          <p>
+            Another use of response-phase intercept: the request leaves
+            your browser cleanly, the server processes it (maybe writes
+            to the DB), but the reply never arrives. Great for surfacing
+            double-submit bugs or checking whether optimistic UI recovers
+            gracefully when a confirmation never comes back.
+          </p>
+          <ol className="numbered">
+            <li>
+              Set Intercept mode to <strong>Response</strong>.
+            </li>
+            <li>
+              Fire off the action you want to half-complete — e.g. a{" "}
+              <code>POST /api/orders</code> that creates a record.
+            </li>
+            <li>
+              When the upstream reply pauses, select it and click{" "}
+              <strong>Drop response</strong>. The browser receives a{" "}
+              <code>502 Bad Gateway</code>; the server's original{" "}
+              <code>201 Created</code> is discarded.
+            </li>
+            <li>
+              Check the app: did it show a generic error, or did it
+              offer to retry? If it retried blindly, you may have just
+              found a double-submit bug (two orders from one click).
+              Check the server-side record to confirm the write landed
+              despite the dropped response.
+            </li>
+          </ol>
         </section>
 
         {/* ------------------------------------------------------------------ */}
@@ -2184,27 +2460,53 @@ Content-Length: 52
               out-of-scope, or excluded. The traffic log captures
               everything either way, but <em>interactive features</em>{" "}
               (Intercept, Replay edits, active Checks) only act on
-              in-scope exchanges. Scope rules live under Settings and
-              default to "everything is in scope" until you add
+              in-scope exchanges. Scope rules live under{" "}
+              <em>Proxy → Settings → Scope rules</em>, persist in{" "}
+              <code>history.sqlite</code> across restarts, and default
+              to "everything is in scope" until you add
               includes/excludes.
+            </dd>
+
+            <dt>Scope rule</dt>
+            <dd>
+              One row in the include or exclude list. Matches on host
+              (exact or leading-wildcard like{" "}
+              <code>*.example.com</code>), optional path regex, and
+              optional port. Exclude matches always win over includes.
+              Malformed path regexes are rejected at Save time rather
+              than silently fail-closing future matches.
             </dd>
 
             <dt>Intercept mode</dt>
             <dd>
               A four-state toggle on the Intercept tab: <em>Off</em>{" "}
               (pass-through), <em>Request</em> (pause before the request
-              goes upstream), <em>Response</em> (pause before the
-              response reaches the browser), <em>Both</em>. Only
-              in-scope exchanges pause; the rest pass through silently.
+              goes upstream), <em>Response</em> (pause after the
+              upstream reply, before it reaches the client),{" "}
+              <em>Both</em>. Only in-scope exchanges pause; the rest
+              pass through silently.
+            </dd>
+
+            <dt>Intercept phase (request / response)</dt>
+            <dd>
+              Which side of the exchange is paused. Rows in the Pending
+              queue carry a phase badge: amber <code>→ req</code> means
+              the request is held before leaving the listener; blue{" "}
+              <code>← resp</code> means the upstream's reply is held
+              before delivery to the client. A Both-mode exchange shows
+              up twice in the queue over its lifetime.
             </dd>
 
             <dt>Pending intercept</dt>
             <dd>
               A paused Exchange waiting for your verdict. Each one has a
               oneshot channel on the backend — once you click Forward /
-              Forward edited / Drop, the request continues (or is
+              Forward edited / Drop, the exchange continues (or is
               refused with 502). Auto-forwarded after 5 minutes if
-              ignored so upstream sockets don't leak.
+              ignored so upstream sockets don't leak. Edited bytes that
+              fail to re-parse as valid HTTP fall back to the original
+              (warning logged) so a typo can't silently corrupt the
+              wire.
             </dd>
 
             <dt>Replay</dt>

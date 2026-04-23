@@ -71,6 +71,33 @@ fn main() {
             match open_proxy(app) {
                 Ok(state) => {
                     let state = Arc::new(state);
+                    // Hydrate persisted scope rules before anything
+                    // starts listening — a session that opens before the
+                    // rules are restored would classify every request as
+                    // in-scope until the user re-saved them.
+                    {
+                        let state = state.clone();
+                        tauri::async_runtime::block_on(async move {
+                            match state.db().load_scope_rules() {
+                                Ok(rules) => {
+                                    let loaded =
+                                        rules.include.len() + rules.exclude.len();
+                                    state.set_scope_rules(rules).await;
+                                    tracing::info!(
+                                        target: "proxy",
+                                        rules = loaded,
+                                        "scope rules hydrated"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        target: "proxy",
+                                        "scope rules hydrate failed: {e}"
+                                    );
+                                }
+                            }
+                        });
+                    }
                     // Drain the broadcast channel into Tauri events so
                     // the UI gets live `proxy://exchange-new` pushes for
                     // every captured exchange. A lagging receiver drops
@@ -169,6 +196,8 @@ fn main() {
             proxy_cmd::proxy_start,
             proxy_cmd::proxy_stop,
             proxy_cmd::proxy_export_ca_pem,
+            proxy_cmd::scope_get,
+            proxy_cmd::scope_set,
             proxy_cmd::exchanges_list,
             proxy_cmd::exchange_get,
             proxy_cmd::intercept_set_mode,

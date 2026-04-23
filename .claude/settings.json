@@ -15,7 +15,8 @@
       "Bash(RUST_LOG=http=trace target/debug/corvex.exe --host https://www.stateandmain.ca/ --timeout 15)",
       "Bash(target/debug/corvex.exe --host https://example.com --timeout 15)",
       "Bash(PERL=\"C:/Strawberry/perl/bin/perl.exe\" cargo check --workspace)",
-      "Bash(PERL=\"C:/Strawberry/perl/bin/perl.exe\" cargo test --package corvex-core --lib)"
+      "Bash(PERL=\"C:/Strawberry/perl/bin/perl.exe\" cargo test --package corvex-core --lib)",
+      "Bash(xargs grep *)"
     ]
   }
 }

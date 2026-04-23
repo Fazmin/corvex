@@ -121,9 +121,9 @@ explicitly deferred. Update this file as items close out.
       section per the user's direction)
 
 ### Proxy listener — functional gaps
-- [ ] Scope-rules UI in the Settings tab (backend accepts
+- [x] Scope-rules UI in the Settings tab (backend accepts
       `scope_set`; no form / no chip list / no persistence)
-- [ ] Response-phase intercept handler in the Intercept tab
+- [x] Response-phase intercept handler in the Intercept tab
       (backend already pauses; UI only shows request-phase rows)
 - [ ] "Send to Fuzzer" cross-tool action on Traffic rows
 - [ ] WebSocket frame capture + side-panel viewer (upgrades

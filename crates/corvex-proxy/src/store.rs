@@ -19,6 +19,7 @@ use time::OffsetDateTime;
 use crate::exchange::{
     Exchange, ExchangeId, ExchangeSummary, ScopeDecision, SessionId,
 };
+use crate::scope::{ScopeRule, ScopeRules};
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS proxy_sessions (
@@ -83,11 +84,21 @@ CREATE TABLE IF NOT EXISTS exchange_scan_findings (
     FOREIGN KEY (exchange_id) REFERENCES exchanges(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS proxy_scope_rules (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT NOT NULL,
+    host        TEXT NOT NULL,
+    path_regex  TEXT,
+    port        INTEGER,
+    ordinal     INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_exchanges_session_started ON exchanges(session_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_exchanges_host_path       ON exchanges(host, path);
 CREATE INDEX IF NOT EXISTS idx_exchanges_status          ON exchanges(status) WHERE status IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_findings_exchange         ON exchange_scan_findings(exchange_id);
 CREATE INDEX IF NOT EXISTS idx_findings_run              ON exchange_scan_findings(scan_run_id);
+CREATE INDEX IF NOT EXISTS idx_scope_rules_kind_ordinal  ON proxy_scope_rules(kind, ordinal);
 "#;
 
 /// SQLite-backed proxy store. Holds a single connection behind a mutex;
@@ -359,6 +370,80 @@ impl ProxyDb {
     }
 }
 
+impl ProxyDb {
+    /// Load the persisted scope rules. Include and exclude rules are
+    /// returned in their saved order; callers treat the vectors as
+    /// append-only lists and rewrite the whole set via
+    /// [`ProxyDb::save_scope_rules`].
+    pub fn load_scope_rules(&self) -> SqlResult<ScopeRules> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let mut stmt = conn.prepare(
+            "SELECT kind, host, path_regex, port
+               FROM proxy_scope_rules
+              ORDER BY kind ASC, ordinal ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let kind: String = row.get(0)?;
+            let host: String = row.get(1)?;
+            let path_regex: Option<String> = row.get(2)?;
+            let port: Option<i64> = row.get(3)?;
+            Ok((
+                kind,
+                ScopeRule {
+                    host,
+                    path_regex,
+                    port: port.map(|p| p as u16),
+                },
+            ))
+        })?;
+        let mut out = ScopeRules::default();
+        for row in rows {
+            let (kind, rule) = row?;
+            match kind.as_str() {
+                "include" => out.include.push(rule),
+                "exclude" => out.exclude.push(rule),
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Replace every persisted scope rule with the supplied set. The
+    /// writes happen in a single transaction so a partial rewrite can't
+    /// land on disk.
+    pub fn save_scope_rules(&self, rules: &ScopeRules) -> SqlResult<()> {
+        let mut conn = self.conn.lock().expect("proxy db mutex");
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM proxy_scope_rules", [])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO proxy_scope_rules (kind, host, path_regex, port, ordinal)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for (i, rule) in rules.include.iter().enumerate() {
+                stmt.execute(params![
+                    "include",
+                    rule.host,
+                    rule.path_regex,
+                    rule.port.map(|p| p as i64),
+                    i as i64,
+                ])?;
+            }
+            for (i, rule) in rules.exclude.iter().enumerate() {
+                stmt.execute(params![
+                    "exclude",
+                    rule.host,
+                    rule.path_regex,
+                    rule.port.map(|p| p as i64),
+                    i as i64,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
 /// Row shape for a persisted finding. Pure serde-ready primitives — the
 /// desktop layer converts from `corvex-checks::Finding` into this
 /// before hitting SQLite.
@@ -470,4 +555,69 @@ fn sql_err(e: bincode::Error) -> rusqlite::Error {
 
 fn now_secs() -> i64 {
     OffsetDateTime::now_utc().unix_timestamp()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scope_rules_round_trip() {
+        let path = std::env::temp_dir().join(format!(
+            "corvex-proxy-scope-rt-{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        let db = ProxyDb::open(&path).expect("open");
+
+        // Empty state returns defaults.
+        let initial = db.load_scope_rules().expect("load empty");
+        assert!(initial.include.is_empty());
+        assert!(initial.exclude.is_empty());
+
+        let rules = ScopeRules {
+            include: vec![
+                ScopeRule {
+                    host: "*.example.com".into(),
+                    path_regex: Some("^/api/".into()),
+                    port: Some(443),
+                },
+                ScopeRule {
+                    host: "staging.internal".into(),
+                    path_regex: None,
+                    port: None,
+                },
+            ],
+            exclude: vec![ScopeRule {
+                host: "telemetry.example.com".into(),
+                path_regex: None,
+                port: None,
+            }],
+        };
+        db.save_scope_rules(&rules).expect("save");
+
+        let reloaded = db.load_scope_rules().expect("load saved");
+        assert_eq!(reloaded.include.len(), 2);
+        assert_eq!(reloaded.exclude.len(), 1);
+        assert_eq!(reloaded.include[0].host, "*.example.com");
+        assert_eq!(reloaded.include[0].path_regex.as_deref(), Some("^/api/"));
+        assert_eq!(reloaded.include[0].port, Some(443));
+        assert_eq!(reloaded.exclude[0].host, "telemetry.example.com");
+
+        // A second save overwrites (not appends).
+        let replaced = ScopeRules {
+            include: vec![ScopeRule {
+                host: "only.example.com".into(),
+                path_regex: None,
+                port: None,
+            }],
+            exclude: vec![],
+        };
+        db.save_scope_rules(&replaced).expect("save 2");
+        let after = db.load_scope_rules().expect("load 2");
+        assert_eq!(after.include.len(), 1);
+        assert!(after.exclude.is_empty());
+        assert_eq!(after.include[0].host, "only.example.com");
+
+        let _ = std::fs::remove_file(&path);
+    }
 }

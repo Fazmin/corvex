@@ -19,6 +19,8 @@ import {
   proxyStatus,
   proxyStop,
   replaySend,
+  scopeGet,
+  scopeSet,
   type CheckDescriptor,
   type ExchangeSummary,
   type FindingRow,
@@ -28,6 +30,8 @@ import {
   type PendingIntercept,
   type ProxyStatus,
   type ReplayResult,
+  type ScopeRule,
+  type ScopeRules,
 } from "../api";
 
 type Tab = "traffic" | "intercept" | "replay" | "checks" | "settings";
@@ -405,14 +409,21 @@ function ProxyTrafficTab({
   );
 }
 
-type SettingsSection = "overview" | "ca" | "browser" | "verify" | "troubleshoot";
+type SettingsSection =
+  | "overview"
+  | "ca"
+  | "browser"
+  | "scope"
+  | "verify"
+  | "troubleshoot";
 
 const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: "overview", label: "1. Overview" },
   { id: "ca", label: "2. Certificate authority" },
   { id: "browser", label: "3. Browser setup" },
-  { id: "verify", label: "4. Verify" },
-  { id: "troubleshoot", label: "5. Troubleshooting" },
+  { id: "scope", label: "4. Scope rules" },
+  { id: "verify", label: "5. Verify" },
+  { id: "troubleshoot", label: "6. Troubleshooting" },
 ];
 
 function ProxySettingsTab() {
@@ -459,6 +470,8 @@ function ProxySettingsTab() {
       )}
 
       {section === "browser" && <SetupBrowser />}
+
+      {section === "scope" && <SetupScopeRules />}
 
       {section === "verify" && <SetupVerify />}
 
@@ -749,6 +762,266 @@ function SetupBrowser() {
       </section>
     </>
   );
+}
+
+function SetupScopeRules() {
+  const [include, setInclude] = useState<ScopeRule[]>([]);
+  const [exclude, setExclude] = useState<ScopeRule[]>([]);
+  const [initial, setInitial] = useState<ScopeRules>({
+    include: [],
+    exclude: [],
+  });
+  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    scopeGet()
+      .then((rules) => {
+        setInclude(rules.include);
+        setExclude(rules.exclude);
+        setInitial(rules);
+      })
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const dirty = useMemo(() => {
+    return (
+      JSON.stringify({ include, exclude }) !==
+      JSON.stringify({
+        include: initial.include,
+        exclude: initial.exclude,
+      })
+    );
+  }, [include, exclude, initial]);
+
+  const addRule = (kind: "include" | "exclude") => {
+    const fresh: ScopeRule = { host: "", path_regex: null, port: null };
+    if (kind === "include") setInclude((prev) => [...prev, fresh]);
+    else setExclude((prev) => [...prev, fresh]);
+    setStatus("idle");
+  };
+
+  const updateRule = (
+    kind: "include" | "exclude",
+    index: number,
+    patch: Partial<ScopeRule>,
+  ) => {
+    const setter = kind === "include" ? setInclude : setExclude;
+    setter((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, ...patch } : r)),
+    );
+    setStatus("idle");
+  };
+
+  const removeRule = (kind: "include" | "exclude", index: number) => {
+    const setter = kind === "include" ? setInclude : setExclude;
+    setter((prev) => prev.filter((_, i) => i !== index));
+    setStatus("idle");
+  };
+
+  const handleSave = async () => {
+    setStatus("saving");
+    setError(null);
+    try {
+      const payload: ScopeRules = {
+        include: include.map(normaliseRule),
+        exclude: exclude.map(normaliseRule),
+      };
+      await scopeSet(payload);
+      setInitial(payload);
+      setInclude(payload.include);
+      setExclude(payload.exclude);
+      setStatus("saved");
+    } catch (e) {
+      setError(String(e));
+      setStatus("idle");
+    }
+  };
+
+  const handleRevert = () => {
+    setInclude(initial.include);
+    setExclude(initial.exclude);
+    setStatus("idle");
+    setError(null);
+  };
+
+  return (
+    <>
+      <section>
+        <h3>Scope rules</h3>
+        <p className="muted">
+          Scope decides which requests active features touch. The Traffic
+          log always captures everything — scope only gates intercept,
+          replay, and active checks. If the include list is empty, every
+          request is treated as in-scope; otherwise only matches count.
+          Exclude rules always win over include rules.
+        </p>
+        <ul className="proxy-scope-help">
+          <li>
+            <strong>Host</strong> supports exact match (
+            <code>api.example.com</code>) and a leading wildcard (
+            <code>*.example.com</code>). Empty matches any host.
+          </li>
+          <li>
+            <strong>Path regex</strong> is a Rust regex evaluated against
+            the request path. Leave blank to match any path.
+          </li>
+          <li>
+            <strong>Port</strong> filters to one port. Leave blank for any
+            port.
+          </li>
+        </ul>
+        {error && <div className="proxy-error">{error}</div>}
+      </section>
+
+      <ScopeRuleList
+        kind="include"
+        title="Include"
+        hint="Only requests matching at least one include rule are in-scope."
+        rules={include}
+        onAdd={() => addRule("include")}
+        onUpdate={(i, p) => updateRule("include", i, p)}
+        onRemove={(i) => removeRule("include", i)}
+      />
+
+      <ScopeRuleList
+        kind="exclude"
+        title="Exclude"
+        hint="Matching requests are always out-of-scope, even if an include rule would cover them."
+        rules={exclude}
+        onAdd={() => addRule("exclude")}
+        onUpdate={(i, p) => updateRule("exclude", i, p)}
+        onRemove={(i) => removeRule("exclude", i)}
+      />
+
+      <section className="proxy-scope-actions">
+        <button
+          type="button"
+          className="chip active"
+          onClick={handleSave}
+          disabled={!dirty || status === "saving"}
+        >
+          {status === "saving" ? "Saving…" : "Save scope rules"}
+        </button>
+        <button
+          type="button"
+          className="chip"
+          onClick={handleRevert}
+          disabled={!dirty || status === "saving"}
+        >
+          Revert
+        </button>
+        {status === "saved" && !dirty && (
+          <span className="muted">Saved — applies to new requests.</span>
+        )}
+      </section>
+    </>
+  );
+}
+
+function ScopeRuleList({
+  kind,
+  title,
+  hint,
+  rules,
+  onAdd,
+  onUpdate,
+  onRemove,
+}: {
+  kind: "include" | "exclude";
+  title: string;
+  hint: string;
+  rules: ScopeRule[];
+  onAdd: () => void;
+  onUpdate: (index: number, patch: Partial<ScopeRule>) => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <section className="proxy-scope-list">
+      <div className="proxy-scope-list-head">
+        <h4>
+          {title} <span className="muted">({rules.length})</span>
+        </h4>
+        <button type="button" className="chip" onClick={onAdd}>
+          + Add {kind} rule
+        </button>
+      </div>
+      <p className="muted">{hint}</p>
+      {rules.length === 0 ? (
+        <p className="muted">
+          No {kind} rules configured.
+          {kind === "include" &&
+            " While empty, the proxy treats every non-excluded request as in-scope."}
+        </p>
+      ) : (
+        <ul className="proxy-scope-rules">
+          {rules.map((r, i) => (
+            <li key={`${kind}-${i}`} className="proxy-scope-rule">
+              <label>
+                <span className="muted">Host</span>
+                <input
+                  type="text"
+                  className="input input-compact"
+                  value={r.host}
+                  onChange={(e) => onUpdate(i, { host: e.target.value })}
+                  placeholder="*.example.com"
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                <span className="muted">Path regex</span>
+                <input
+                  type="text"
+                  className="input input-compact"
+                  value={r.path_regex ?? ""}
+                  onChange={(e) =>
+                    onUpdate(i, {
+                      path_regex: e.target.value === "" ? null : e.target.value,
+                    })
+                  }
+                  placeholder="^/api/"
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                <span className="muted">Port</span>
+                <input
+                  type="number"
+                  className="input input-compact"
+                  value={r.port ?? ""}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    onUpdate(i, {
+                      port: Number.isFinite(parsed) ? parsed : null,
+                    });
+                  }}
+                  placeholder="any"
+                  min={1}
+                  max={65535}
+                />
+              </label>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => onRemove(i)}
+              >
+                remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function normaliseRule(r: ScopeRule): ScopeRule {
+  return {
+    host: r.host.trim(),
+    path_regex:
+      r.path_regex && r.path_regex.trim() !== "" ? r.path_regex.trim() : null,
+    port: r.port && r.port > 0 ? r.port : null,
+  };
 }
 
 function SetupVerify() {
@@ -1327,10 +1600,14 @@ function ProxyInterceptTab() {
           </button>
         </div>
         <p className="muted">
-          When intercept is on, in-scope requests pause here before the
-          proxy forwards them. Pick one from the queue below to inspect
-          or edit before forwarding. Out-of-scope traffic is never
-          paused — configure scope rules on the Settings tab.
+          When intercept is on, in-scope exchanges pause here. The
+          <strong> Request</strong> phase pauses before forwarding
+          upstream — you edit the request line, headers, or body before
+          it leaves. The <strong>Response</strong> phase pauses after the
+          upstream reply arrives but before it reaches the client —
+          useful for tweaking status codes, headers, or response bodies
+          on the fly. Out-of-scope traffic is never paused; configure
+          scope rules on the Settings tab.
         </p>
         {error && <div className="proxy-error">{error}</div>}
       </section>
@@ -1345,17 +1622,26 @@ function ProxyInterceptTab() {
               {pending.map((p) => (
                 <li
                   key={p.id}
-                  className={`proxy-intercept-item${
+                  className={`proxy-intercept-item phase-${p.phase}${
                     selectedId === p.id ? " active" : ""
                   }`}
                   onClick={() => setSelectedId(p.id)}
                 >
+                  <span
+                    className={`badge-inline phase-${p.phase}`}
+                    title={
+                      p.phase === "response"
+                        ? "Upstream reply paused before delivery to the client"
+                        : "Request paused before forwarding upstream"
+                    }
+                  >
+                    {p.phase === "response" ? "← resp" : "→ req"}
+                  </span>
                   <span className="badge-inline">{p.method}</span>
                   <span className="proxy-intercept-url">
                     {p.scheme}://{p.host}:{p.port}
                     {p.uri}
                   </span>
-                  <span className="muted">{p.phase}</span>
                 </li>
               ))}
             </ul>
@@ -1367,9 +1653,23 @@ function ProxyInterceptTab() {
             <>
               <div className="proxy-intercept-toolbar">
                 <span className="muted">
-                  Edit the raw HTTP/1 bytes below. Keep the blank line
-                  between headers and body. Changes only go on the wire
-                  when you click Forward.
+                  {selected.phase === "response" ? (
+                    <>
+                      Editing the raw <strong>response</strong> — status
+                      line first (e.g.{" "}
+                      <code>HTTP/1.1 200 OK</code>), then headers, blank
+                      line, body. Forward sends the edited reply to the
+                      client; Drop returns a 502 instead.
+                    </>
+                  ) : (
+                    <>
+                      Editing the raw <strong>request</strong> — request
+                      line first (e.g.{" "}
+                      <code>GET /path HTTP/1.1</code>), then headers,
+                      blank line, body. Forward sends the edited request
+                      upstream; Drop returns a 502 to the client.
+                    </>
+                  )}
                 </span>
               </div>
               <textarea
@@ -1387,10 +1687,18 @@ function ProxyInterceptTab() {
                   className="chip active"
                   onClick={handleForward}
                 >
-                  {dirty ? "Forward edited" : "Forward"}
+                  {dirty
+                    ? selected.phase === "response"
+                      ? "Forward edited response"
+                      : "Forward edited request"
+                    : selected.phase === "response"
+                      ? "Forward response"
+                      : "Forward request"}
                 </button>
                 <button type="button" className="chip" onClick={handleDrop}>
-                  Drop
+                  {selected.phase === "response"
+                    ? "Drop response"
+                    : "Drop request"}
                 </button>
               </div>
             </>

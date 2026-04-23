@@ -177,6 +177,143 @@ async fn intercept_drop_returns_502() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn intercept_edits_response_headers_before_delivery() {
+    let tmp = tmpdir();
+    let ca = Authority::load_or_generate(CaConfig::for_dir(tmp.join("ca"))).unwrap();
+    let db = ProxyDb::open(tmp.join("proxy.sqlite")).unwrap();
+    let state = Arc::new(ProxyState::new(Arc::new(ca), Arc::new(db)));
+
+    let upstream_addr = echo_upstream().await;
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let proxy_addr = listener.local_addr().unwrap();
+    drop(listener);
+    state
+        .start(ProxyConfig {
+            listen: proxy_addr,
+            note: None,
+        })
+        .await
+        .unwrap();
+    state.set_intercept_mode(InterceptMode::Response).await;
+
+    // Subscribe to the queue and inject an edit into the response bytes
+    // that both rewrites an echoed header and replaces the body.
+    let queue = state.intercept_queue().clone();
+    let editor = tokio::spawn(async move {
+        let mut rx = queue.subscribe();
+        let pending = rx.recv().await.expect("pending recv");
+        use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+        let bytes = B64.decode(pending.raw_bytes_base64.as_bytes()).unwrap();
+        let wire = String::from_utf8(bytes).unwrap();
+        // Rewrite the header the upstream echoed and swap the body.
+        let mut edited = wire.replacen("/original", "/rewritten", 1);
+        // Replace the body "ok" with a recognisable token. The to_wire
+        // impl stamps Content-Length based on body length, but the edited
+        // wire comes from upstream's 2-byte "ok" body — rebuild it fully.
+        let (head, _) = edited.split_once("\r\n\r\n").unwrap();
+        let new_body = "intercepted";
+        // Strip any content-length header the server sent, then emit a
+        // fresh one that matches the new body.
+        let filtered: Vec<String> = head
+            .lines()
+            .filter(|l| !l.to_ascii_lowercase().starts_with("content-length:"))
+            .map(|l| l.to_string())
+            .collect();
+        edited = format!(
+            "{}\r\nContent-Length: {}\r\n\r\n{}",
+            filtered.join("\r\n"),
+            new_body.len(),
+            new_body
+        );
+        queue
+            .resolve(
+                pending.id,
+                InterceptVerdict::ForwardEdited {
+                    bytes: edited.into_bytes(),
+                },
+            )
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let mut client = TcpStream::connect(proxy_addr).await.unwrap();
+    let wire = format!(
+        "GET http://{upstream_addr}/original HTTP/1.1\r\n\
+         Host: {upstream_addr}\r\n\
+         Connection: close\r\n\
+         \r\n"
+    );
+    client.write_all(wire.as_bytes()).await.unwrap();
+    let mut buf = Vec::new();
+    timeout(Duration::from_secs(5), client.read_to_end(&mut buf))
+        .await
+        .unwrap()
+        .unwrap();
+    editor.await.unwrap();
+
+    let raw = String::from_utf8_lossy(&buf);
+    assert!(
+        raw.contains("x-echo-path: /rewritten"),
+        "client didn't receive the edited response header: {raw:?}"
+    );
+    assert!(
+        raw.trim_end().ends_with("intercepted"),
+        "client didn't receive the edited response body: {raw:?}"
+    );
+
+    state.stop().await.unwrap();
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn intercept_response_drop_returns_502() {
+    let tmp = tmpdir();
+    let ca = Authority::load_or_generate(CaConfig::for_dir(tmp.join("ca"))).unwrap();
+    let db = ProxyDb::open(tmp.join("proxy.sqlite")).unwrap();
+    let state = Arc::new(ProxyState::new(Arc::new(ca), Arc::new(db)));
+
+    let upstream_addr = echo_upstream().await;
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let proxy_addr = listener.local_addr().unwrap();
+    drop(listener);
+    state
+        .start(ProxyConfig {
+            listen: proxy_addr,
+            note: None,
+        })
+        .await
+        .unwrap();
+    state.set_intercept_mode(InterceptMode::Response).await;
+
+    let queue = state.intercept_queue().clone();
+    let dropper = tokio::spawn(async move {
+        let mut rx = queue.subscribe();
+        let pending = rx.recv().await.unwrap();
+        queue.resolve(pending.id, InterceptVerdict::Drop).unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let mut client = TcpStream::connect(proxy_addr).await.unwrap();
+    let wire = format!(
+        "GET http://{upstream_addr}/x HTTP/1.1\r\nHost: {upstream_addr}\r\nConnection: close\r\n\r\n"
+    );
+    client.write_all(wire.as_bytes()).await.unwrap();
+    let mut buf = Vec::new();
+    timeout(Duration::from_secs(5), client.read_to_end(&mut buf))
+        .await
+        .unwrap()
+        .unwrap();
+    dropper.await.unwrap();
+    let raw = String::from_utf8_lossy(&buf);
+    assert!(raw.starts_with("HTTP/1.1 502"), "expected 502, got: {raw:?}");
+
+    state.stop().await.unwrap();
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn replay_sends_request_via_core_client_and_records_child() {
     use corvex_proxy::{run_replay, ExchangeOrigin, ReplayInput};
 

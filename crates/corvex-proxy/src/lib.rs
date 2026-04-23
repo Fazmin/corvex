@@ -34,7 +34,7 @@ pub use intercept::{
     InterceptMode, InterceptPhase, InterceptQueue, InterceptVerdict, PendingIntercept,
 };
 pub use replay::{run_replay, ReplayError, ReplayInput};
-pub use scope::{ScopeDecision as ScopeRuleDecision, ScopeRules};
+pub use scope::{ScopeDecision as ScopeRuleDecision, ScopeRule, ScopeRules};
 pub use store::{ProxyDb, StoredFinding};
 
 use std::net::SocketAddr;
@@ -126,6 +126,19 @@ impl ProxyState {
 
     pub fn scope(&self) -> Arc<RwLock<ScopeRules>> {
         self.scope.clone()
+    }
+
+    /// Snapshot of the live scope rules. Used by the UI to render the
+    /// current include/exclude lists.
+    pub async fn scope_snapshot(&self) -> ScopeRules {
+        self.scope.read().await.clone()
+    }
+
+    /// Replace the live scope rules. The listener reads the rules fresh
+    /// on every request, so updates take effect for new requests only —
+    /// already-paused intercepts keep the decision that captured them.
+    pub async fn set_scope_rules(&self, rules: ScopeRules) {
+        *self.scope.write().await = rules;
     }
 
     pub fn intercept_queue(&self) -> &InterceptQueue {

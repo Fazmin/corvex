@@ -2498,6 +2498,83 @@ button[disabled] {
 }
 
 /* ---------------------------------------------------------------- */
+/* Proxy — settings: scope rules                                    */
+/* ---------------------------------------------------------------- */
+
+.proxy-scope-help {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: calc(var(--font-base) - 1px);
+  line-height: 1.5;
+}
+
+.proxy-scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.proxy-scope-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.proxy-scope-list-head h4 {
+  margin: 0;
+}
+
+.proxy-scope-rules {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.proxy-scope-rule {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) minmax(180px, 2fr) 90px auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-alt);
+}
+
+.proxy-scope-rule label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.proxy-scope-rule label > span {
+  font-size: calc(var(--font-base) - 2px);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.proxy-scope-rule .link-button {
+  align-self: center;
+  padding-bottom: 4px;
+}
+
+.proxy-scope-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* ---------------------------------------------------------------- */
 /* Proxy — intercept tab                                            */
 /* ---------------------------------------------------------------- */
 
@@ -2560,6 +2637,26 @@ button[disabled] {
 .proxy-intercept-item.active {
   border-color: var(--accent);
   background: var(--panel);
+}
+
+.proxy-intercept-item.phase-response {
+  border-left: 3px solid rgba(120, 170, 220, 0.5);
+}
+
+.proxy-intercept-item.phase-request {
+  border-left: 3px solid rgba(200, 160, 60, 0.5);
+}
+
+.badge-inline.phase-response {
+  background: rgba(120, 170, 220, 0.15);
+  border-color: rgba(120, 170, 220, 0.5);
+  color: #7cb0dc;
+}
+
+.badge-inline.phase-request {
+  background: rgba(200, 160, 60, 0.15);
+  border-color: rgba(200, 160, 60, 0.5);
+  color: #e7c06a;
 }
 
 .proxy-intercept-url {

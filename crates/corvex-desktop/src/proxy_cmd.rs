@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use corvex_proxy::{
     run_replay, Exchange, ExchangeId, ExchangeSummary, InterceptMode, InterceptVerdict,
-    PendingIntercept, ProxyConfig, ProxyState, ProxyStatus, ReplayInput, SessionId, StoredFinding,
+    PendingIntercept, ProxyConfig, ProxyState, ProxyStatus, ReplayInput, ScopeRules, SessionId,
+    StoredFinding,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -152,6 +153,40 @@ pub async fn exchange_get(
 #[allow(dead_code)]
 pub fn exchange_summary_payload(ex: &Exchange) -> ExchangeSummary {
     ex.summary()
+}
+
+// --- Scope rules -------------------------------------------------------
+
+#[tauri::command]
+pub async fn scope_get(state: State<'_, Arc<ProxyState>>) -> AppResult<ScopeRules> {
+    Ok(state.scope_snapshot().await)
+}
+
+#[tauri::command]
+pub async fn scope_set(
+    state: State<'_, Arc<ProxyState>>,
+    rules: ScopeRules,
+) -> AppResult<()> {
+    // Validate any path regexes up front so a malformed rule is caught
+    // at Save time instead of silently fail-closing every match later.
+    for rule in rules.include.iter().chain(rules.exclude.iter()) {
+        if let Some(pat) = &rule.path_regex {
+            if !pat.is_empty() {
+                regex::Regex::new(pat)
+                    .map_err(|e| AppError::Other(format!("bad path regex {pat:?}: {e}")))?;
+            }
+        }
+    }
+
+    let db = state.db().clone();
+    let to_persist = rules.clone();
+    tauri::async_runtime::spawn_blocking(move || db.save_scope_rules(&to_persist))
+        .await
+        .map_err(|e| AppError::Other(format!("join: {e}")))?
+        .map_err(|e| AppError::Other(format!("save_scope_rules: {e}")))?;
+
+    state.set_scope_rules(rules).await;
+    Ok(())
 }
 
 // --- Phase 2: intercept + replay ---------------------------------------
