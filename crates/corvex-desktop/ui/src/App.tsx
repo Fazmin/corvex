@@ -41,8 +41,16 @@ import {
 } from "./components/SeverityBreakdown";
 import { OnboardingTour, hasSeenTour } from "./components/OnboardingTour";
 
+export interface FuzzerSeed {
+  url: string;
+  // Origin exchange id — mainly used so the runner can label its run in
+  // the history alongside the captured request that seeded it.
+  exchangeId?: string;
+}
+
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
+  const [fuzzerSeed, setFuzzerSeed] = useState<FuzzerSeed | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem("corvexSidebarCollapsed") === "1";
@@ -494,6 +502,8 @@ export default function App() {
                 stats={stats}
                 onStart={handleStart}
                 onCancel={handleCancel}
+                seed={fuzzerSeed}
+                onSeedConsumed={() => setFuzzerSeed(null)}
               />
             </div>
           )}
@@ -509,7 +519,12 @@ export default function App() {
           )}
           {view === "proxy" && (
             <div className="dashboard single-pane">
-              <ProxyView />
+              <ProxyView
+                onSendToFuzzer={(seed) => {
+                  setFuzzerSeed(seed);
+                  setView("fuzzing");
+                }}
+              />
             </div>
           )}
           {view === "settings" && (

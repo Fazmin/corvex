@@ -4,7 +4,7 @@
  * Includes detailed reference sections for the SQL injection engine.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FindingPayload, ScanParams, ScanStats } from "../api";
 import { ActiveFuzzRunner } from "./ActiveFuzzRunner";
 
@@ -397,6 +397,11 @@ export const ENUMERATE_TARGETS = [
 
 type DetailTab = "run" | "modules" | "techniques" | "tamper" | "dbms" | "enumerate";
 
+export interface FuzzerSeed {
+  url: string;
+  exchangeId?: string;
+}
+
 interface FuzzingViewProps {
   running: boolean;
   scanId: string | null;
@@ -404,6 +409,12 @@ interface FuzzingViewProps {
   stats: ScanStats | null;
   onStart: (params: ScanParams) => void;
   onCancel: () => void;
+  /** URL seeded from another view (e.g. Send to Fuzzer on a Traffic
+   *  row). When present, the Run tab auto-selects, the form's host
+   *  field is pre-populated, and scope defaults to `page` so the fuzz
+   *  stays on the exact endpoint the user forwarded. */
+  seed?: FuzzerSeed | null;
+  onSeedConsumed?: () => void;
 }
 
 export function FuzzingView({
@@ -413,8 +424,16 @@ export function FuzzingView({
   stats,
   onStart,
   onCancel,
+  seed,
+  onSeedConsumed,
 }: FuzzingViewProps) {
   const [tab, setTab] = useState<DetailTab>("run");
+
+  // When a seed arrives, jump to the Run tab so the pre-filled form is
+  // visible. Clearing the seed is the runner's job once it consumes it.
+  useEffect(() => {
+    if (seed) setTab("run");
+  }, [seed]);
 
   const grouped = {
     injection: MODULES.filter((m) => m.category === "injection"),
@@ -482,6 +501,8 @@ export function FuzzingView({
           stats={stats}
           onStart={onStart}
           onCancel={onCancel}
+          seed={seed ?? null}
+          onSeedConsumed={onSeedConsumed}
         />
       )}
 

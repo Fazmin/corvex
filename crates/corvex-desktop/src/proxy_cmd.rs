@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use corvex_proxy::{
     run_replay, Exchange, ExchangeId, ExchangeSummary, InterceptMode, InterceptVerdict,
-    PendingIntercept, ProxyConfig, ProxyState, ProxyStatus, ReplayInput, ScopeRules, SessionId,
-    StoredFinding,
+    PendingIntercept, ProxyConfig, ProxyState, ProxyStatus, ReplayInput, RetentionPolicy,
+    ScopeRules, SessionId, StoredFinding, WsFrame,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -31,8 +31,16 @@ pub struct ExchangeDetail {
     pub status: Option<u16>,
     pub request_headers: Vec<(String, String)>,
     pub request_body_base64: Option<String>,
+    /// Full size in bytes, before any preview truncation. Equal to the
+    /// base64-decoded length when the preview fits; larger when the
+    /// body was cut for UI performance.
+    pub request_body_size: u64,
     pub response_headers: Vec<(String, String)>,
     pub response_body_base64: Option<String>,
+    pub response_body_size: u64,
+    /// True when the exchange was marked `body-truncated` at capture
+    /// time — i.e. at least one side exceeded the 32 MB hard cap.
+    pub body_truncated: bool,
     pub started_at_unix: i64,
     pub duration_ms: Option<u64>,
 }
@@ -127,6 +135,28 @@ pub async fn exchange_get(
         .map_err(|e| AppError::Other(format!("decode res headers: {e}")))?
         .unwrap_or_default();
 
+    // UI preview cap: anything past 1 MB per side gets truncated
+    // before serialisation. The stored blob is unchanged — this only
+    // caps what we ship across the Tauri boundary. Prevents the
+    // detail pane from stalling on multi-MB downloads.
+    const PREVIEW_CAP: usize = 1024 * 1024;
+    let req_body = stored.req_body.as_ref().map(|b| {
+        if b.len() > PREVIEW_CAP {
+            b[..PREVIEW_CAP].to_vec()
+        } else {
+            b.clone()
+        }
+    });
+    let res_body = stored.res_body.as_ref().map(|b| {
+        if b.len() > PREVIEW_CAP {
+            b[..PREVIEW_CAP].to_vec()
+        } else {
+            b.clone()
+        }
+    });
+    let body_truncated = stored.req_body_size as usize > crate::body_hard_cap()
+        || stored.res_body_size as usize > crate::body_hard_cap();
+
     Ok(Some(ExchangeDetail {
         id: id.to_string(),
         method: stored.method,
@@ -137,12 +167,68 @@ pub async fn exchange_get(
         query: stored.query,
         status: stored.status,
         request_headers: req_headers.into_iter().collect(),
-        request_body_base64: stored.req_body.as_deref().map(|b| B64.encode(b)),
+        request_body_base64: req_body.as_deref().map(|b| B64.encode(b)),
+        request_body_size: stored.req_body_size,
         response_headers: res_headers.into_iter().collect(),
-        response_body_base64: stored.res_body.as_deref().map(|b| B64.encode(b)),
+        response_body_base64: res_body.as_deref().map(|b| B64.encode(b)),
+        response_body_size: stored.res_body_size,
+        body_truncated,
         started_at_unix: stored.started_at,
         duration_ms: stored.duration_ms,
     }))
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WsFrameRow {
+    pub exchange_id: String,
+    pub sequence: u64,
+    pub direction: &'static str,
+    pub opcode: u8,
+    pub opcode_label: &'static str,
+    pub fin: bool,
+    pub payload_base64: String,
+    pub payload_size: usize,
+    pub captured_at_unix: i64,
+}
+
+fn ws_frame_to_row(f: &WsFrame) -> WsFrameRow {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    WsFrameRow {
+        exchange_id: f.exchange_id.to_string(),
+        sequence: f.sequence,
+        direction: f.direction.as_str(),
+        opcode: f.opcode,
+        opcode_label: f.opcode_label(),
+        fin: f.fin,
+        payload_base64: B64.encode(&f.payload),
+        payload_size: f.payload.len(),
+        captured_at_unix: f.captured_at.unix_timestamp(),
+    }
+}
+
+#[tauri::command]
+pub async fn ws_frames_for_exchange(
+    state: State<'_, Arc<ProxyState>>,
+    id: ExchangeId,
+) -> AppResult<Vec<WsFrameRow>> {
+    let db = state.db().clone();
+    let frames = tauri::async_runtime::spawn_blocking(move || db.list_ws_frames(&id))
+        .await
+        .map_err(|e| AppError::Other(format!("join: {e}")))?
+        .map_err(|e| AppError::Other(format!("list_ws_frames: {e}")))?;
+    Ok(frames.iter().map(ws_frame_to_row).collect())
+}
+
+#[tauri::command]
+pub async fn ws_frame_count(
+    state: State<'_, Arc<ProxyState>>,
+    id: ExchangeId,
+) -> AppResult<u64> {
+    let db = state.db().clone();
+    tauri::async_runtime::spawn_blocking(move || db.ws_frame_count(&id))
+        .await
+        .map_err(|e| AppError::Other(format!("join: {e}")))?
+        .map_err(|e| AppError::Other(format!("ws_frame_count: {e}")))
 }
 
 /// Wake-path signature for when the listener eventually emits live
@@ -186,6 +272,180 @@ pub async fn scope_set(
         .map_err(|e| AppError::Other(format!("save_scope_rules: {e}")))?;
 
     state.set_scope_rules(rules).await;
+    Ok(())
+}
+
+// --- Spec import (OpenAPI / Postman) ----------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SpecImportReport {
+    pub source: String,
+    pub format: String,
+    pub imported: u64,
+    /// Endpoints the parser skipped — typically folders, missing
+    /// methods, or URL-less Postman items. The UI renders this as a
+    /// "N skipped" chip so the user can tell the difference between
+    /// a spec that imported partially and one that imported cleanly.
+    pub skipped: u64,
+}
+
+#[tauri::command]
+pub async fn proxy_import_spec(
+    state: State<'_, Arc<ProxyState>>,
+    path: String,
+) -> AppResult<SpecImportReport> {
+    let session_id = state
+        .session_id()
+        .ok_or_else(|| AppError::Other(
+            "start a proxy session before importing — imported rows need a parent session"
+                .into(),
+        ))?;
+
+    let source_label = std::path::Path::new(&path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&path)
+        .to_string();
+
+    // Read + parse on the blocking pool so a large spec doesn't stall
+    // the tauri runtime.
+    let path_for_read = path.clone();
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        std::fs::read(&path_for_read)
+            .map_err(|e| format!("read {path_for_read}: {e}"))
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("join: {e}")))?
+    .map_err(AppError::Other)?;
+
+    let (format, endpoints) =
+        corvex_proxy::spec_import::parse_bytes(&bytes).map_err(AppError::Other)?;
+
+    let mut imported: u64 = 0;
+    let mut skipped: u64 = 0;
+    for endpoint in endpoints {
+        let req = endpoint.to_request();
+        if req.host.is_empty() || req.method.is_empty() {
+            skipped += 1;
+            continue;
+        }
+        let exchange = Exchange::new(
+            session_id,
+            corvex_proxy::ExchangeOrigin::Imported {
+                source: source_label.clone(),
+            },
+            req,
+            corvex_proxy::ScopeDecision::InScope,
+        );
+        // record_exchange persists + broadcasts so the Traffic tab
+        // lights up live as the import walks the spec. Missing parent
+        // session would have failed the session_id check above.
+        state.record_exchange(exchange);
+        imported += 1;
+    }
+
+    Ok(SpecImportReport {
+        source: source_label,
+        format: format.as_str().to_string(),
+        imported,
+        skipped,
+    })
+}
+
+// --- HAR export --------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HarExportReport {
+    pub path: String,
+    pub entry_count: u64,
+    pub bytes_written: u64,
+}
+
+#[tauri::command]
+pub async fn proxy_export_har(
+    state: State<'_, Arc<ProxyState>>,
+    session: SessionId,
+    path: String,
+) -> AppResult<HarExportReport> {
+    let db = state.db().clone();
+    let dest = std::path::PathBuf::from(&path);
+    let creator_version = env!("CARGO_PKG_VERSION").to_string();
+
+    // Export runs on the blocking pool — both the DB iteration and the
+    // file write are sync. The listener keeps capturing on its own
+    // tokio runtime so exporting a long session doesn't stall
+    // incoming traffic.
+    let report = tauri::async_runtime::spawn_blocking(move || -> AppResult<HarExportReport> {
+        use std::io::BufWriter;
+        let file = std::fs::File::create(&dest)
+            .map_err(|e| AppError::Other(format!("create {:?}: {e}", dest)))?;
+        let mut writer = corvex_proxy::har::HarWriter::new(
+            BufWriter::new(file),
+            creator_version,
+            session,
+        );
+        let mut count: u64 = 0;
+        db.for_each_exchange(&session, |id, row| {
+            writer
+                .push_entry(id, &row)
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+            count += 1;
+            Ok(())
+        })
+        .map_err(|e| AppError::Other(format!("iterate exchanges: {e}")))?;
+        let mut buf_writer = writer
+            .finish()
+            .map_err(|e| AppError::Other(format!("finish har: {e}")))?;
+        use std::io::Write;
+        buf_writer
+            .flush()
+            .map_err(|e| AppError::Other(format!("flush: {e}")))?;
+        let bytes_written = std::fs::metadata(&dest)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        Ok(HarExportReport {
+            path: dest.to_string_lossy().into_owned(),
+            entry_count: count,
+            bytes_written,
+        })
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("join: {e}")))??;
+
+    Ok(report)
+}
+
+// --- Retention policy --------------------------------------------------
+
+#[tauri::command]
+pub async fn retention_get(
+    state: State<'_, Arc<ProxyState>>,
+) -> AppResult<RetentionPolicy> {
+    Ok(state.retention_snapshot().await)
+}
+
+#[tauri::command]
+pub async fn retention_set(
+    state: State<'_, Arc<ProxyState>>,
+    policy: RetentionPolicy,
+) -> AppResult<()> {
+    // 0 explicitly disables the cap. Any positive value is honoured
+    // on the next flush. Clamp absurdly large requests to a sane
+    // ceiling so a typo like `9999999999` can't keep the writer busy
+    // deleting nothing forever.
+    let clamped = RetentionPolicy {
+        max_exchanges_per_session: policy.max_exchanges_per_session.min(1_000_000),
+    };
+    let db = state.db().clone();
+    let value = clamped.max_exchanges_per_session.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        db.set_setting(corvex_proxy::RETENTION_SETTING_KEY, &value)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("join: {e}")))?
+    .map_err(|e| AppError::Other(format!("save retention: {e}")))?;
+
+    state.set_retention(clamped).await;
     Ok(())
 }
 

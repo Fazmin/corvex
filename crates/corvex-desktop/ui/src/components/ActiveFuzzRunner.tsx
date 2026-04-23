@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FindingPayload, ScanParams, ScanStats } from "../api";
+import type { FuzzerSeed } from "./FuzzingView";
 import { FindingsTable } from "./FindingsTable";
 import { InfoTip } from "./InfoTip";
 
@@ -60,6 +61,12 @@ interface Props {
   stats: ScanStats | null;
   onStart: (params: ScanParams) => void;
   onCancel: () => void;
+  /** URL forwarded from another view (e.g. Send to Fuzzer). Applied on
+   *  arrival by overwriting the host field + forcing scope to `page`,
+   *  then acknowledged via `onSeedConsumed` so it doesn't re-apply on
+   *  every render. */
+  seed?: FuzzerSeed | null;
+  onSeedConsumed?: () => void;
 }
 
 export function ActiveFuzzRunner({
@@ -69,10 +76,14 @@ export function ActiveFuzzRunner({
   stats,
   onStart,
   onCancel,
+  seed,
+  onSeedConsumed,
 }: Props) {
   const initial = useMemo(readForm, []);
   const [host, setHost] = useState(initial.host);
   const [scope, setScope] = useState(initial.scope);
+  const [seedBanner, setSeedBanner] = useState<string | null>(null);
+  const lastSeededId = useRef<string | null>(null);
   const [crawlDepth, setCrawlDepth] = useState(initial.crawlDepth);
   const [maxUrls, setMaxUrls] = useState(initial.maxUrls);
   const [sqliLevel, setSqliLevel] = useState(initial.sqliLevel);
@@ -82,6 +93,35 @@ export function ActiveFuzzRunner({
   const [sqliTimeDelay, setSqliTimeDelay] = useState(initial.sqliTimeDelay);
   const [tamper, setTamper] = useState(initial.tamper);
   const [sqliEnumerate, setSqliEnumerate] = useState<string[]>(initial.sqliEnumerate);
+
+  // Consume the seed exactly once per incoming value. Using an id-based
+  // ref instead of just `seed` in the dep array lets the user edit the
+  // host field after the seed lands without it getting overwritten if
+  // the effect re-fires for any unrelated reason.
+  useEffect(() => {
+    if (!seed) return;
+    const key = seed.exchangeId ?? seed.url;
+    if (lastSeededId.current === key) return;
+    lastSeededId.current = key;
+    setHost(seed.url);
+    setScope("page");
+    setSeedBanner(seed.url);
+    writeForm({
+      host: seed.url,
+      scope: "page",
+      crawlDepth,
+      maxUrls,
+      sqliLevel,
+      sqliRisk,
+      sqliTechniques,
+      sqliDbms,
+      sqliTimeDelay,
+      tamper,
+      sqliEnumerate,
+    });
+    onSeedConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed]);
 
   const hostError =
     !host.trim()
@@ -121,6 +161,34 @@ export function ActiveFuzzRunner({
 
   return (
     <div className="active-fuzz-runner">
+      {seedBanner && (
+        <div
+          className="panel"
+          style={{
+            padding: "8px 12px",
+            marginBottom: 10,
+            borderLeft: "3px solid var(--accent)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            fontSize: "calc(var(--font-base) - 1px)",
+          }}
+        >
+          <span className="muted">Seeded from Intercept →</span>
+          <code style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {seedBanner}
+          </code>
+          <span className="muted">scope forced to <code>page</code></span>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setSeedBanner(null)}
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <form className="panel" onSubmit={submit} style={{ marginBottom: 12 }}>
         <div className="panel-body">
           <div className="field">

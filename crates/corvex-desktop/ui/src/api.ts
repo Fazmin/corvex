@@ -540,8 +540,16 @@ export interface ExchangeDetail {
   status: number | null;
   request_headers: [string, string][];
   request_body_base64: string | null;
+  /** Full request body size in bytes before UI preview truncation. */
+  request_body_size: number;
   response_headers: [string, string][];
   response_body_base64: string | null;
+  /** Full response body size in bytes before UI preview truncation. */
+  response_body_size: number;
+  /** True when the exchange was captured with at least one side
+   *  exceeding the 32 MB hard cap. The stored bytes are the initial
+   *  prefix; the tail is gone. */
+  body_truncated: boolean;
   started_at_unix: number;
   duration_ms: number | null;
 }
@@ -584,6 +592,81 @@ export function scopeGet(): Promise<ScopeRules> {
 
 export function scopeSet(rules: ScopeRules): Promise<void> {
   return invoke<void>("scope_set", { rules });
+}
+
+export interface HarExportReport {
+  path: string;
+  entry_count: number;
+  bytes_written: number;
+}
+
+export function proxyExportHar(
+  session: string,
+  path: string,
+): Promise<HarExportReport> {
+  return invoke<HarExportReport>("proxy_export_har", { session, path });
+}
+
+export interface SpecImportReport {
+  source: string;
+  /** "openapi3" or "postman_v2" — the format the parser detected. */
+  format: string;
+  imported: number;
+  skipped: number;
+}
+
+export function proxyImportSpec(path: string): Promise<SpecImportReport> {
+  return invoke<SpecImportReport>("proxy_import_spec", { path });
+}
+
+export interface RetentionPolicy {
+  /** Maximum exchanges retained per session. 0 = unlimited. */
+  max_exchanges_per_session: number;
+}
+
+export function retentionGet(): Promise<RetentionPolicy> {
+  return invoke<RetentionPolicy>("retention_get");
+}
+
+export function retentionSet(policy: RetentionPolicy): Promise<void> {
+  return invoke<void>("retention_set", { policy });
+}
+
+export type WsDirection = "client" | "server";
+
+export interface WsFrame {
+  exchange_id: string;
+  sequence: number;
+  direction: WsDirection;
+  opcode: number;
+  opcode_label:
+    | "cont"
+    | "text"
+    | "binary"
+    | "close"
+    | "ping"
+    | "pong"
+    | "reserved";
+  fin: boolean;
+  payload_base64: string;
+  payload_size: number;
+  captured_at_unix: number;
+}
+
+export function wsFramesForExchange(id: string): Promise<WsFrame[]> {
+  return invoke<WsFrame[]>("ws_frames_for_exchange", { id });
+}
+
+export function wsFrameCount(id: string): Promise<number> {
+  return invoke<number>("ws_frame_count", { id });
+}
+
+/** Fires once per captured WebSocket frame. The payload shape matches
+ *  the `WsFrame` type returned by `wsFramesForExchange`. */
+export function onWsFrame(
+  cb: (frame: WsFrame) => void,
+): Promise<UnlistenFn> {
+  return listen<WsFrame>("proxy://ws-frame", (e) => cb(e.payload));
 }
 
 export function exchangesList(

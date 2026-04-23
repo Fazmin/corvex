@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   checksList,
   checksRun,
@@ -13,14 +14,20 @@ import {
   onInterceptPending,
   onProxyExchange,
   onScanFinding,
+  onWsFrame,
   owaspTaxonomyInfo,
   proxyExportCaPem,
+  proxyExportHar,
+  proxyImportSpec,
   proxyStart,
   proxyStatus,
   proxyStop,
   replaySend,
+  retentionGet,
+  retentionSet,
   scopeGet,
   scopeSet,
+  wsFramesForExchange,
   type CheckDescriptor,
   type ExchangeSummary,
   type FindingRow,
@@ -30,8 +37,10 @@ import {
   type PendingIntercept,
   type ProxyStatus,
   type ReplayResult,
+  type RetentionPolicy,
   type ScopeRule,
   type ScopeRules,
+  type WsFrame,
 } from "../api";
 
 type Tab = "traffic" | "intercept" | "replay" | "checks" | "settings";
@@ -52,7 +61,16 @@ const TAB_LABELS: Record<Tab, string> = {
  * placeholders describing what's coming in the next milestones so the
  * navigation feels complete today.
  */
-export function ProxyView() {
+export interface FuzzerSeed {
+  url: string;
+  exchangeId?: string;
+}
+
+interface ProxyViewProps {
+  onSendToFuzzer?: (seed: FuzzerSeed) => void;
+}
+
+export function ProxyView({ onSendToFuzzer }: ProxyViewProps = {}) {
   const [status, setStatus] = useState<ProxyStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [listen, setListen] = useState<string>("127.0.0.1:8888");
@@ -142,7 +160,81 @@ export function ProxyView() {
     }
   };
 
+  const [harStatus, setHarStatus] = useState<string | null>(null);
+  const handleExportHar = async () => {
+    const sessionId = status?.session_id;
+    if (!sessionId) {
+      setError("No active or loaded session to export");
+      return;
+    }
+    setError(null);
+    setHarStatus(null);
+    let path: string | null;
+    try {
+      path = (await saveDialog({
+        title: "Export HAR",
+        defaultPath: `corvex-session-${sessionId.slice(0, 8)}.har`,
+        filters: [{ name: "HTTP Archive", extensions: ["har", "json"] }],
+      })) as string | null;
+    } catch (e) {
+      setError(String(e));
+      return;
+    }
+    if (!path) return; // user cancelled
+    setHarStatus("Exporting…");
+    try {
+      const report = await proxyExportHar(sessionId, path);
+      const kb = (report.bytes_written / 1024).toFixed(1);
+      setHarStatus(
+        `Exported ${report.entry_count.toLocaleString()} exchanges · ${kb} KB → ${report.path}`,
+      );
+    } catch (e) {
+      setError(String(e));
+      setHarStatus(null);
+    }
+  };
+
+  const handleImportSpec = async () => {
+    if (!status?.session_id) {
+      setError(
+        "Start a proxy session first — imported rows attach to the active session.",
+      );
+      return;
+    }
+    setError(null);
+    setHarStatus(null);
+    let picked: string | null;
+    try {
+      picked = (await openDialog({
+        title: "Import OpenAPI or Postman collection",
+        multiple: false,
+        directory: false,
+        filters: [
+          { name: "Spec files", extensions: ["json", "har"] },
+          { name: "All files", extensions: ["*"] },
+        ],
+      })) as string | null;
+    } catch (e) {
+      setError(String(e));
+      return;
+    }
+    if (!picked) return;
+    setHarStatus("Importing…");
+    try {
+      const report = await proxyImportSpec(picked);
+      const skippedSuffix =
+        report.skipped > 0 ? ` · ${report.skipped} skipped` : "";
+      setHarStatus(
+        `Imported ${report.imported} ${report.format} endpoint(s) from ${report.source}${skippedSuffix}`,
+      );
+    } catch (e) {
+      setError(String(e));
+      setHarStatus(null);
+    }
+  };
+
   const running = status?.running ?? false;
+  const hasSession = Boolean(status?.session_id);
 
   return (
     <div className="proxy-view">
@@ -198,9 +290,36 @@ export function ProxyView() {
                 Start
               </button>
             )}
+            <button
+              type="button"
+              className="chip"
+              onClick={handleExportHar}
+              disabled={!hasSession}
+              title={
+                hasSession
+                  ? "Export this session's traffic log as a HAR 1.2 file"
+                  : "Start a proxy session first"
+              }
+            >
+              Export HAR
+            </button>
+            <button
+              type="button"
+              className="chip"
+              onClick={handleImportSpec}
+              disabled={!hasSession}
+              title={
+                hasSession
+                  ? "Seed Checks targets from an OpenAPI 3 or Postman v2.1 spec"
+                  : "Start a proxy session first"
+              }
+            >
+              Import spec
+            </button>
           </div>
         </div>
         {error && <div className="proxy-error">{error}</div>}
+        {harStatus && <div className="proxy-hint muted">{harStatus}</div>}
       </div>
 
       <div className="proxy-tabs panel">
@@ -232,6 +351,15 @@ export function ProxyView() {
                 );
                 setTab("checks");
               }}
+              onSendToFuzzer={
+                onSendToFuzzer
+                  ? (ex) =>
+                      onSendToFuzzer({
+                        url: exchangeUrl(ex),
+                        exchangeId: ex.id,
+                      })
+                  : undefined
+              }
             />
           )}
           {tab === "intercept" && <ProxyInterceptTab />}
@@ -260,11 +388,13 @@ function ProxyTrafficTab({
   running,
   onSendToReplay,
   onSendToChecks,
+  onSendToFuzzer,
 }: {
   exchanges: ExchangeSummary[];
   running: boolean;
   onSendToReplay: (ex: ExchangeSummary) => void;
   onSendToChecks: (ex: ExchangeSummary) => void;
+  onSendToFuzzer?: (ex: ExchangeSummary) => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -324,7 +454,26 @@ function ProxyTrafficTab({
                 onClick={() => setExpandedId(open ? null : ex.id)}
               >
                 <td className="muted">{exchanges.length - i}</td>
-                <td><span className="badge-inline">{ex.method}</span></td>
+                <td>
+                  <span className="badge-inline">{ex.method}</span>
+                  {isWebsocketExchange(ex) && (
+                    <span
+                      className="badge-inline ws-badge"
+                      title="WebSocket upgrade — expand the row to see captured frames"
+                    >
+                      ws
+                    </span>
+                  )}
+                  {ex.tags.includes("body-truncated") && (
+                    <span
+                      className="badge-inline"
+                      data-status="warn"
+                      title="One side of this exchange exceeded the 32 MB capture cap. The stored body is the initial prefix; the tail was forwarded to the peer but not recorded."
+                    >
+                      trunc
+                    </span>
+                  )}
+                </td>
                 <td>{ex.status ?? "-"}</td>
                 <td className="proxy-url">
                   <span className="muted">{ex.scheme}://{ex.host}</span>
@@ -372,6 +521,13 @@ function ProxyTrafficTab({
                               {ex.scope}
                             </span>
                           </span>
+                          <span className="proxy-field">
+                            <span className="proxy-field-k">Req/Res size</span>
+                            <span className="proxy-field-v">
+                              {humanSize(ex.size_request)} /{" "}
+                              {humanSize(ex.size_response)}
+                            </span>
+                          </span>
                         </div>
                       </div>
                       <div className="proxy-detail-actions">
@@ -395,7 +551,23 @@ function ProxyTrafficTab({
                         >
                           Send to Checks →
                         </button>
+                        {onSendToFuzzer && (
+                          <button
+                            type="button"
+                            className="proxy-send-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSendToFuzzer(ex);
+                            }}
+                            title="Seed the Active Fuzzing form with this URL and open it"
+                          >
+                            Send to Fuzzer →
+                          </button>
+                        )}
                       </div>
+                      {isWebsocketExchange(ex) && (
+                        <WsFrameViewer exchange={ex} />
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -414,6 +586,7 @@ type SettingsSection =
   | "ca"
   | "browser"
   | "scope"
+  | "retention"
   | "verify"
   | "troubleshoot";
 
@@ -422,8 +595,9 @@ const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: "ca", label: "2. Certificate authority" },
   { id: "browser", label: "3. Browser setup" },
   { id: "scope", label: "4. Scope rules" },
-  { id: "verify", label: "5. Verify" },
-  { id: "troubleshoot", label: "6. Troubleshooting" },
+  { id: "retention", label: "5. Retention" },
+  { id: "verify", label: "6. Verify" },
+  { id: "troubleshoot", label: "7. Troubleshooting" },
 ];
 
 function ProxySettingsTab() {
@@ -472,6 +646,8 @@ function ProxySettingsTab() {
       {section === "browser" && <SetupBrowser />}
 
       {section === "scope" && <SetupScopeRules />}
+
+      {section === "retention" && <SetupRetention />}
 
       {section === "verify" && <SetupVerify />}
 
@@ -1024,6 +1200,140 @@ function normaliseRule(r: ScopeRule): ScopeRule {
   };
 }
 
+function SetupRetention() {
+  const [max, setMax] = useState<number>(5000);
+  const [initial, setInitial] = useState<number>(5000);
+  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    retentionGet()
+      .then((p) => {
+        setMax(p.max_exchanges_per_session);
+        setInitial(p.max_exchanges_per_session);
+      })
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const dirty = max !== initial;
+
+  const handleSave = async () => {
+    setStatus("saving");
+    setError(null);
+    try {
+      const policy: RetentionPolicy = { max_exchanges_per_session: max };
+      await retentionSet(policy);
+      setInitial(max);
+      setStatus("saved");
+    } catch (e) {
+      setError(String(e));
+      setStatus("idle");
+    }
+  };
+
+  const handleRevert = () => {
+    setMax(initial);
+    setStatus("idle");
+    setError(null);
+  };
+
+  const preset = (n: number) => {
+    setMax(n);
+    setStatus("idle");
+  };
+
+  return (
+    <>
+      <section>
+        <h3>Retention</h3>
+        <p className="muted">
+          The proxy keeps a ring buffer of the most recent exchanges per
+          session. Once a session exceeds the cap, the oldest rows (and
+          their dependent scan findings + WebSocket frames) are dropped
+          every ~250 ms as new traffic arrives. Retention is per-session
+          — each <strong>Start</strong> / <strong>Stop</strong> cycle
+          gets its own budget; historical sessions are preserved at
+          whatever size they were when they ended.
+        </p>
+        <p className="muted">
+          Set the cap to <code>0</code> to disable eviction entirely
+          (unlimited). Anything over 1,000,000 is clamped on save.
+        </p>
+      </section>
+
+      <section className="proxy-scope-list">
+        <div className="proxy-scope-list-head">
+          <h4>Max exchanges per session</h4>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {[1000, 5000, 20000, 100000, 0].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`chip${max === n ? " active" : ""}`}
+                onClick={() => preset(n)}
+                title={
+                  n === 0
+                    ? "Disable eviction — keep everything"
+                    : `${n.toLocaleString()} rows per session`
+                }
+              >
+                {n === 0 ? "Unlimited" : n.toLocaleString()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="muted" style={{ minWidth: 80 }}>
+            Custom
+          </span>
+          <input
+            type="number"
+            className="input input-compact"
+            min={0}
+            max={1000000}
+            step={100}
+            value={max}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              setMax(Number.isFinite(n) ? Math.max(0, n) : 0);
+              setStatus("idle");
+            }}
+          />
+          <span className="muted">
+            {max === 0 ? "unlimited" : `${max.toLocaleString()} rows`}
+          </span>
+        </label>
+        {error && <div className="proxy-error">{error}</div>}
+      </section>
+
+      <section className="proxy-scope-actions">
+        <button
+          type="button"
+          className="chip active"
+          onClick={handleSave}
+          disabled={!dirty || status === "saving"}
+        >
+          {status === "saving" ? "Saving…" : "Save retention policy"}
+        </button>
+        <button
+          type="button"
+          className="chip"
+          onClick={handleRevert}
+          disabled={!dirty || status === "saving"}
+        >
+          Revert
+        </button>
+        {status === "saved" && !dirty && (
+          <span className="muted">
+            Saved — applies to new exchanges captured after the next
+            flush.
+          </span>
+        )}
+      </section>
+    </>
+  );
+}
+
 function SetupVerify() {
   return (
     <section>
@@ -1447,6 +1757,200 @@ function humanSize(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isWebsocketExchange(ex: ExchangeSummary): boolean {
+  return ex.tags.includes("websocket");
+}
+
+function WsFrameViewer({ exchange }: { exchange: ExchangeSummary }) {
+  const [frames, setFrames] = useState<WsFrame[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+  const extension = exchange.tags.includes("ws-extension");
+
+  useEffect(() => {
+    wsFramesForExchange(exchange.id)
+      .then(setFrames)
+      .catch((e) => setError(String(e)));
+    let unlisten: (() => void) | null = null;
+    onWsFrame((frame) => {
+      if (frame.exchange_id !== exchange.id) return;
+      setFrames((prev) => [...prev, frame]);
+    })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [exchange.id]);
+
+  const selectedFrame =
+    selected !== null
+      ? frames.find(
+          (f) =>
+            f.sequence === selected ||
+            `${f.direction}-${f.sequence}` === String(selected),
+        ) ?? null
+      : null;
+
+  return (
+    <div
+      className="ws-frames"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="ws-frames-head">
+        <strong>WebSocket frames</strong>
+        <span className="muted">
+          · {frames.length} captured
+          {frames.length === 0 ? " (waiting for first frame)" : ""}
+        </span>
+        {extension && (
+          <span
+            className="badge-inline"
+            data-status="warn"
+            title="Upstream negotiated a WebSocket extension (e.g. permessage-deflate). Payloads are captured as-is; text preview may be compressed."
+          >
+            extension active
+          </span>
+        )}
+      </div>
+      {error && <div className="proxy-error">{error}</div>}
+      {frames.length > 0 && (
+        <div className="ws-frames-layout">
+          <ul className="ws-frames-list">
+            {frames.map((f) => {
+              const key = `${f.direction}-${f.sequence}`;
+              const active =
+                selectedFrame &&
+                selectedFrame.direction === f.direction &&
+                selectedFrame.sequence === f.sequence;
+              return (
+                <li
+                  key={key}
+                  className={`ws-frame-row dir-${f.direction}${
+                    active ? " active" : ""
+                  }`}
+                  onClick={() => setSelected(f.sequence)}
+                >
+                  <span
+                    className={`badge-inline ws-dir-${f.direction}`}
+                    title={
+                      f.direction === "client"
+                        ? "browser → upstream"
+                        : "upstream → browser"
+                    }
+                  >
+                    {f.direction === "client" ? "→" : "←"}
+                  </span>
+                  <span className="badge-inline">{f.opcode_label}</span>
+                  <span className="muted">#{f.sequence}</span>
+                  <span className="ws-frame-preview mono trunc">
+                    {framePreview(f, 80)}
+                  </span>
+                  <span className="muted">
+                    {humanSize(f.payload_size)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {selectedFrame && (
+            <div className="ws-frame-detail">
+              <div className="muted">
+                Frame #{selectedFrame.sequence} ·{" "}
+                {selectedFrame.direction} ·{" "}
+                <code>{selectedFrame.opcode_label}</code>
+                {!selectedFrame.fin && " · fragment"} ·{" "}
+                {humanSize(selectedFrame.payload_size)}
+              </div>
+              <pre className="ws-frame-payload">
+                {framePayload(selectedFrame)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function framePreview(frame: WsFrame, limit: number): string {
+  if (frame.payload_size === 0) return "—";
+  if (frame.opcode_label === "text") {
+    const text = decodePayload(frame);
+    return text.slice(0, limit).replace(/\s+/g, " ");
+  }
+  if (frame.opcode_label === "close") {
+    const bytes = base64ToBytes(frame.payload_base64);
+    if (bytes.length >= 2) {
+      const code = (bytes[0] << 8) | bytes[1];
+      const reason = new TextDecoder("utf-8", { fatal: false })
+        .decode(bytes.slice(2))
+        .slice(0, limit);
+      return `code ${code}${reason ? ` — ${reason}` : ""}`;
+    }
+    return "no-reason";
+  }
+  // binary, ping, pong: show a hex-ish preview
+  const bytes = base64ToBytes(frame.payload_base64);
+  return Array.from(bytes.slice(0, Math.min(bytes.length, limit / 3)))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(" ");
+}
+
+function framePayload(frame: WsFrame): string {
+  if (frame.payload_size === 0) return "<empty frame>";
+  if (frame.opcode_label === "text") return decodePayload(frame);
+  const bytes = base64ToBytes(frame.payload_base64);
+  if (bytes.length === 0) {
+    return "<payload too large to capture (forwarded raw)>";
+  }
+  // Hex + ASCII dump, 16 bytes per row.
+  const lines: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 16) {
+    const row = bytes.slice(offset, offset + 16);
+    const hex = Array.from(row)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ")
+      .padEnd(48, " ");
+    const ascii = Array.from(row)
+      .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "."))
+      .join("");
+    lines.push(
+      `${offset.toString(16).padStart(6, "0")}  ${hex}  ${ascii}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+function decodePayload(frame: WsFrame): string {
+  const bytes = base64ToBytes(frame.payload_base64);
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  try {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } catch {
+    return new Uint8Array();
+  }
+}
+
+function exchangeUrl(ex: ExchangeSummary): string {
+  const defaultPort =
+    (ex.scheme === "https" && ex.port === 443) ||
+    (ex.scheme === "http" && ex.port === 80);
+  const authority = defaultPort ? ex.host : `${ex.host}:${ex.port}`;
+  const query = ex.query ? `?${ex.query}` : "";
+  return `${ex.scheme}://${authority}${ex.path}${query}`;
 }
 
 // --- Intercept tab -------------------------------------------------------

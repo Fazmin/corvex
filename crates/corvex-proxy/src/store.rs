@@ -16,10 +16,12 @@ use std::sync::Mutex;
 use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use time::OffsetDateTime;
 
+use crate::body_store::{BodyKind, BodyStore, INLINE_THRESHOLD};
 use crate::exchange::{
     Exchange, ExchangeId, ExchangeSummary, ScopeDecision, SessionId,
 };
 use crate::scope::{ScopeRule, ScopeRules};
+use crate::ws::{WsDirection, WsFrame};
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS proxy_sessions (
@@ -84,6 +86,26 @@ CREATE TABLE IF NOT EXISTS exchange_scan_findings (
     FOREIGN KEY (exchange_id) REFERENCES exchanges(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS ws_frames (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    exchange_id     TEXT NOT NULL,
+    sequence        INTEGER NOT NULL,
+    direction       TEXT NOT NULL,
+    opcode          INTEGER NOT NULL,
+    fin             INTEGER NOT NULL,
+    payload         BLOB NOT NULL,
+    payload_size    INTEGER NOT NULL,
+    captured_at     INTEGER NOT NULL,
+    FOREIGN KEY (exchange_id) REFERENCES exchanges(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ws_frames_exchange ON ws_frames(exchange_id, sequence);
+
+CREATE TABLE IF NOT EXISTS proxy_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS proxy_scope_rules (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     kind        TEXT NOT NULL,
@@ -107,11 +129,19 @@ CREATE INDEX IF NOT EXISTS idx_scope_rules_kind_ordinal  ON proxy_scope_rules(ki
 /// exchanges table.
 pub struct ProxyDb {
     conn: Mutex<Connection>,
+    /// Blob directory sibling to the SQLite file — big bodies spill
+    /// here rather than inflating the DB. Created on first write.
+    body_store: BodyStore,
 }
 
 impl ProxyDb {
     pub fn open<P: AsRef<Path>>(path: P) -> SqlResult<Self> {
-        let conn = Connection::open(path)?;
+        let path_ref = path.as_ref();
+        let blobs_root = path_ref
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("proxy_blobs");
+        let conn = Connection::open(path_ref)?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;\n\
              PRAGMA synchronous=NORMAL;\n\
@@ -120,7 +150,12 @@ impl ProxyDb {
         conn.execute_batch(SCHEMA)?;
         Ok(Self {
             conn: Mutex::new(conn),
+            body_store: BodyStore::new(blobs_root),
         })
+    }
+
+    pub fn body_store(&self) -> &BodyStore {
+        &self.body_store
     }
 
     /// Record a new proxy session. Called from [`ProxyState::start`].
@@ -149,9 +184,12 @@ impl ProxyDb {
         Ok(())
     }
 
-    /// Insert a fully-completed exchange. Used in the Phase 1 unbatched
-    /// path; the batched writer task will replace this once the listener
-    /// lands.
+    /// Insert a fully-completed exchange. Bodies exceeding
+    /// [`crate::body_store::INLINE_THRESHOLD`] are written to the
+    /// sibling blob store and the DB row records the path instead of
+    /// the bytes; smaller bodies stay inline. Spill failures are
+    /// non-fatal — we fall back to inline storage and log a warning so
+    /// the exchange still lands in the traffic log.
     pub fn insert_exchange(&self, exchange: &Exchange) -> SqlResult<()> {
         let summary = exchange.summary();
         let req_headers =
@@ -162,6 +200,24 @@ impl ProxyDb {
             .map(|r| bincode::serialize(&r.headers))
             .transpose()
             .map_err(sql_err)?;
+
+        let (req_inline, req_path) = self.place_body(
+            &exchange.session_id,
+            &exchange.id,
+            BodyKind::Request,
+            &exchange.request.body,
+        );
+        let response_body_ref = exchange.response.as_ref().map(|r| &r.body);
+        let (res_inline, res_path) = match response_body_ref {
+            Some(body) => self.place_body(
+                &exchange.session_id,
+                &exchange.id,
+                BodyKind::Response,
+                body,
+            ),
+            None => (None, None),
+        };
+        let res_size = response_body_ref.map(|b| b.len() as i64).unwrap_or(0);
 
         let conn = self.conn.lock().expect("proxy db mutex");
         conn.execute(
@@ -174,9 +230,9 @@ impl ProxyDb {
              ) VALUES (
                 ?1, ?2, ?3, ?4,
                 ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                ?13, ?14, NULL, ?15,
-                ?16, ?17, NULL, ?18,
-                ?19, ?20, ?21, ?22, ?23, ?24
+                ?13, ?14, ?15, ?16,
+                ?17, ?18, ?19, ?20,
+                ?21, ?22, ?23, ?24, ?25, ?26
              )",
             params![
                 exchange.id.to_string(),
@@ -192,11 +248,13 @@ impl ProxyDb {
                 summary.status.map(|s| s as i64),
                 summary.mime,
                 req_headers,
-                exchange.request.body.clone(),
+                req_inline,
+                req_path,
                 exchange.request.body.len() as i64,
                 res_headers,
-                exchange.response.as_ref().map(|r| r.body.clone()),
-                exchange.response.as_ref().map(|r| r.body.len() as i64).unwrap_or(0),
+                res_inline,
+                res_path,
+                res_size,
                 exchange.started_at.unix_timestamp(),
                 exchange.duration_ms.map(|d| d as i64),
                 scope_str(exchange.scope),
@@ -210,6 +268,31 @@ impl ProxyDb {
             ],
         )?;
         Ok(())
+    }
+
+    /// Decide how to store a body: inline bytes vs spilled path.
+    /// Spill failures degrade gracefully to inline storage.
+    fn place_body(
+        &self,
+        session: &SessionId,
+        exchange: &ExchangeId,
+        kind: BodyKind,
+        body: &[u8],
+    ) -> (Option<Vec<u8>>, Option<String>) {
+        if body.len() <= INLINE_THRESHOLD {
+            return (Some(body.to_vec()), None);
+        }
+        match self.body_store.write(session, exchange, kind, body) {
+            Ok(path) => (None, Some(path.to_string_lossy().into_owned())),
+            Err(e) => {
+                tracing::warn!(
+                    target: "proxy",
+                    "body spill failed ({} bytes): {e} — storing inline",
+                    body.len()
+                );
+                (Some(body.to_vec()), None)
+            }
+        }
     }
 
     /// Paginated list view used by the traffic log. Filters by session;
@@ -241,19 +324,29 @@ impl ProxyDb {
         Ok(out)
     }
 
-    /// Load a single exchange by id — used by the detail pane. Bodies
-    /// come back inline until the spill-to-file path is implemented.
+    /// Load a single exchange by id — used by the detail pane. When a
+    /// body was spilled to disk, the inline column is NULL and the
+    /// bytes are read back from the blob file. Missing blob files are
+    /// treated the same as missing bodies — a warning is logged and
+    /// the caller sees an empty body rather than a failed query.
     pub fn get_exchange_raw(&self, id: &ExchangeId) -> SqlResult<Option<StoredExchange>> {
         let conn = self.conn.lock().expect("proxy db mutex");
         let row = conn
             .query_row(
                 "SELECT method, scheme, host, port, path, query, status,
-                        req_headers, req_body_inline, res_headers, res_body_inline,
+                        req_headers, req_body_inline, req_body_path, req_body_size,
+                        res_headers, res_body_inline, res_body_path, res_body_size,
                         started_at, duration_ms
                    FROM exchanges
                   WHERE id = ?1",
                 params![id.to_string()],
                 |row| {
+                    let req_body_inline: Option<Vec<u8>> = row.get(8)?;
+                    let req_body_path: Option<String> = row.get(9)?;
+                    let req_body_size: i64 = row.get(10)?;
+                    let res_body_inline: Option<Vec<u8>> = row.get(12)?;
+                    let res_body_path: Option<String> = row.get(13)?;
+                    let res_body_size: Option<i64> = row.get(14)?;
                     Ok(StoredExchange {
                         method: row.get(0)?,
                         scheme: row.get(1)?,
@@ -263,16 +356,88 @@ impl ProxyDb {
                         query: row.get(5)?,
                         status: row.get::<_, Option<i64>>(6)?.map(|s| s as u16),
                         req_headers: row.get(7)?,
-                        req_body: row.get(8)?,
-                        res_headers: row.get(9)?,
-                        res_body: row.get(10)?,
-                        started_at: row.get(11)?,
-                        duration_ms: row.get::<_, Option<i64>>(12)?.map(|d| d as u64),
+                        req_body: resolve_body(req_body_inline, req_body_path.as_deref()),
+                        req_body_size: req_body_size.max(0) as u64,
+                        res_headers: row.get(11)?,
+                        res_body: resolve_body(res_body_inline, res_body_path.as_deref()),
+                        res_body_size: res_body_size.unwrap_or(0).max(0) as u64,
+                        started_at: row.get(15)?,
+                        duration_ms: row.get::<_, Option<i64>>(16)?.map(|d| d as u64),
                     })
                 },
             )
             .optional()?;
         Ok(row)
+    }
+}
+
+impl ProxyDb {
+    /// Stream every exchange for `session` in insert order, oldest
+    /// first, invoking `sink` with the hydrated [`StoredExchange`].
+    /// Sink returning `Err(_)` aborts iteration and the error
+    /// propagates back. Used by HAR export to avoid materialising the
+    /// full session in memory.
+    ///
+    /// Iteration is done in one SQL pass + N spilled-blob reads; the
+    /// DB mutex is released between rows so the listener keeps
+    /// inserting while export runs.
+    pub fn for_each_exchange<F>(
+        &self,
+        session: &SessionId,
+        mut sink: F,
+    ) -> SqlResult<()>
+    where
+        F: FnMut(ExchangeId, StoredExchange) -> SqlResult<()>,
+    {
+        // Collect IDs under the lock, then hydrate row-by-row via
+        // `get_exchange_raw` so `sink` can run without blocking the
+        // writer's mutex access. Trades one extra round-trip per row
+        // for lower write contention — fine for export speeds.
+        let ids: Vec<ExchangeId> = {
+            let conn = self.conn.lock().expect("proxy db mutex");
+            let mut stmt = conn.prepare(
+                "SELECT id FROM exchanges
+                  WHERE session_id = ?1
+                  ORDER BY started_at ASC, id ASC",
+            )?;
+            let rows = stmt.query_map(params![session.to_string()], |row| {
+                row.get::<_, String>(0)
+            })?;
+            let mut out = Vec::new();
+            for r in rows {
+                let s = r?;
+                let id = uuid::Uuid::parse_str(&s).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                out.push(ExchangeId(id));
+            }
+            out
+        };
+
+        for id in ids {
+            if let Some(row) = self.get_exchange_raw(&id)? {
+                sink(id, row)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn resolve_body(inline: Option<Vec<u8>>, path: Option<&str>) -> Option<Vec<u8>> {
+    if let Some(bytes) = inline {
+        return Some(bytes);
+    }
+    let path = path?;
+    match BodyStore::read(std::path::Path::new(path)) {
+        Ok(opt) => opt,
+        Err(e) => {
+            tracing::warn!(target: "proxy", "body blob read at {path} failed: {e}");
+            None
+        }
     }
 }
 
@@ -371,6 +536,108 @@ impl ProxyDb {
 }
 
 impl ProxyDb {
+    /// Fetch a proxy-wide setting by key. Returns `Ok(None)` when the
+    /// key has never been written.
+    pub fn get_setting(&self, key: &str) -> SqlResult<Option<String>> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let row = conn
+            .query_row(
+                "SELECT value FROM proxy_settings WHERE key = ?1",
+                params![key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Upsert a proxy-wide setting.
+    pub fn set_setting(&self, key: &str, value: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        conn.execute(
+            "INSERT INTO proxy_settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Total exchanges captured for one session. Cheap — covered by
+    /// the `(session_id, started_at)` composite index.
+    pub fn count_exchanges_for_session(&self, session: &SessionId) -> SqlResult<i64> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        conn.query_row(
+            "SELECT COUNT(1) FROM exchanges WHERE session_id = ?1",
+            params![session.to_string()],
+            |row| row.get(0),
+        )
+    }
+
+    /// Drop everything past `keep` for `session`, oldest first. FK
+    /// cascades take care of dependent findings / ws frames. Returns
+    /// the number of rows deleted.
+    ///
+    /// `keep == 0` is treated as "unbounded" — nothing is deleted.
+    pub fn evict_oldest_for_session(
+        &self,
+        session: &SessionId,
+        keep: usize,
+    ) -> SqlResult<usize> {
+        if keep == 0 {
+            return Ok(0);
+        }
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let n = conn.execute(
+            "DELETE FROM exchanges
+              WHERE session_id = ?1
+                AND id NOT IN (
+                    SELECT id FROM exchanges
+                     WHERE session_id = ?1
+                     ORDER BY started_at DESC, id DESC
+                     LIMIT ?2
+                )",
+            params![session.to_string(), keep as i64],
+        )?;
+        // Also sweep any blob files the cascade couldn't catch — the
+        // FK drops the DB row but the on-disk spill file lingers.
+        // We don't know which blobs vanished inside this delete, so
+        // best-effort GC the whole session directory for any files
+        // whose row no longer exists. Cheap because spilled bodies
+        // are rare.
+        let _ = self.sweep_orphan_blobs(session);
+        Ok(n)
+    }
+
+    /// Remove blob files whose owning exchange row no longer exists.
+    /// Called after retention-driven deletes.
+    fn sweep_orphan_blobs(&self, session: &SessionId) -> std::io::Result<()> {
+        let dir = self.body_store.root().join(session.to_string());
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Ok(());
+        };
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let mut stmt = conn
+            .prepare("SELECT 1 FROM exchanges WHERE id = ?1 LIMIT 1")
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(stem) = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+            else {
+                continue;
+            };
+            let exists: Option<i64> = stmt
+                .query_row(params![stem], |row| row.get(0))
+                .optional()
+                .unwrap_or(None);
+            if exists.is_none() {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        Ok(())
+    }
+
     /// Load the persisted scope rules. Include and exclude rules are
     /// returned in their saved order; callers treat the vectors as
     /// append-only lists and rewrite the whole set via
@@ -444,6 +711,113 @@ impl ProxyDb {
     }
 }
 
+impl ProxyDb {
+    /// Persist a captured WebSocket frame. Called from the splice loop
+    /// — the `sequence` field is set per direction so frames stay
+    /// ordered within each stream even if the two directions race.
+    pub fn insert_ws_frame(&self, frame: &WsFrame) -> SqlResult<()> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        conn.execute(
+            "INSERT INTO ws_frames (
+                exchange_id, sequence, direction, opcode, fin,
+                payload, payload_size, captured_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                frame.exchange_id.to_string(),
+                frame.sequence as i64,
+                frame.direction.as_str(),
+                frame.opcode as i64,
+                if frame.fin { 1i64 } else { 0 },
+                frame.payload,
+                frame.payload.len() as i64,
+                frame.captured_at.unix_timestamp(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Count the frames captured for one exchange. Used to decorate
+    /// traffic-list rows without fetching payloads.
+    pub fn ws_frame_count(&self, id: &ExchangeId) -> SqlResult<u64> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM ws_frames WHERE exchange_id = ?1",
+            params![id.to_string()],
+            |row| row.get(0),
+        )?;
+        Ok(n.max(0) as u64)
+    }
+
+    /// Count the frames for every exchange listed in `ids`. Returns a
+    /// map keyed by exchange id; exchanges with no frames are absent.
+    pub fn ws_frame_counts(
+        &self,
+        ids: &[ExchangeId],
+    ) -> SqlResult<std::collections::HashMap<ExchangeId, u64>> {
+        let mut out = std::collections::HashMap::new();
+        if ids.is_empty() {
+            return Ok(out);
+        }
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let mut stmt = conn.prepare(
+            "SELECT exchange_id, COUNT(1)
+               FROM ws_frames
+              WHERE exchange_id = ?1",
+        )?;
+        for id in ids {
+            let row = stmt
+                .query_row(params![id.to_string()], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                })
+                .optional()?;
+            if let Some((_, n)) = row {
+                if n > 0 {
+                    out.insert(*id, n as u64);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Full frame list for one exchange. Payloads come back inline —
+    /// the UI caps its decode to a preview prefix when rendering.
+    pub fn list_ws_frames(&self, id: &ExchangeId) -> SqlResult<Vec<WsFrame>> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let mut stmt = conn.prepare(
+            "SELECT sequence, direction, opcode, fin, payload, captured_at
+               FROM ws_frames
+              WHERE exchange_id = ?1
+              ORDER BY captured_at ASC, id ASC",
+        )?;
+        let rows = stmt.query_map(params![id.to_string()], |row| {
+            let dir: String = row.get(1)?;
+            let direction = match dir.as_str() {
+                "server" => WsDirection::Server,
+                _ => WsDirection::Client,
+            };
+            let opcode: i64 = row.get(2)?;
+            let fin: i64 = row.get(3)?;
+            let payload: Vec<u8> = row.get(4)?;
+            let captured_at: i64 = row.get(5)?;
+            Ok(WsFrame {
+                exchange_id: *id,
+                sequence: row.get::<_, i64>(0)? as u64,
+                direction,
+                opcode: opcode as u8,
+                fin: fin != 0,
+                payload,
+                captured_at: OffsetDateTime::from_unix_timestamp(captured_at)
+                    .unwrap_or(OffsetDateTime::UNIX_EPOCH),
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+}
+
 /// Row shape for a persisted finding. Pure serde-ready primitives — the
 /// desktop layer converts from `corvex-checks::Finding` into this
 /// before hitting SQLite.
@@ -474,8 +848,12 @@ pub struct StoredExchange {
     pub status: Option<u16>,
     pub req_headers: Vec<u8>,
     pub req_body: Option<Vec<u8>>,
+    /// Original body size captured at insert time, even when the body
+    /// was spilled or truncated.
+    pub req_body_size: u64,
     pub res_headers: Option<Vec<u8>>,
     pub res_body: Option<Vec<u8>>,
+    pub res_body_size: u64,
     pub started_at: i64,
     pub duration_ms: Option<u64>,
 }
@@ -560,6 +938,8 @@ fn now_secs() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::body_store::INLINE_THRESHOLD;
+    use crate::exchange::{Exchange, ExchangeOrigin, ScopeDecision};
 
     #[test]
     fn scope_rules_round_trip() {
@@ -619,5 +999,213 @@ mod tests {
         assert_eq!(after.include[0].host, "only.example.com");
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn exchange_body_spills_when_over_inline_threshold() {
+        // Put the DB inside a temp directory so the sibling
+        // `proxy_blobs/` dir lands there too and we can clean up after.
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "corvex-proxy-spill-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+        let db_path = tmp_dir.join("proxy.sqlite");
+        let db = ProxyDb::open(&db_path).expect("open");
+
+        // Session row is needed because exchanges.session_id FKs it.
+        let session = SessionId::new();
+        db.insert_session(&session, "127.0.0.1:0", None)
+            .expect("session");
+
+        let mut req = corvex_core::http::request::Request::new(
+            "example.com",
+            443,
+            "POST",
+            "/upload",
+        );
+        // Body right above the inline threshold forces a spill.
+        req.body = vec![0x42u8; INLINE_THRESHOLD + 1024];
+
+        let exchange = Exchange::new(
+            session,
+            ExchangeOrigin::Proxy {
+                client_addr: "127.0.0.1:0".parse().unwrap(),
+            },
+            req,
+            ScopeDecision::InScope,
+        );
+        let exchange_id = exchange.id;
+        db.insert_exchange(&exchange).expect("insert");
+
+        // DB row should have NULL inline + a populated blob path.
+        {
+            let conn = db.conn.lock().unwrap();
+            let (inline_len, path): (Option<i64>, Option<String>) = conn
+                .query_row(
+                    "SELECT length(req_body_inline), req_body_path
+                       FROM exchanges
+                      WHERE id = ?1",
+                    params![exchange_id.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert!(
+                inline_len.is_none(),
+                "inline column should be NULL for spilled bodies"
+            );
+            let path = path.expect("spilled rows must record the blob path");
+            assert!(
+                std::path::Path::new(&path).exists(),
+                "blob file should exist at {path}"
+            );
+        }
+
+        // Read path reassembles the body transparently.
+        let stored = db.get_exchange_raw(&exchange_id).unwrap().unwrap();
+        let back = stored.req_body.expect("req body");
+        assert_eq!(back.len(), INLINE_THRESHOLD + 1024);
+        assert_eq!(stored.req_body_size, back.len() as u64);
+
+        // Clean up.
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn retention_evicts_oldest_and_preserves_newest() {
+        use std::net::SocketAddr;
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "corvex-proxy-retention-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+        let db = ProxyDb::open(tmp_dir.join("proxy.sqlite")).unwrap();
+
+        let session = SessionId::new();
+        db.insert_session(&session, "127.0.0.1:0", None).unwrap();
+
+        // Insert 10 exchanges with increasing started_at so ordering is
+        // deterministic.
+        let mut ids = Vec::new();
+        for i in 0..10u64 {
+            let mut req = corvex_core::http::request::Request::new(
+                "example.com",
+                80,
+                "GET",
+                "/",
+            );
+            req.body = vec![];
+            let mut ex = Exchange::new(
+                session,
+                ExchangeOrigin::Proxy {
+                    client_addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+                },
+                req,
+                ScopeDecision::InScope,
+            );
+            // started_at is set in Exchange::new; nudge it forward so
+            // ORDER BY started_at DESC can distinguish rows.
+            ex.started_at = time::OffsetDateTime::from_unix_timestamp(
+                1_700_000_000 + i as i64,
+            )
+            .unwrap();
+            db.insert_exchange(&ex).unwrap();
+            ids.push(ex.id);
+        }
+
+        assert_eq!(db.count_exchanges_for_session(&session).unwrap(), 10);
+        let evicted = db.evict_oldest_for_session(&session, 3).unwrap();
+        assert_eq!(evicted, 7);
+        assert_eq!(db.count_exchanges_for_session(&session).unwrap(), 3);
+
+        // The three newest rows survived — ids[7], ids[8], ids[9].
+        let rows = db
+            .list_exchanges(&session, 10, 0)
+            .expect("list after evict");
+        let surviving: std::collections::HashSet<_> =
+            rows.iter().map(|r| r.id).collect();
+        assert!(surviving.contains(&ids[7]));
+        assert!(surviving.contains(&ids[8]));
+        assert!(surviving.contains(&ids[9]));
+        assert!(!surviving.contains(&ids[0]));
+
+        // Passing keep=0 is the "unlimited" sentinel — no rows removed.
+        let n = db.evict_oldest_for_session(&session, 0).unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(db.count_exchanges_for_session(&session).unwrap(), 3);
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn proxy_settings_round_trip() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "corvex-proxy-settings-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+        let db = ProxyDb::open(tmp_dir.join("proxy.sqlite")).unwrap();
+
+        assert!(db.get_setting("missing").unwrap().is_none());
+        db.set_setting("retention.max_exchanges_per_session", "2500")
+            .unwrap();
+        assert_eq!(
+            db.get_setting("retention.max_exchanges_per_session").unwrap(),
+            Some("2500".to_string())
+        );
+        // Upsert semantics — second write replaces, doesn't error.
+        db.set_setting("retention.max_exchanges_per_session", "10000")
+            .unwrap();
+        assert_eq!(
+            db.get_setting("retention.max_exchanges_per_session").unwrap(),
+            Some("10000".to_string())
+        );
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn exchange_body_stays_inline_when_small() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "corvex-proxy-inline-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+        let db = ProxyDb::open(tmp_dir.join("proxy.sqlite")).unwrap();
+        let session = SessionId::new();
+        db.insert_session(&session, "127.0.0.1:0", None).unwrap();
+
+        let mut req = corvex_core::http::request::Request::new(
+            "example.com",
+            80,
+            "GET",
+            "/",
+        );
+        req.body = vec![0x01u8; 128];
+        let exchange = Exchange::new(
+            session,
+            ExchangeOrigin::Proxy {
+                client_addr: "127.0.0.1:0".parse().unwrap(),
+            },
+            req,
+            ScopeDecision::InScope,
+        );
+        let id = exchange.id;
+        db.insert_exchange(&exchange).unwrap();
+
+        let conn = db.conn.lock().unwrap();
+        let (inline_len, path): (Option<i64>, Option<String>) = conn
+            .query_row(
+                "SELECT length(req_body_inline), req_body_path
+                   FROM exchanges
+                  WHERE id = ?1",
+                params![id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        drop(conn);
+        assert_eq!(inline_len, Some(128));
+        assert!(path.is_none());
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }

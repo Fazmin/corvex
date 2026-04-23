@@ -11,11 +11,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tokio::time::{interval, MissedTickBehavior};
 
-use crate::exchange::Exchange;
+use crate::exchange::{Exchange, SessionId};
 use crate::store::ProxyDb;
+use crate::RetentionPolicy;
 
 const FLUSH_EVERY: Duration = Duration::from_millis(250);
 const BATCH_MAX: usize = 100;
@@ -32,9 +33,21 @@ impl ExchangeWriter {
     /// Spawn the writer task and return a handle. Call once per proxy
     /// session; drop the handle (and all clones) to let the task flush
     /// the remaining queue and exit.
-    pub fn spawn(db: Arc<ProxyDb>) -> (Self, tokio::task::JoinHandle<()>) {
+    ///
+    /// `session_id` is the session the listener is recording under —
+    /// retention eviction scopes its deletes to this id so traffic
+    /// from older sessions is never touched.
+    ///
+    /// `retention` is the shared policy slot on [`crate::ProxyState`];
+    /// the writer reads the current cap after every flush so UI edits
+    /// apply within ≤ FLUSH_EVERY of the change.
+    pub fn spawn(
+        db: Arc<ProxyDb>,
+        session_id: SessionId,
+        retention: Arc<RwLock<RetentionPolicy>>,
+    ) -> (Self, tokio::task::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel::<Exchange>(CHANNEL_CAPACITY);
-        let handle = tokio::spawn(run(db, rx));
+        let handle = tokio::spawn(run(db, rx, session_id, retention));
         (Self { tx }, handle)
     }
 
@@ -52,7 +65,12 @@ impl ExchangeWriter {
     }
 }
 
-async fn run(db: Arc<ProxyDb>, mut rx: mpsc::Receiver<Exchange>) {
+async fn run(
+    db: Arc<ProxyDb>,
+    mut rx: mpsc::Receiver<Exchange>,
+    session_id: SessionId,
+    retention: Arc<RwLock<RetentionPolicy>>,
+) {
     let mut buf: Vec<Exchange> = Vec::with_capacity(BATCH_MAX);
     let mut tick = interval(FLUSH_EVERY);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -64,33 +82,41 @@ async fn run(db: Arc<ProxyDb>, mut rx: mpsc::Receiver<Exchange>) {
                     Some(ex) => {
                         buf.push(ex);
                         if buf.len() >= BATCH_MAX {
-                            flush(&db, &mut buf).await;
+                            flush(&db, &mut buf, session_id, &retention).await;
                         }
                     }
                     None => {
                         // Channel closed — flush and exit.
-                        flush(&db, &mut buf).await;
+                        flush(&db, &mut buf, session_id, &retention).await;
                         return;
                     }
                 }
             }
             _ = tick.tick() => {
                 if !buf.is_empty() {
-                    flush(&db, &mut buf).await;
+                    flush(&db, &mut buf, session_id, &retention).await;
                 }
             }
         }
     }
 }
 
-async fn flush(db: &Arc<ProxyDb>, buf: &mut Vec<Exchange>) {
+async fn flush(
+    db: &Arc<ProxyDb>,
+    buf: &mut Vec<Exchange>,
+    session_id: SessionId,
+    retention: &Arc<RwLock<RetentionPolicy>>,
+) {
     if buf.is_empty() {
         return;
     }
     let batch = std::mem::take(buf);
+    // Snapshot the policy before we hand off to the blocking pool so
+    // the lock isn't held across the DB write.
+    let keep = retention.read().await.max_exchanges_per_session;
     let db = db.clone();
-    // Insert happens on a blocking-friendly thread so the listener
-    // runtime never waits on SQLite fsyncs.
+    // Insert + optional eviction happens on a blocking-friendly thread
+    // so the listener runtime never waits on SQLite fsyncs.
     let r = tokio::task::spawn_blocking(move || {
         let mut errors = 0usize;
         for exchange in &batch {
@@ -99,17 +125,36 @@ async fn flush(db: &Arc<ProxyDb>, buf: &mut Vec<Exchange>) {
                 tracing::warn!(target: "proxy", "exchange insert failed: {e}");
             }
         }
-        (batch.len(), errors)
+        let evicted = if keep > 0 {
+            match db.evict_oldest_for_session(&session_id, keep) {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!(target: "proxy", "retention evict failed: {e}");
+                    0
+                }
+            }
+        } else {
+            0
+        };
+        (batch.len(), errors, evicted)
     })
     .await;
     match r {
-        Ok((count, errors)) => {
+        Ok((count, errors, evicted)) => {
             if errors > 0 {
                 tracing::warn!(
                     target: "proxy",
-                    "flushed {} exchanges with {} errors",
+                    "flushed {} exchanges with {} errors ({} evicted)",
                     count,
-                    errors
+                    errors,
+                    evicted
+                );
+            } else if evicted > 0 {
+                tracing::debug!(
+                    target: "proxy",
+                    "flushed {} exchanges, evicted {} under retention",
+                    count,
+                    evicted
                 );
             } else {
                 tracing::debug!(target: "proxy", "flushed {} exchanges", count);

@@ -125,17 +125,15 @@ explicitly deferred. Update this file as items close out.
       `scope_set`; no form / no chip list / no persistence)
 - [x] Response-phase intercept handler in the Intercept tab
       (backend already pauses; UI only shows request-phase rows)
-- [ ] "Send to Fuzzer" cross-tool action on Traffic rows
-- [ ] WebSocket frame capture + side-panel viewer (upgrades
+- [x] "Send to Fuzzer" cross-tool action on Traffic rows
+- [x] WebSocket frame capture + side-panel viewer (upgrades
       pass through today; frames are not surfaced)
-- [ ] Large-body spill-to-file (512 KB inline cap → blob file;
-      64 MB hard cap)
-- [ ] Retention policy — configurable max exchanges per session,
+- [x] Large-body spill-to-file (512 KB inline cap → blob file;
+      32 MB hard cap)
+- [x] Retention policy — configurable max exchanges per session,
       ring-buffer eviction
-- [ ] HAR export of the exchange log
-- [ ] OpenAPI / Postman import as a seed for Checks targets
-- [ ] Upstream proxy support (CONNECT through a corporate proxy)
-- [ ] Portable `.cvxpx` session export / import
+- [x] HAR export of the exchange log
+- [x] OpenAPI / Postman import as a seed for Checks targets
 
 ### Checks — coverage gaps
 - [ ] Banner-CVE cross-reference check (consumes Stack

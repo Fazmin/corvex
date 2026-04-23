@@ -96,6 +96,39 @@ fn main() {
                                     );
                                 }
                             }
+
+                            // Retention policy: read the persisted cap
+                            // if any, fall back to the default. Failing
+                            // to load is non-fatal — retention just
+                            // stays at its compile-time default.
+                            let default_max =
+                                corvex_proxy::DEFAULT_RETENTION_MAX;
+                            let max = match state
+                                .db()
+                                .get_setting(corvex_proxy::RETENTION_SETTING_KEY)
+                            {
+                                Ok(Some(s)) => {
+                                    s.parse::<usize>().unwrap_or(default_max)
+                                }
+                                Ok(None) => default_max,
+                                Err(e) => {
+                                    tracing::warn!(
+                                        target: "proxy",
+                                        "retention hydrate failed: {e}"
+                                    );
+                                    default_max
+                                }
+                            };
+                            state
+                                .set_retention(corvex_proxy::RetentionPolicy {
+                                    max_exchanges_per_session: max,
+                                })
+                                .await;
+                            tracing::info!(
+                                target: "proxy",
+                                max_exchanges_per_session = max,
+                                "retention policy hydrated"
+                            );
                         });
                     }
                     // Drain the broadcast channel into Tauri events so
@@ -116,6 +149,29 @@ fn main() {
                                     tracing::warn!(
                                         target: "proxy",
                                         "exchange broadcast lagged — {n} events dropped"
+                                    );
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                    return;
+                                }
+                            }
+                        }
+                    });
+                    // Fan out captured WebSocket frames so the UI can
+                    // render the traffic detail's frame list live.
+                    let handle = app.handle().clone();
+                    let mut wsrx = state.subscribe_ws_frames();
+                    tauri::async_runtime::spawn(async move {
+                        loop {
+                            match wsrx.recv().await {
+                                Ok(frame) => {
+                                    let _ = handle
+                                        .emit("proxy://ws-frame", ws_frame_payload(&frame));
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                    tracing::warn!(
+                                        target: "proxy",
+                                        "ws frame broadcast lagged — {n} events dropped"
                                     );
                                 }
                                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
@@ -198,6 +254,12 @@ fn main() {
             proxy_cmd::proxy_export_ca_pem,
             proxy_cmd::scope_get,
             proxy_cmd::scope_set,
+            proxy_cmd::retention_get,
+            proxy_cmd::retention_set,
+            proxy_cmd::proxy_export_har,
+            proxy_cmd::proxy_import_spec,
+            proxy_cmd::ws_frames_for_exchange,
+            proxy_cmd::ws_frame_count,
             proxy_cmd::exchanges_list,
             proxy_cmd::exchange_get,
             proxy_cmd::intercept_set_mode,
@@ -214,6 +276,43 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Serde-ready projection for `proxy://ws-frame` events. Mirrors the
+/// `WsFrameRow` the traffic-detail command returns so the UI can reuse
+/// one decoder.
+#[derive(serde::Serialize, Clone)]
+struct WsFrameEvent {
+    exchange_id: String,
+    sequence: u64,
+    direction: &'static str,
+    opcode: u8,
+    opcode_label: &'static str,
+    fin: bool,
+    payload_base64: String,
+    payload_size: usize,
+    captured_at_unix: i64,
+}
+
+/// Re-exported as a function so the command layer doesn't have to
+/// depend on corvex_proxy's internal constant path.
+pub(crate) fn body_hard_cap() -> usize {
+    corvex_proxy::BODY_HARD_CAP
+}
+
+fn ws_frame_payload(f: &corvex_proxy::WsFrame) -> WsFrameEvent {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    WsFrameEvent {
+        exchange_id: f.exchange_id.to_string(),
+        sequence: f.sequence,
+        direction: f.direction.as_str(),
+        opcode: f.opcode,
+        opcode_label: f.opcode_label(),
+        fin: f.fin,
+        payload_base64: B64.encode(&f.payload),
+        payload_size: f.payload.len(),
+        captured_at_unix: f.captured_at.unix_timestamp(),
+    }
 }
 
 fn open_history(app: &tauri::App) -> anyhow::Result<HistoryDb> {

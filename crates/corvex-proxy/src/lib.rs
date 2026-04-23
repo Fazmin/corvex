@@ -15,15 +15,19 @@
 //! the listener, and subscribe to the live exchange stream via
 //! [`ProxyState::subscribe_exchanges`].
 
+pub mod body_store;
 pub mod ca;
 pub mod exchange;
+pub mod har;
 pub mod intercept;
 mod listener;
 pub mod parser;
 pub mod replay;
 pub mod scope;
+pub mod spec_import;
 pub mod store;
 mod writer;
+pub mod ws;
 
 pub use ca::{Authority, CaConfig};
 pub use exchange::{
@@ -34,8 +38,35 @@ pub use intercept::{
     InterceptMode, InterceptPhase, InterceptQueue, InterceptVerdict, PendingIntercept,
 };
 pub use replay::{run_replay, ReplayError, ReplayInput};
+pub use body_store::{BodyKind, BodyStore, HARD_CAP as BODY_HARD_CAP, INLINE_THRESHOLD as BODY_INLINE_THRESHOLD};
 pub use scope::{ScopeDecision as ScopeRuleDecision, ScopeRule, ScopeRules};
+
+/// Setting key for the per-session exchange retention cap.
+pub const RETENTION_SETTING_KEY: &str = "retention.max_exchanges_per_session";
+
+/// Default retention cap — ring-buffer size per session. `0` disables
+/// eviction (unlimited). The listener caps at this number of captured
+/// exchanges; older rows are dropped when the cap is exceeded.
+pub const DEFAULT_RETENTION_MAX: usize = 5_000;
+
+/// Runtime retention policy. Lives behind an `Arc<RwLock<...>>` on
+/// [`ProxyState`] so the UI can update it without restarting the
+/// listener; the writer consults the current value on every flush.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct RetentionPolicy {
+    /// Maximum exchanges retained per session. `0` means no cap.
+    pub max_exchanges_per_session: usize,
+}
+
+impl Default for RetentionPolicy {
+    fn default() -> Self {
+        Self {
+            max_exchanges_per_session: DEFAULT_RETENTION_MAX,
+        }
+    }
+}
 pub use store::{ProxyDb, StoredFinding};
+pub use ws::{FrameSink as WsFrameSink, WsDirection, WsFrame};
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -100,6 +131,13 @@ pub struct ProxyState {
     running: RwLock<Option<RunningSession>>,
     /// Read-only fan-out channel for live exchange events.
     tx: broadcast::Sender<exchange::Exchange>,
+    /// Live WebSocket-frame fan-out. Frames land here after the splice
+    /// task parses them; both the SQLite writer and the UI event bridge
+    /// drain the same channel.
+    ws_tx: broadcast::Sender<ws::WsFrame>,
+    /// Per-session retention cap. Read by the writer after every
+    /// flush; edits from the Settings tab apply on the next flush.
+    retention: Arc<RwLock<RetentionPolicy>>,
 }
 
 struct RunningSession {
@@ -112,6 +150,7 @@ struct RunningSession {
 impl ProxyState {
     pub fn new(authority: Arc<Authority>, db: Arc<ProxyDb>) -> Self {
         let (tx, _) = broadcast::channel(1024);
+        let (ws_tx, _) = broadcast::channel(1024);
         Self {
             authority,
             db,
@@ -121,6 +160,43 @@ impl ProxyState {
             upstream: Arc::new(listener::build_upstream()),
             running: RwLock::new(None),
             tx,
+            ws_tx,
+            retention: Arc::new(RwLock::new(RetentionPolicy::default())),
+        }
+    }
+
+    /// Current retention policy snapshot. Cheap — the policy is a
+    /// pair of primitives.
+    pub async fn retention_snapshot(&self) -> RetentionPolicy {
+        *self.retention.read().await
+    }
+
+    /// Replace the active retention policy. The new value is honored
+    /// on the next writer flush (≤ 250 ms later).
+    pub async fn set_retention(&self, policy: RetentionPolicy) {
+        *self.retention.write().await = policy;
+    }
+
+    /// Shared handle to the retention slot — passed into the writer so
+    /// it can read the current cap on every flush without holding a
+    /// lock for its whole run.
+    pub fn retention_handle(&self) -> Arc<RwLock<RetentionPolicy>> {
+        self.retention.clone()
+    }
+
+    /// Subscribe to the live WebSocket frame stream — parallel to
+    /// [`ProxyState::subscribe_exchanges`] but scoped to captured
+    /// frames only.
+    pub fn subscribe_ws_frames(&self) -> broadcast::Receiver<ws::WsFrame> {
+        self.ws_tx.subscribe()
+    }
+
+    /// Sink used by the listener's WebSocket splice to persist + fan
+    /// out each captured frame.
+    pub fn ws_frame_sink(&self) -> ws::FrameSink {
+        ws::FrameSink {
+            db: self.db.clone(),
+            tx: self.ws_tx.clone(),
         }
     }
 
@@ -237,7 +313,11 @@ impl ProxyState {
         let cancel = CancellationToken::new();
         let captured = Arc::new(AtomicU64::new(0));
 
-        let (writer, _writer_handle) = ExchangeWriter::spawn(self.db.clone());
+        let (writer, _writer_handle) = ExchangeWriter::spawn(
+            self.db.clone(),
+            session_id,
+            self.retention.clone(),
+        );
         let ctx = Arc::new(ListenerCtx {
             authority: self.authority.clone(),
             session_id,
@@ -248,6 +328,7 @@ impl ProxyState {
             broadcast: self.tx.clone(),
             captured: captured.clone(),
             upstream: self.upstream.clone(),
+            ws_sink: self.ws_frame_sink(),
         });
 
         let listen = config.listen;

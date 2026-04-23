@@ -2575,6 +2575,124 @@ button[disabled] {
 }
 
 /* ---------------------------------------------------------------- */
+/* Proxy — WebSocket frame viewer                                   */
+/* ---------------------------------------------------------------- */
+
+.ws-badge {
+  margin-left: 4px;
+  background: rgba(120, 170, 220, 0.15);
+  border-color: rgba(120, 170, 220, 0.5);
+  color: #7cb0dc;
+}
+
+.ws-frames {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-frames-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.ws-frames-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(280px, 2fr);
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ws-frames-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.ws-frame-row {
+  display: grid;
+  grid-template-columns: 22px 56px 40px 1fr 60px;
+  gap: 6px;
+  padding: 4px 8px;
+  align-items: center;
+  cursor: pointer;
+  font-size: calc(var(--font-base) - 2px);
+  border-bottom: 1px solid var(--border);
+}
+
+.ws-frame-row:last-child {
+  border-bottom: none;
+}
+
+.ws-frame-row:hover {
+  background: var(--panel-alt);
+}
+
+.ws-frame-row.active {
+  background: var(--panel);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.ws-frame-row.dir-client {
+  border-left: 2px solid rgba(200, 160, 60, 0.5);
+}
+
+.ws-frame-row.dir-server {
+  border-left: 2px solid rgba(120, 170, 220, 0.5);
+}
+
+.badge-inline.ws-dir-client {
+  background: rgba(200, 160, 60, 0.15);
+  border-color: rgba(200, 160, 60, 0.5);
+  color: #e7c06a;
+}
+
+.badge-inline.ws-dir-server {
+  background: rgba(120, 170, 220, 0.15);
+  border-color: rgba(120, 170, 220, 0.5);
+  color: #7cb0dc;
+}
+
+.ws-frame-preview {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-frame-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--panel-alt);
+}
+
+.ws-frame-payload {
+  margin: 0;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--mono, monospace);
+  font-size: calc(var(--font-base) - 2px);
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre;
+}
+
+/* ---------------------------------------------------------------- */
 /* Proxy — intercept tab                                            */
 /* ---------------------------------------------------------------- */
 

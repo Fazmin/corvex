@@ -555,7 +555,98 @@ export function HelpView() {
               <strong>Send to Checks</strong> — queues this request as a
               target for the Checks tab's active-probe runner.
             </li>
+            <li>
+              <strong>Send to Fuzzer</strong> — jumps to the{" "}
+              <em>Active Fuzzing</em> view with the captured URL
+              pre-filled in the Target field and scope forced to{" "}
+              <code>page</code>, so the fuzzer hits exactly that
+              endpoint instead of crawling the whole origin. Your other
+              form settings (SQLi level, techniques, tamper modules,
+              enumerate targets) are preserved from the last run — only
+              the target and scope change.
+            </li>
           </ul>
+          <p>
+            <strong>Spec import.</strong> The{" "}
+            <strong>Import spec</strong> button in the proxy toolbar
+            reads an OpenAPI 3 (<code>.json</code>) or Postman v2.1
+            collection (<code>.json</code>) and drops one synthetic
+            Traffic row per documented endpoint — method, URL
+            (composed from <code>servers[0].url</code> for OpenAPI or
+            <code>item.request.url.raw</code> for Postman), example
+            headers, example request body where the spec provides
+            one. Imported rows carry origin <code>imported</code> so
+            you can tell them apart from real browser traffic. From
+            there, the usual Traffic-row flow works: expand a row,
+            Send to Replay to edit and fire it, Send to Checks to
+            queue active probes, or Send to Fuzzer to hammer it. The
+            rows have no response until you fire one via Replay — the
+            import is a seed, not a simulator.
+          </p>
+          <p>
+            <strong>HAR export.</strong> An <strong>Export HAR</strong>{" "}
+            button in the proxy toolbar writes the current session's
+            traffic log to an HTTP Archive 1.2 file (
+            <code>.har</code>, JSON). Every row becomes one HAR entry
+            with method, URL, headers, query string, POST body,
+            status, response headers, and response body. Bodies that
+            aren't valid UTF-8 are stored with{" "}
+            <code>encoding: "base64"</code> per the HAR v1.2 spec, so
+            binary downloads survive the round-trip. The exporter
+            streams directly to disk — a 5,000-row session exports
+            without buffering the whole document in memory. The
+            resulting file can be loaded into browser DevTools
+            (Network tab → "Import HAR…"), Fiddler, Charles, or
+            Wireshark for comparison or long-term archival.
+          </p>
+          <p>
+            <strong>Retention.</strong> Each session keeps a ring
+            buffer of its most recent exchanges — default{" "}
+            <code>5,000</code> rows per session. When the listener is
+            running and a session crosses the cap, the writer evicts
+            the oldest rows (and their cascaded scan findings /
+            WebSocket frames / spilled body blobs) on the next flush
+            (~250 ms cadence). Sessions that have already ended are
+            never touched by retention — whatever size they were at
+            Stop is what they stay. Tune or disable the cap under{" "}
+            <em>Settings → Retention</em>; a value of <code>0</code> is
+            the explicit "unlimited" sentinel. Useful when you need the
+            full history for a long audit run; revert to a cap before
+            the next day of browsing so <code>history.sqlite</code>{" "}
+            doesn't grow past what your app-data directory can spare.
+          </p>
+          <p>
+            <strong>Body size &amp; storage.</strong> Captured bodies
+            under <code>512 KB</code> live inline in{" "}
+            <code>history.sqlite</code>; anything larger spills to a
+            sibling blob directory (<code>proxy_blobs/&lt;session&gt;/&lt;
+            exchange&gt;.&#123;req,res&#125;</code>) so the DB stays
+            small. The detail-pane read path is transparent — spilled
+            bodies load from disk when you expand a row. Exchanges
+            where either side exceeded the <code>32 MB</code> hard cap
+            get a <code>trunc</code> badge next to the method; the
+            first 32 MB were stored, the rest was forwarded to the peer
+            but not recorded. For UI responsiveness the detail pane
+            caps the body it renders at <code>1 MB</code> per side — the
+            on-disk blob still holds the full (up to 32 MB) copy, it's
+            just that Replay loads only the preview.
+          </p>
+          <p>
+            <strong>WebSocket rows</strong> carry a blue{" "}
+            <code>ws</code> badge next to the method. Expanding one
+            shows the captured handshake fields plus a{" "}
+            <em>WebSocket frames</em> panel underneath the Send-to-X
+            actions. The panel has two halves: a list of every frame
+            that crossed the wire (direction arrow, opcode, sequence
+            number, text or hex preview, payload size), and a detail
+            pane that shows the full UTF-8 decode or a hex+ASCII dump
+            when you click one. Frames stream in live — new ones
+            appear as the connection continues. If the upstream
+            negotiated <code>permessage-deflate</code> or any other
+            extension, an "extension active" warning appears; payloads
+            are captured as-is and text previews may look like
+            gibberish because they're compressed.
+          </p>
           <p>
             <strong>Example.</strong> You browse{" "}
             <code>https://juice-shop.example/api/Users/6</code>. A row
@@ -1894,6 +1985,325 @@ Content-Length: 42
               despite the dropped response.
             </li>
           </ol>
+
+          <h4>
+            20. Send a captured endpoint straight into the Active Fuzzer
+          </h4>
+          <p>
+            The Checks tab is tuned for surgical single-check runs
+            against a hand-picked target. The Active Fuzzer is the
+            heavier artillery: SQL-injection engine with five
+            techniques, 50 tamper modules, LFI, CRLF, SSTI, CMD-injection,
+            XXE, open-redirect, plus Nuclei templates. When you spot a
+            suspicious parameter while browsing through the proxy,{" "}
+            <strong>Send to Fuzzer</strong> skips the "copy URL, switch
+            view, paste it back" dance.
+          </p>
+          <ol className="numbered">
+            <li>
+              Browse the target app with the proxy running. Let the
+              Traffic tab fill with real requests.
+            </li>
+            <li>
+              Spot an endpoint worth hammering — e.g.{" "}
+              <code>GET /api/orders?status=open&amp;user=42</code>.
+              Expand that row.
+            </li>
+            <li>
+              Click <strong>Send to Fuzzer →</strong>. The view switches
+              to <em>Active Fuzzing</em>. A banner at the top of the Run
+              tab reads{" "}
+              <em>
+                Seeded from Intercept → [your URL] · scope forced to{" "}
+                page
+              </em>
+              . The Target URL field is pre-filled with the full URL
+              including the query string, and the form's other settings
+              (SQLi level, techniques, tamper modules, enumerate
+              targets) are preserved from your last run.
+            </li>
+            <li>
+              Tune for the attack class you care about. SQL injection:
+              leave scope on <code>page</code>, set Level = 2 / Risk = 1,
+              techniques BEUT (Boolean + Error + Union + Time), DBMS on
+              auto-detect. For a wider sweep: raise to Level 3 / Risk 2
+              and enable enumerate{" "}
+              <code>dbs,tables,columns</code>.
+            </li>
+            <li>
+              Click <strong>Start active fuzzing</strong>. The fuzzer
+              treats the seeded URL as a single-page target (no
+              crawling) and tests every query parameter with the
+              enabled modules. Findings stream into the table below
+              live; the stats bar shows request count and elapsed time.
+            </li>
+            <li>
+              When done, the run shows up in History with origin{" "}
+              <em>active</em>. The captured Traffic row that seeded it
+              stays untouched — the fuzzer fires its own requests and
+              captures its own exchanges, so original and fuzzed
+              traffic are cleanly separable in the log.
+            </li>
+          </ol>
+          <p className="callout">
+            Scope always defaults to <code>page</code> when seeded from
+            Traffic, so the fuzzer won't crawl sideways into unrelated
+            endpoints. If you actually want a wider run, change it to{" "}
+            <code>folder</code>, <code>domain</code>, or{" "}
+            <code>subdomains</code> before hitting Start. Only test
+            targets you own or have authorization for — active fuzzing
+            sends hundreds to thousands of probe requests per endpoint.
+          </p>
+
+          <h4>
+            21. Audit a WebSocket-driven feature (chat, live dashboard,
+            collaborative editor)
+          </h4>
+          <p>
+            WebSockets are where a lot of modern app logic hides —
+            messaging, live-update streams, presence / typing
+            indicators, signalling for WebRTC. The Traffic tab captures
+            every frame crossing the proxy, so you can audit message
+            formats, authorization checks, and broadcast scopes without
+            a standalone WS tool.
+          </p>
+          <ol className="numbered">
+            <li>
+              Start the proxy and open the app. When your browser
+              upgrades to WebSocket, a row appears in Traffic with a
+              blue <code>ws</code> badge, status{" "}
+              <code>101 Switching Protocols</code>, and the upgrade
+              URL (<code>ws://</code> or <code>wss://</code> depending
+              on the scheme).
+            </li>
+            <li>
+              Expand the row. Below the Send-to-X actions, a{" "}
+              <em>WebSocket frames</em> panel renders every frame in
+              capture order. Amber <code>→</code> rows are
+              browser-sent, blue <code>←</code> rows are server-sent.
+              Opcode badges label the frame type (<code>text</code>{" "}
+              JSON/text, <code>binary</code> BSON/protobuf/custom,{" "}
+              <code>ping</code> / <code>pong</code> keepalives,{" "}
+              <code>close</code> shutdown).
+            </li>
+            <li>
+              Click any frame to open the detail pane. Text frames
+              decode as UTF-8; binary frames render as a hex + ASCII
+              dump, 16 bytes per row, so you can eyeball framing headers
+              and magic numbers.
+            </li>
+            <li>
+              Trigger the interesting action in the app — send a chat
+              message, join a room, toggle a permission. Watch the
+              corresponding frames stream in live. Compare the request
+              frame you sent with the broadcast frames the server fans
+              out: does the server echo your message to just the target
+              user, or to everyone in the room including users who
+              shouldn't see it (IDOR-over-WebSocket)? Does an admin-only
+              action round-trip through a permission check, or does the
+              server blindly trust the message?
+            </li>
+            <li>
+              For authorization bugs, replay the frame sequence as a
+              different user — log in as User A, observe the frame a
+              privileged action produces, then log in as User B and
+              send the same frame verbatim (using a raw WS client like{" "}
+              <code>wscat</code> or a browser DevTools snippet). If the
+              server accepts it, the check was client-side only.
+            </li>
+          </ol>
+          <p className="callout">
+            Frames exceeding 16 MB are forwarded raw but captured as
+            zero-byte placeholders to protect the proxy from a runaway
+            binary stream. Extensions like{" "}
+            <code>permessage-deflate</code> compress payloads — the
+            frames panel flags this with an "extension active" badge,
+            and text previews will look like gibberish because we don't
+            decompress them. For those sessions, treat payloads as
+            opaque binary or temporarily disable the extension in the
+            client to get readable captures.
+          </p>
+
+          <h4>
+            22. Cap a long audit session so history.sqlite doesn't
+            balloon
+          </h4>
+          <p>
+            Leaving the proxy running overnight while a CI bot or a
+            crawler pounds the app is a fast way to pile up hundreds of
+            thousands of captured exchanges. Retention keeps the ring
+            trimmed to whatever size fits your workflow — each session
+            reuses its cap and older rows get evicted automatically.
+          </p>
+          <ol className="numbered">
+            <li>
+              Open <em>Proxy → Settings → 5. Retention</em>. The
+              current cap is shown as the active chip (default{" "}
+              <code>5,000</code>).
+            </li>
+            <li>
+              Pick a preset (<code>1K</code>, <code>5K</code>,{" "}
+              <code>20K</code>, <code>100K</code>, or{" "}
+              <strong>Unlimited</strong>) or type a custom value into
+              the number field. Values over <code>1,000,000</code> are
+              clamped on save.
+            </li>
+            <li>
+              Click <strong>Save retention policy</strong>. The writer
+              picks up the new cap on its next flush (at most 250 ms
+              later); you don't need to restart the proxy session.
+            </li>
+            <li>
+              Start a long-running capture. Once the session passes the
+              cap, the oldest rows vanish from the Traffic tab on their
+              own as new traffic arrives — you'll see the list stay at
+              the configured size while the counter in the toolbar keeps
+              climbing (that counter tracks total captures this session,
+              not current live rows).
+            </li>
+            <li>
+              Completed sessions (anything from an earlier Start / Stop
+              cycle, or ones you flip through via History) are{" "}
+              <em>never</em> retouched — retention only evicts from the
+              currently-running session. To trim old sessions, delete
+              them from the History view instead.
+            </li>
+          </ol>
+          <p className="callout">
+            Setting the cap to <code>0</code> disables eviction
+            entirely. Handy when you genuinely need every exchange for
+            an audit report, but watch{" "}
+            <code>history.sqlite</code> size (it lives under the app
+            data dir) — a dense session can grow at ~1 MB per 1,000
+            exchanges on top of the blob-spill directory for bodies
+            over 512 KB.
+          </p>
+
+          <h4>
+            23. Export a session to HAR for handoff or offline analysis
+          </h4>
+          <p>
+            HAR (HTTP Archive) is the lingua franca browsers, intercept
+            proxies, and DevTools all understand. Exporting a corvex
+            session as HAR lets you hand a captured flow to a
+            teammate, attach it to a bug report, or load it into
+            DevTools' Network tab for side-by-side comparison — without
+            giving anyone access to the live proxy.
+          </p>
+          <ol className="numbered">
+            <li>
+              Start the proxy and browse the target app. The Traffic
+              tab fills with rows; let the interesting flow finish.
+              (Export works while the session is still running —
+              you'll snapshot the current state.)
+            </li>
+            <li>
+              Click <strong>Export HAR</strong> in the proxy toolbar,
+              next to Start/Stop. A native file-save dialog opens with
+              a default filename like{" "}
+              <code>corvex-session-a1b2c3d4.har</code>.
+            </li>
+            <li>
+              Pick a location and confirm. The exporter streams
+              directly to disk — even a 5,000-row session with a few
+              hundred MB of bodies lands in seconds without stalling
+              the listener. A status line under the toolbar shows the
+              entry count and file size once the write completes.
+            </li>
+            <li>
+              Open the resulting file in any HAR-aware tool. In Chrome
+              / Edge DevTools: <em>Network tab → right-click → Import
+              HAR…</em>. In Firefox: <em>Network → Import HAR…</em>.
+              In Charles or Fiddler: <em>File → Import</em>. Each tool
+              renders the captured requests as if they'd happened in
+              that tool's own live capture.
+            </li>
+            <li>
+              Bodies that round-trip cleanly as UTF-8 show up as plain
+              text in DevTools; binary bodies (images, compressed
+              payloads) are base64-encoded per the HAR 1.2 spec and
+              DevTools decodes them transparently in the Preview pane.
+              Every HAR entry also carries a{" "}
+              <code>_corvexId</code> field tying it back to the
+              original exchange id in <code>history.sqlite</code>.
+            </li>
+          </ol>
+          <p className="callout">
+            The HAR write is session-scoped: one button click = the
+            current session only. Exports aren't affected by retention
+            — you get every row that's still present in{" "}
+            <code>history.sqlite</code> at the moment you click the
+            button, not the subset retention has trimmed to. To archive
+            a long-running session before eviction chews through older
+            rows, export periodically.
+          </p>
+
+          <h4>
+            24. Seed Checks targets from an OpenAPI or Postman spec
+          </h4>
+          <p>
+            When the dev team hands you an OpenAPI document or a
+            Postman collection for the API you're about to audit, you
+            don't have to click every endpoint in a browser to surface
+            them. Import the spec and every documented route becomes a
+            synthetic Traffic row, ready for the full Send-to-X flow.
+          </p>
+          <ol className="numbered">
+            <li>
+              Click <strong>Start</strong> in the proxy toolbar first —
+              imported rows attach to the currently-running session.
+              You don't need to point any browser at the proxy yet;
+              the import path doesn't involve network traffic.
+            </li>
+            <li>
+              Click <strong>Import spec</strong> next to Export HAR. A
+              native open-file dialog appears; pick the spec file.
+              OpenAPI <code>.json</code> and Postman v2.1{" "}
+              <code>.json</code> are both recognised — the parser
+              detects the format from the file's shape and picks the
+              right branch.
+            </li>
+            <li>
+              The status line under the toolbar confirms how many
+              endpoints imported, e.g.{" "}
+              <em>
+                Imported 47 openapi3 endpoint(s) from swagger.json
+              </em>
+              . Skipped items (folders, URL-less Postman requests)
+              are called out separately.
+            </li>
+            <li>
+              Switch to the <strong>Traffic</strong> tab — the
+              imported rows appear with origin <code>imported</code>,
+              no response (yet), and URLs derived from the spec's{" "}
+              <code>servers[0].url</code> (OpenAPI) or{" "}
+              <code>url.raw</code> (Postman). Example path and query
+              parameters are filled in from the spec's{" "}
+              <code>example</code> / <code>schema.example</code>{" "}
+              fields so the URL is fireable as-is; where the spec
+              provided no example, a placeholder like{" "}
+              <code>example</code> or <code>1</code> lands instead.
+            </li>
+            <li>
+              Expand any imported row and click{" "}
+              <strong>Send to Checks</strong> to queue it for active
+              probes, <strong>Send to Replay</strong> to edit the
+              request and fire it against the real upstream, or{" "}
+              <strong>Send to Fuzzer</strong> to hammer every
+              parameter. Responses from those flows land as new rows
+              linked back to the imported parent.
+            </li>
+          </ol>
+          <p className="callout">
+            Imported rows have no response until you fire one — they
+            document what the API <em>says</em> it does, not what it
+            actually returns. Use Replay to execute a few representative
+            imports, confirm the spec still matches reality, then fan
+            out to Checks / Fuzzer against the confirmed set. Postman
+            collections that use <code>{`{{variable}}`}</code> tokens
+            substitute <code>example</code> on import so the URL parses;
+            edit in Replay before firing if the real value matters.
+          </p>
         </section>
 
         {/* ------------------------------------------------------------------ */}
@@ -2495,6 +2905,81 @@ Content-Length: 42
               <code>← resp</code> means the upstream's reply is held
               before delivery to the client. A Both-mode exchange shows
               up twice in the queue over its lifetime.
+            </dd>
+
+            <dt>Spec import (OpenAPI / Postman)</dt>
+            <dd>
+              A seeding flow for the Traffic tab. Reads an OpenAPI 3
+              <code> .json</code> document (detected by its top-level{" "}
+              <code>openapi</code> field) or a Postman v2.1 collection
+              (detected by <code>info.schema</code>) and creates one
+              synthetic Exchange per documented endpoint — method,
+              URL, headers, example request body — with origin{" "}
+              <code>imported</code>. The rows appear with no response
+              in the Traffic tab until you drive them through Replay.
+              Purpose: jump from a spec handoff to a checkable target
+              list without clicking every endpoint in a browser first.
+              YAML specs aren't supported in v1; convert to JSON with
+              <code> swagger-cli bundle</code> or a similar tool first.
+            </dd>
+
+            <dt>HAR (HTTP Archive)</dt>
+            <dd>
+              A JSON file format for captured HTTP sessions. Browsers,
+              DevTools, and intercept proxies (Charles, Fiddler,
+              Burp-compatible tools) all read and write HAR 1.2. The
+              <strong> Export HAR</strong> button in the proxy toolbar
+              streams the current session to a <code>.har</code> file:
+              one entry per exchange with method, URL, headers, query,
+              POST body, status, response headers, and response body.
+              Binary bodies ride as{" "}
+              <code>encoding: "base64"</code>. A custom{" "}
+              <code>_corvexId</code> field on each entry preserves the
+              exchange id for cross-referencing with the corvex DB.
+            </dd>
+
+            <dt>Retention / ring buffer</dt>
+            <dd>
+              Per-session cap on how many exchanges the proxy keeps
+              around. Configured under{" "}
+              <em>Proxy → Settings → Retention</em>. When a running
+              session exceeds the cap, the writer deletes the oldest
+              rows (and their cascaded scan findings, WebSocket
+              frames, and spilled body blobs) every flush tick so the
+              visible list stays at the target size. <code>0</code> is
+              the explicit "unlimited" sentinel. Completed sessions
+              are never retouched — retention is a budget for live
+              capture only.
+            </dd>
+
+            <dt>Body spill / truncation</dt>
+            <dd>
+              A capture policy for large request and response bodies.
+              Up to <code>512 KB</code> is stored inline in SQLite;
+              beyond that, the body is written to a sibling blob file
+              (<code>&lt;app-data&gt;/proxy_blobs/</code>) so{" "}
+              <code>history.sqlite</code> stays compact. Anything over
+              <code>32 MB</code> is forwarded byte-for-byte to the peer
+              but only the first 32 MB are recorded — the exchange
+              picks up a <code>body-truncated</code> tag so the UI can
+              warn you. Prevents a malicious or runaway upstream from
+              OOMing the proxy while still letting normal downloads
+              stream through.
+            </dd>
+
+            <dt>WebSocket frame</dt>
+            <dd>
+              One message in a WebSocket conversation. The proxy
+              captures the RFC 6455 opcode (<code>text</code>,{" "}
+              <code>binary</code>, <code>close</code>, <code>ping</code>,{" "}
+              <code>pong</code>, or a fragmented <code>cont</code>{" "}
+              continuation), the FIN bit, the direction (client →
+              upstream or upstream → client), and the payload. Frames
+              are forwarded byte-for-byte — capture is observation-only
+              in v1, no editing. Upstream-negotiated extensions like{" "}
+              <code>permessage-deflate</code> are flagged on the parent
+              exchange; payloads for those connections are stored as the
+              raw compressed bytes and decode as binary in the viewer.
             </dd>
 
             <dt>Pending intercept</dt>
