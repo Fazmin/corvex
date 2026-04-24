@@ -14,6 +14,9 @@ mod log_bridge;
 mod params;
 mod probe_state;
 mod proxy_cmd;
+mod recon_cmd;
+mod recon_state;
+mod recon_store;
 mod scan_state;
 
 use std::sync::Arc;
@@ -21,6 +24,8 @@ use std::sync::Arc;
 use corvex_proxy::{Authority, CaConfig, ProxyDb, ProxyState};
 use history::HistoryDb;
 use probe_state::ProbeRegistry;
+use recon_state::ReconRegistry;
+use recon_store::ReconDb;
 use scan_state::ScanRegistry;
 use tauri::{Emitter, Manager};
 use tracing_subscriber::prelude::*;
@@ -47,6 +52,21 @@ fn main() {
         .setup(|app| {
             app.manage(ScanRegistry::default());
             app.manage(ProbeRegistry::default());
+            app.manage(Arc::new(ReconRegistry::default()));
+
+            // Open the Recon DB (sibling connection to history.sqlite).
+            // WAL mode from history/proxy lets the third connection
+            // coexist cleanly. Failure is non-fatal — the Recon view
+            // will surface the error when the user tries to run.
+            match open_recon(app) {
+                Ok(db) => {
+                    app.manage(Arc::new(db));
+                    tracing::info!(target: "recon", "recon db ready");
+                }
+                Err(e) => {
+                    tracing::error!(target: "recon", "recon db: {e}");
+                }
+            }
 
             // Open the SQLite history DB at the platform's app data
             // directory. Failing to open isn't fatal — the rest of the
@@ -258,8 +278,15 @@ fn main() {
             proxy_cmd::retention_set,
             proxy_cmd::proxy_export_har,
             proxy_cmd::proxy_import_spec,
+            proxy_cmd::proxy_seed_host,
             proxy_cmd::ws_frames_for_exchange,
             proxy_cmd::ws_frame_count,
+            recon_cmd::recon_start,
+            recon_cmd::recon_cancel,
+            recon_cmd::recon_runs_list,
+            recon_cmd::recon_run_get,
+            recon_cmd::recon_findings_for_run,
+            recon_cmd::recon_run_delete,
             proxy_cmd::exchanges_list,
             proxy_cmd::exchange_get,
             proxy_cmd::intercept_set_mode,
@@ -324,6 +351,19 @@ fn open_history(app: &tauri::App) -> anyhow::Result<HistoryDb> {
     let path = dir.join("history.sqlite");
     tracing::info!(target: "history", "opening history db at {}", path.display());
     HistoryDb::open(&path).map_err(|e| anyhow::anyhow!("sqlite: {e}"))
+}
+
+fn open_recon(app: &tauri::App) -> anyhow::Result<ReconDb> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| anyhow::anyhow!("app_data_dir: {e}"))?;
+    std::fs::create_dir_all(&dir)?;
+    // Reuse history.sqlite — the two schemas are disjoint and WAL
+    // mode lets multiple connections coexist.
+    let path = dir.join("history.sqlite");
+    tracing::info!(target: "recon", "opening recon db at {}", path.display());
+    ReconDb::open(&path).map_err(|e| anyhow::anyhow!("sqlite: {e}"))
 }
 
 fn open_proxy(app: &tauri::App) -> anyhow::Result<ProxyState> {

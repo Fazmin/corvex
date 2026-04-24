@@ -14,6 +14,7 @@ const SECTIONS: Section[] = [
   { id: "views", title: "Views" },
   { id: "proxy", title: "Proxy, Intercept, Replay & Checks" },
   { id: "service-probing", title: "Service probing" },
+  { id: "recon", title: "Recon" },
   { id: "scenarios", title: "Scenario recipes" },
   { id: "scan-form", title: "Scan form reference" },
   { id: "interface-tips", title: "Interface tips" },
@@ -1454,6 +1455,130 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
             <code>fallback</code>, <code>Exclude</code> (parsed and stored;
             probe-level <code>ports</code>/<code>sslports</code> are what the
             engine currently uses — global Exclude isn't enforced).
+          </p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        <section id="recon">
+          <h3>Recon</h3>
+          <p>
+            The <strong>Recon</strong> view in the sidebar takes a domain and
+            expands it into the hosts, subdomains, and DNS records that belong
+            to it — the step that usually happens in a separate terminal
+            before an audit gets serious. Two modes, both driven from the
+            same form:
+          </p>
+          <h4>Passive discovery</h4>
+          <p>
+            Three keyless public sources are queried concurrently. No request
+            ever touches the target itself; each source is a third-party
+            aggregator of certificate-transparency logs or historic passive
+            DNS, so the only network traffic is corvex ↔ source.
+          </p>
+          <ul>
+            <li>
+              <strong>crt.sh</strong> — Certificate Transparency search. The
+              canonical high-yield source; every TLS certificate issued for
+              the domain or a subdomain shows up here.
+            </li>
+            <li>
+              <strong>AlienVault OTX</strong> — community passive-DNS feed.
+              Good coverage for hosts that ever resolved in the wild.
+            </li>
+            <li>
+              <strong>CertSpotter</strong> — a second CT source with a
+              different lookback window; often surfaces short-lived
+              staging/preprod certs crt.sh missed.
+            </li>
+          </ul>
+          <p>
+            Results stream into the{" "}
+            <em>Subdomains</em> grid live, with a chip per source showing
+            how many hosts it contributed. If one source is rate-limited or
+            down, the other two still land results — partial failures never
+            abort the run.
+          </p>
+
+          <h4>Active mode</h4>
+          <p>
+            Tick <strong>Active mode</strong> to pair passive discovery with
+            actual DNS traffic against the domain's authoritative servers.
+            Runs in order:
+          </p>
+          <ol className="numbered">
+            <li>
+              <strong>Record enumeration</strong> — A, AAAA, MX, NS, TXT, SOA,
+              CNAME for the seed domain. Every record that comes back lands in
+              the DNS records panel.
+            </li>
+            <li>
+              <strong>Zone transfer (AXFR)</strong> — attempted against every
+              authoritative NS. Almost always refused on modern DNS; when it
+              isn't, you've found a misconfiguration and the rows surface
+              straight into Subdomains with <code>zone-transfer</code> as the
+              source tag.
+            </li>
+            <li>
+              <strong>Wildcard probe</strong> — resolves a 32-char random
+              subdomain. If the domain wildcards (catch-all record), the
+              returned IPs are recorded and used to filter brute-force
+              results that would otherwise be false positives.
+            </li>
+            <li>
+              <strong>Wordlist brute-force</strong> — resolves{" "}
+              <code>{`{prefix}.{domain}`}</code> for every prefix in the
+              wordlist, up to the configured concurrency (default 500). A
+              built-in ~200-entry wordlist of common names ships bundled;
+              point at a larger list (e.g. SecLists{" "}
+              <code>subdomains-top1million</code>) via the Browse button.
+            </li>
+            <li>
+              <strong>Address resolution</strong> — each discovered host is
+              resolved to its current A/AAAA so the grid can show IPs
+              alongside the source attribution.
+            </li>
+          </ol>
+          <p className="callout">
+            Active mode fires real DNS queries against the target's NS —
+            that's the only phase where traffic touches infrastructure the
+            target operates. Keep wordlists and concurrency reasonable, and
+            only run against assets you're authorised to test.
+          </p>
+
+          <h4>Cross-tool integrations</h4>
+          <p>
+            Every discovered host carries three per-row actions:
+          </p>
+          <ul>
+            <li>
+              <strong>Scope</strong> — appends an include rule for the host
+              to the Proxy → Settings → Scope rules list, so Intercept pauses
+              exchanges from that host as soon as they flow through the
+              proxy. A bulk "Add all N to Proxy scope" button at the bottom
+              of the grid does the same thing for everything on screen.
+            </li>
+            <li>
+              <strong>Checks</strong> — injects a synthetic{" "}
+              <code>GET /</code> exchange for the host into the currently-
+              running proxy session. The row lands in the Traffic tab with
+              origin <code>imported</code>, ready for Send to Checks /
+              Send to Fuzzer like any captured exchange. Requires an active
+              proxy session.
+            </li>
+            <li>
+              <strong>Fuzzer</strong> — hands the host URL to the Active
+              Fuzzing view (same pipe as Traffic row's Send to Fuzzer);
+              scope defaults to <code>page</code> so the fuzzer hits exactly
+              that endpoint.
+            </li>
+          </ul>
+
+          <h4>History</h4>
+          <p>
+            Every recon run is persisted to <code>history.sqlite</code>.
+            Click the <strong>History</strong> tab at the top of the view to
+            browse past runs — subdomains + records + sources + wildcard
+            state all rehydrate. Delete a run to cascade-drop its findings.
           </p>
         </section>
 
@@ -2933,6 +3058,65 @@ Content-Length: 42
             behaviour</em> — that gap is exactly the problem this
             check was built to close.
           </p>
+
+          <h4>
+            31. Go from a single domain to a scoped audit in two minutes
+          </h4>
+          <p>
+            The Recon view compresses the "what belongs to this target?"
+            step into a single click. Passive sources land a fast first
+            cut; active mode expands it; cross-tool actions push the
+            results into the rest of the app without any copy-paste.
+          </p>
+          <ol className="numbered">
+            <li>
+              Open the sidebar's <strong>Recon</strong> view. Type the
+              target domain (e.g. <code>hackerone.com</code>). Leave all
+              three passive sources ticked; skip active mode for a
+              low-impact first pass.
+            </li>
+            <li>
+              Click <strong>Start recon</strong>. Source chips turn into
+              running badges; within seconds the Subdomains table fills
+              with hosts attributed to crt.sh / AlienVault OTX /
+              CertSpotter. Unresolved hosts (no live A/AAAA) still show
+              up — the source tag is meaningful on its own.
+            </li>
+            <li>
+              Skim the table for interesting hosts — staging, admin,
+              internal, api, pay, legacy anything. Tick Active mode and
+              rerun if you need the DNS record cluster (A/MX/NS/TXT/SOA)
+              or want the built-in wordlist to flush out hosts the
+              passive sources missed.
+            </li>
+            <li>
+              Click <strong>Scope</strong> on any row (or{" "}
+              <strong>Add all to Proxy scope</strong> at the bottom) to
+              append matching include rules to the proxy's scope list.
+              Flip to Proxy → Settings → Scope rules to confirm. Now
+              when you browse, only traffic to those hosts pauses in
+              Intercept.
+            </li>
+            <li>
+              With the proxy session running, click{" "}
+              <strong>Checks</strong> on the hosts you want to audit —
+              corvex synthesises a <code>GET /</code> exchange per host
+              (origin <em>imported</em>) and drops it in the Traffic
+              tab, ready for Send to Checks / Send to Fuzzer just like a
+              real capture.
+            </li>
+            <li>
+              Need fuzzing? Hit <strong>Fuzzer</strong> on a row — the
+              Active Fuzzing view opens with the host pre-filled, scope
+              forced to <code>page</code>.
+            </li>
+          </ol>
+          <p className="callout">
+            Recon results are persisted per run. Use the History tab
+            inside Recon to compare a passive sweep today with the
+            active run you did last week, or to hand a collaborator a
+            snapshot by forwarding <code>history.sqlite</code>.
+          </p>
         </section>
 
         {/* ------------------------------------------------------------------ */}
@@ -3619,6 +3803,35 @@ Content-Length: 42
               <code>← resp</code> means the upstream's reply is held
               before delivery to the client. A Both-mode exchange shows
               up twice in the queue over its lifetime.
+            </dd>
+
+            <dt>Recon (passive / active)</dt>
+            <dd>
+              Top-level sidebar view that expands a single domain into
+              hosts, subdomains, and DNS records. <em>Passive</em> mode
+              queries three keyless public sources (crt.sh, AlienVault
+              OTX, CertSpotter) — no traffic touches the target.
+              <em> Active</em> mode layers on DNS record enumeration,
+              zone-transfer attempts, and wildcard-aware wordlist
+              brute-force against the target's authoritative
+              nameservers. Results stream live into a grid with per-row
+              actions: push to the Proxy scope, inject a synthetic
+              Exchange into the active proxy session for Checks, or
+              seed the Active Fuzzer. Every run is persisted under{" "}
+              <code>recon_runs</code> / <code>recon_findings</code> in
+              <code> history.sqlite</code>.
+            </dd>
+
+            <dt>Wildcard DNS filtering</dt>
+            <dd>
+              A catch-all DNS record (<code>*.example.com</code>) makes
+              every imaginable subdomain "resolve" to the same IP,
+              which would turn every wordlist brute-force into
+              thousands of false positives. Before brute-forcing, the
+              Recon runner resolves a 32-char random subdomain; if that
+              answers, the returned IPs are captured and any brute
+              result whose IPs match the wildcard set is dropped.
+              Listed in the Recon status line so you can see it firing.
             </dd>
 
             <dt>Spec import (OpenAPI / Postman)</dt>

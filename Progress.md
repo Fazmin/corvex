@@ -245,6 +245,26 @@ explicitly deferred. Update this file as items close out.
       equivalent server, deferred with the Nuclei OOB
       template bucket.
 
+### Recon — passive + active DNS / subdomain discovery
+- [x] `corvex-core::recon` module: trait `PassiveSource` + 3 keyless
+      sources (crt.sh, AlienVault OTX, CertSpotter), async
+      `run_recon` driver with event stream + cancellation
+- [x] `corvex-core::dns` extensions: `detect_wildcard`,
+      `brute_subdomains_filtered` (wildcard-aware), `lookup_host_addrs`
+- [x] Embedded ~200-entry default subdomain wordlist
+      (`corvex-core/data/subdomains.txt`)
+- [x] Desktop: `recon_state.rs` registry + `recon_store.rs` SQLite
+      persistence (`recon_runs` / `recon_findings` tables in shared
+      `history.sqlite`) + `recon_cmd.rs` Tauri commands
+- [x] UI: new top-level **Recon** sidebar view with Run / History
+      tabs, live source-status chips, wildcard indicator, brute-force
+      progress, subdomain + record grids
+- [x] Cross-tool integrations: Send-to-Proxy-scope (bulk + per-row),
+      Send-to-Checks (via new `proxy_seed_host` command),
+      Send-to-Fuzzer (reuses FuzzerSeed lift path)
+- [x] Help section: Recon sub-head, scenario 31, glossary entries for
+      Recon and Wildcard DNS filtering
+
 ### Intel / datasets
 - [x] Hidden-parameter wordlist — 13-group / ~220-name curated
       catalogue in `corvex-intel::hidden_params`, consumed by

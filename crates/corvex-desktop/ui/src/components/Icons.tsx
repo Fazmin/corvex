@@ -135,6 +135,18 @@ export function ProbingIcon({ size = 18 }: IconProps) {
   );
 }
 
+export function ReconIcon({ size = 18 }: IconProps) {
+  // Globe with latitude/longitude lines — evokes domain/DNS recon.
+  return (
+    <svg {...stroke(size)} aria-hidden>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M4 12h16" />
+      <path d="M12 4c2.5 2.5 2.5 13.5 0 16" />
+      <path d="M12 4c-2.5 2.5-2.5 13.5 0 16" />
+    </svg>
+  );
+}
+
 export function HelpIcon({ size = 18 }: IconProps) {
   return (
     <svg {...stroke(size)} aria-hidden>

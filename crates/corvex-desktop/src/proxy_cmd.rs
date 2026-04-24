@@ -352,6 +352,70 @@ pub async fn proxy_import_spec(
     })
 }
 
+// --- Seed a single synthetic host (shared by Recon + future import flows) ---
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct HostSeed {
+    pub host: String,
+    /// "http" | "https". When omitted, defaults to https.
+    pub scheme: Option<String>,
+    /// Defaults to 443 for https, 80 for http.
+    pub port: Option<u16>,
+    /// Tag the synthetic exchange with the originating feature so the
+    /// Traffic row carries a traceable origin ("recon", "import", …).
+    pub source: String,
+}
+
+/// Inject a synthetic `GET /` exchange for the supplied host into the
+/// active proxy session. The UI uses this to push Recon-discovered
+/// hosts into the same Checks pipeline real browser traffic flows
+/// through. No network — it only materialises a row in SQLite.
+#[tauri::command]
+pub async fn proxy_seed_host(
+    state: State<'_, Arc<ProxyState>>,
+    seed: HostSeed,
+) -> AppResult<String> {
+    let session_id = state
+        .session_id()
+        .ok_or_else(|| AppError::Other(
+            "start a proxy session before seeding hosts — synthetic rows \
+             attach to the active session".into(),
+        ))?;
+
+    if seed.host.trim().is_empty() {
+        return Err(AppError::Other("host is required".into()));
+    }
+    let scheme = seed.scheme.as_deref().unwrap_or("https").to_string();
+    let ssl = scheme == "https";
+    let port = seed.port.unwrap_or(if ssl { 443 } else { 80 });
+
+    let mut req = corvex_core::http::request::Request::new(
+        seed.host.trim(),
+        port,
+        "GET",
+        "/",
+    );
+    req.ssl = ssl;
+    let host_header = if (ssl && port == 443) || (!ssl && port == 80) {
+        seed.host.trim().to_string()
+    } else {
+        format!("{}:{}", seed.host.trim(), port)
+    };
+    req.headers.insert("Host".into(), host_header);
+
+    let exchange = Exchange::new(
+        session_id,
+        corvex_proxy::ExchangeOrigin::Imported {
+            source: seed.source,
+        },
+        req,
+        corvex_proxy::ScopeDecision::InScope,
+    );
+    let id = exchange.id;
+    state.record_exchange(exchange);
+    Ok(id.to_string())
+}
+
 // --- HAR export --------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]

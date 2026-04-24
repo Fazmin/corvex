@@ -619,6 +619,128 @@ export function proxyImportSpec(path: string): Promise<SpecImportReport> {
   return invoke<SpecImportReport>("proxy_import_spec", { path });
 }
 
+export interface HostSeed {
+  host: string;
+  scheme?: string;
+  port?: number;
+  source: string;
+}
+
+/** Inject a synthetic `GET /` exchange for one host into the active
+ *  proxy session — used by Recon's "Send to Checks" action. */
+export function proxySeedHost(seed: HostSeed): Promise<string> {
+  return invoke<string>("proxy_seed_host", { seed });
+}
+
+// --- Recon view ---------------------------------------------------------
+
+export interface ReconStartInput {
+  domain: string;
+  passive_sources: string[];
+  active: boolean;
+  wordlist_path?: string | null;
+  max_concurrent?: number;
+}
+
+export interface ReconRunSummary {
+  id: string;
+  domain: string;
+  started_at_unix: number;
+  ended_at_unix: number | null;
+  status: string;
+  passive_sources: string[];
+  active_enabled: boolean;
+  wildcard_ips: string[];
+  found_subdomains: number;
+  found_records: number;
+  error: string | null;
+}
+
+export type ReconFindingKind = "subdomain" | "record" | "zone_transfer";
+
+export interface ReconFindingRow {
+  id: number;
+  run_id: string;
+  kind: ReconFindingKind;
+  name: string;
+  value: string | null;
+  record_type: string | null;
+  sources: string[];
+  discovered_at_unix: number;
+}
+
+export type ReconEvent =
+  | { run_id: string; kind: "source_started"; source: string }
+  | {
+      run_id: string;
+      kind: "source_finished";
+      source: string;
+      found: number;
+      error: string | null;
+    }
+  | { run_id: string; kind: "wildcard_detected"; ips: string[] }
+  | {
+      run_id: string;
+      kind: "subdomain_discovered";
+      host: string;
+      sources: string[];
+      ips: string[];
+    }
+  | {
+      run_id: string;
+      kind: "record_discovered";
+      name: string;
+      record_type: string;
+      value: string;
+    }
+  | { run_id: string; kind: "zone_transfer"; records: number }
+  | {
+      run_id: string;
+      kind: "brute_progress";
+      tested: number;
+      total: number;
+      found: number;
+    }
+  | {
+      run_id: string;
+      kind: "complete";
+      found_subdomains: number;
+      found_records: number;
+      duration_ms: number;
+    }
+  | { run_id: string; kind: "failed"; error: string }
+  | { run_id: string; kind: "cancelled" };
+
+export function reconStart(input: ReconStartInput): Promise<string> {
+  return invoke<string>("recon_start", { input });
+}
+
+export function reconCancel(id: string): Promise<boolean> {
+  return invoke<boolean>("recon_cancel", { id });
+}
+
+export function reconRunsList(limit?: number): Promise<ReconRunSummary[]> {
+  return invoke<ReconRunSummary[]>("recon_runs_list", { limit });
+}
+
+export function reconRunGet(id: string): Promise<ReconRunSummary | null> {
+  return invoke<ReconRunSummary | null>("recon_run_get", { id });
+}
+
+export function reconFindingsForRun(id: string): Promise<ReconFindingRow[]> {
+  return invoke<ReconFindingRow[]>("recon_findings_for_run", { id });
+}
+
+export function reconRunDelete(id: string): Promise<number> {
+  return invoke<number>("recon_run_delete", { id });
+}
+
+export function onReconEvent(
+  cb: (event: ReconEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<ReconEvent>("recon://event", (e) => cb(e.payload));
+}
+
 export interface RetentionPolicy {
   /** Maximum exchanges retained per session. 0 = unlimited. */
   max_exchanges_per_session: number;

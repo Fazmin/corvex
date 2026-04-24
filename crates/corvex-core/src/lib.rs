@@ -19,6 +19,7 @@ pub mod os_fingerprint;
 pub mod plugin;
 pub mod portscan;
 pub mod profile;
+pub mod recon;
 pub mod report;
 pub mod scan;
 pub mod sqli;

@@ -12,6 +12,7 @@ import {
   PluginsIcon,
   ProbingIcon,
   ProxyIcon,
+  ReconIcon,
   ScaIcon,
   SettingsIcon,
 } from "./Icons";
@@ -24,6 +25,7 @@ export type View =
   | "fuzzing"
   | "probing"
   | "proxy"
+  | "recon"
   | "sca"
   | "settings"
   | "help";
@@ -88,6 +90,11 @@ export function Sidebar({
       icon: <ProbingIcon size={collapsed ? 22 : 18} />,
       label: "Probing",
       active: probeRunning,
+    },
+    {
+      view: "recon",
+      icon: <ReconIcon size={collapsed ? 22 : 18} />,
+      label: "Recon",
     },
     {
       view: "fuzzing",

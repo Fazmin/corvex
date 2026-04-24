@@ -8,7 +8,10 @@ import {
   onHostStart,
   onLogLine,
   onSummary,
+  proxySeedHost,
   scanStats,
+  scopeGet,
+  scopeSet,
   startScan,
   versionInfo,
   type DbSummary,
@@ -31,6 +34,7 @@ import { DatabasesView } from "./components/DatabasesView";
 import { FuzzingView } from "./components/FuzzingView";
 import { ProbingView } from "./components/ProbingView";
 import { ProxyView } from "./components/ProxyView";
+import { ReconView } from "./components/ReconView";
 import { ScaView } from "./components/ScaView";
 import { SettingsView } from "./components/SettingsView";
 import { HelpView } from "./components/HelpView";
@@ -382,6 +386,7 @@ export default function App() {
     probing: "Service Probing",
     fuzzing: "Active Fuzzing",
     proxy: "Intercept",
+    recon: "Recon",
     databases: "Databases",
     sca: "Software Composition Analysis",
     settings: "Settings",
@@ -523,6 +528,39 @@ export default function App() {
                 onSendToFuzzer={(seed) => {
                   setFuzzerSeed(seed);
                   setView("fuzzing");
+                }}
+              />
+            </div>
+          )}
+          {view === "recon" && (
+            <div className="dashboard single-pane">
+              <ReconView
+                onSendToFuzzer={(seed) => {
+                  setFuzzerSeed(seed);
+                  setView("fuzzing");
+                }}
+                onAddToProxyScope={async (host) => {
+                  // Fetch current, append as an include rule if not
+                  // already present, save.
+                  const rules = await scopeGet();
+                  const already = rules.include.some(
+                    (r) =>
+                      r.host.toLowerCase() === host.toLowerCase() &&
+                      !r.path_regex &&
+                      !r.port,
+                  );
+                  if (already) return;
+                  const next = {
+                    include: [
+                      ...rules.include,
+                      { host, path_regex: null, port: null },
+                    ],
+                    exclude: rules.exclude,
+                  };
+                  await scopeSet(next);
+                }}
+                onSendToChecks={async (host) => {
+                  await proxySeedHost({ host, source: "recon" });
                 }}
               />
             </div>

@@ -2575,6 +2575,111 @@ button[disabled] {
 }
 
 /* ---------------------------------------------------------------- */
+/* Recon view                                                       */
+/* ---------------------------------------------------------------- */
+
+.recon-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 4px 24px;
+}
+
+.recon-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.recon-header h2 {
+  margin: 0;
+}
+
+.recon-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.recon-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recon-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.recon-form label.checkbox {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.recon-active-opts {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  gap: 10px;
+  align-items: end;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--panel-alt);
+  border-radius: var(--radius-sm);
+}
+
+.recon-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.recon-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.recon-source-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Form labels that need to sit next to an InfoTip (i) button. */
+.recon-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Scrollable table containers — bound the height and expose a real
+   scrollbar so long subdomain lists don't push the form off-screen. */
+.recon-table-scroll {
+  max-height: 420px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.recon-table-scroll table {
+  margin: 0;
+  width: 100%;
+}
+
+/* Sticky header so column labels stay visible while scrolling. */
+.recon-table-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+/* ---------------------------------------------------------------- */
 /* Proxy — WebSocket frame viewer                                   */
 /* ---------------------------------------------------------------- */
 

@@ -189,6 +189,122 @@ pub async fn brute_subdomains(
     Ok(found)
 }
 
+/// Probe for a wildcard DNS record by resolving a random-looking
+/// subdomain that the target is extremely unlikely to have a real
+/// record for. If it answers, the domain wildcards everything under
+/// it and brute-force results against the returned IPs are worthless
+/// — callers should filter them out.
+///
+/// Returns the wildcard target IPs as strings; an empty vec means no
+/// wildcard was detected.
+pub async fn detect_wildcard(domain: &str) -> Result<Vec<String>> {
+    let r = resolver()?;
+    // 32 random lowercase hex chars are effectively guaranteed not to
+    // be a real subdomain.
+    let random: String = (0..32)
+        .map(|_| {
+            let idx = rand::random::<u8>() % 16;
+            std::char::from_digit(idx as u32, 16).unwrap_or('0')
+        })
+        .collect();
+    let probe = format!("{random}.{domain}");
+    match r.lookup_ip(probe).await {
+        Ok(resp) => Ok(resp.iter().map(|ip| ip.to_string()).collect()),
+        Err(_) => Ok(Vec::new()),
+    }
+}
+
+/// Look up A + AAAA + CNAME for a host and return the mixed list as
+/// string values. Used by the recon runner to annotate discovered
+/// subdomains with IP/alias data for the results grid.
+pub async fn lookup_host_addrs(host: &str) -> Result<Vec<DnsRecord>> {
+    let r = resolver()?;
+    let mut out = Vec::new();
+    if let Ok(resp) = r.lookup(host, RecordType::A).await {
+        for rec in resp.iter() {
+            out.push(DnsRecord {
+                name: host.to_string(),
+                record_type: "A".into(),
+                value: rec.to_string(),
+            });
+        }
+    }
+    if let Ok(resp) = r.lookup(host, RecordType::AAAA).await {
+        for rec in resp.iter() {
+            out.push(DnsRecord {
+                name: host.to_string(),
+                record_type: "AAAA".into(),
+                value: rec.to_string(),
+            });
+        }
+    }
+    if let Ok(resp) = r.lookup(host, RecordType::CNAME).await {
+        for rec in resp.iter() {
+            out.push(DnsRecord {
+                name: host.to_string(),
+                record_type: "CNAME".into(),
+                value: rec.to_string(),
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Brute-force subdomain discovery with wildcard-aware filtering.
+/// Mirrors [`brute_subdomains`] but skips any response that only
+/// resolves to the wildcard IPs passed in. The wildcard list should
+/// come from [`detect_wildcard`] at the start of the run.
+pub async fn brute_subdomains_filtered(
+    domain: &str,
+    wordlist: &[String],
+    max_concurrent: usize,
+    wildcard_ips: &[String],
+) -> Result<Vec<String>> {
+    let r = resolver()?;
+    let sem = Arc::new(Semaphore::new(max_concurrent.max(1)));
+    let wildcard: Arc<Vec<String>> = Arc::new(wildcard_ips.to_vec());
+    let mut handles = Vec::new();
+
+    for prefix in wordlist {
+        let fqdn = format!("{prefix}.{domain}");
+        let resolver = r.clone();
+        let sem = sem.clone();
+        let wildcard = wildcard.clone();
+
+        let handle = tokio::spawn(async move {
+            let _permit = sem.acquire().await;
+            let result = resolver.lookup_ip(&fqdn).await;
+            match result {
+                Ok(resp) => {
+                    let ips: Vec<String> =
+                        resp.iter().map(|ip| ip.to_string()).collect();
+                    if ips.is_empty() {
+                        return None;
+                    }
+                    // If every returned IP matches the wildcard, this
+                    // is a false positive — skip it.
+                    if !wildcard.is_empty()
+                        && ips.iter().all(|ip| wildcard.contains(ip))
+                    {
+                        return None;
+                    }
+                    Some((fqdn, ips))
+                }
+                Err(_) => None,
+            }
+        });
+        handles.push(handle);
+    }
+
+    let mut found = Vec::new();
+    for h in handles {
+        if let Ok(Some((fqdn, _))) = h.await {
+            found.push(fqdn);
+        }
+    }
+    Ok(found)
+}
+
 /// Check TXT records for SPF misconfigurations.
 pub fn check_spf_issues(txt_records: &[DnsRecord]) -> Vec<String> {
     let mut issues = Vec::new();
