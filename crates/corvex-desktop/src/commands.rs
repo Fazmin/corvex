@@ -62,6 +62,12 @@ pub struct DbSummary {
 pub struct VersionInfo {
     pub product: &'static str,
     pub version: &'static str,
+    /// Semver + `+build` metadata stamped at compile time — changes
+    /// every rebuild when the git SHA or tree state shifts.
+    pub full_version: &'static str,
+    pub build_id: &'static str,
+    pub build_date: &'static str,
+    pub build_profile: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -319,6 +325,10 @@ pub fn version_info() -> VersionInfo {
     VersionInfo {
         product: corvex_core::PRODUCT_NAME,
         version: corvex_core::VERSION,
+        full_version: corvex_core::FULL_VERSION,
+        build_id: corvex_core::BUILD_ID,
+        build_date: corvex_core::BUILD_DATE,
+        build_profile: corvex_core::BUILD_PROFILE,
     }
 }
 

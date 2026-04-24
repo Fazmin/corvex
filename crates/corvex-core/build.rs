@@ -27,6 +27,41 @@ fn main() -> Result<()> {
     println!("cargo:rerun-if-changed=src/db/types.rs");
     println!("cargo:rerun-if-changed={}", db_dir.display());
 
+    // ---- Build stamp ----
+    // Every rebuild gets a fresh `CORVEX_BUILD_ID`. The ID is the short
+    // git SHA if we're in a git tree, otherwise a UTC date. A `-dirty`
+    // suffix is appended when the working tree has local changes. This
+    // stamp drives `corvex_core::BUILD_ID` and `FULL_VERSION` — the UI
+    // surfaces it in the title bar and History exports so a bug report
+    // is always tied to an identifiable build.
+    //
+    // `cargo:rerun-if-changed=.git/HEAD` + `.git/index` means
+    // `cargo build` picks up every new commit / uncommitted change
+    // without forcing a full invalidation of the rest of the build
+    // graph (only this script reruns, and only the few const stamps
+    // are rematerialised).
+    let repo_root = manifest_dir.join("..").join("..");
+    let head_file = repo_root.join(".git").join("HEAD");
+    let index_file = repo_root.join(".git").join("index");
+    if head_file.exists() {
+        println!("cargo:rerun-if-changed={}", head_file.display());
+    }
+    if index_file.exists() {
+        println!("cargo:rerun-if-changed={}", index_file.display());
+    }
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
+
+    let build_id = compute_build_id(&repo_root);
+    let build_date = utc_date_stamp();
+    let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".into());
+    let pkg_version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
+    let full_version = format!("{pkg_version}+{build_id}");
+
+    println!("cargo:rustc-env=CORVEX_BUILD_ID={build_id}");
+    println!("cargo:rustc-env=CORVEX_BUILD_DATE={build_date}");
+    println!("cargo:rustc-env=CORVEX_BUILD_PROFILE={profile}");
+    println!("cargo:rustc-env=CORVEX_FULL_VERSION={full_version}");
+
     let db = Databases {
         tests: load_tests(&db_dir.join("db_tests"))?,
         outdated: load_outdated(&db_dir.join("db_outdated"))?,
@@ -405,3 +440,72 @@ fn load_subdomains(path: &Path) -> Result<SubdomainsDb> {
 // Silence unused-import warnings in the #[path] include.
 #[allow(dead_code)]
 fn _ensure_read_import() -> Option<Box<dyn Read>> { None }
+
+/* ============================================================
+   Build-stamp helpers
+   ============================================================ */
+
+fn compute_build_id(repo_root: &Path) -> String {
+    // Prefer git: short SHA + optional -dirty flag when the working
+    // tree has any staged or unstaged changes.
+    if let Some(sha) = git_short_sha(repo_root) {
+        let dirty = git_is_dirty(repo_root);
+        return if dirty {
+            format!("{sha}-dirty")
+        } else {
+            sha
+        };
+    }
+    // Fallback: SOURCE_DATE_EPOCH (reproducible-builds convention) or
+    // a UTC date stamp so the build still gets a unique ID off-tree.
+    if let Ok(epoch) = env::var("SOURCE_DATE_EPOCH") {
+        return format!("sde.{epoch}");
+    }
+    format!("d{}", utc_date_stamp())
+}
+
+fn git_short_sha(repo_root: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .current_dir(repo_root)
+        .args(["rev-parse", "--short=10", "HEAD"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8(out.stdout).ok()?;
+    let t = s.trim();
+    if t.is_empty() {
+        return None;
+    }
+    Some(t.to_string())
+}
+
+fn git_is_dirty(repo_root: &Path) -> bool {
+    std::process::Command::new("git")
+        .current_dir(repo_root)
+        .args(["status", "--porcelain"])
+        .output()
+        .ok()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
+fn utc_date_stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let days = secs.div_euclid(86_400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe as i32 + (era as i32) * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}{m:02}{d:02}")
+}

@@ -38,6 +38,10 @@ export interface DbSummary {
 export interface VersionInfo {
   product: string;
   version: string;
+  full_version: string;
+  build_id: string;
+  build_date: string;
+  build_profile: string;
 }
 
 export interface ScanParams {

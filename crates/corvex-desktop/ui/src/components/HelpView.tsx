@@ -3127,6 +3127,143 @@ Content-Length: 42
             active run you did last week, or to hand a collaborator a
             snapshot by forwarding <code>history.sqlite</code>.
           </p>
+
+          <h4>
+            16. Triage a CVE-bearing finding with Exploit-DB
+          </h4>
+          <p>
+            CVSS tells you how bad a CVE would be if exploited; EPSS
+            predicts exploitation likelihood. Exploit-DB gives you the
+            third axis: <em>does a working public exploit already
+            exist?</em> A critical CVE with no public exploit is a
+            lower operational priority than a medium CVE with five
+            verified weaponised scripts on the shelf.
+          </p>
+          <ol className="numbered">
+            <li>
+              Run any scan that produces CVE-tagged findings — the
+              Web signature engine, a Nuclei template, an active
+              plugin.
+            </li>
+            <li>
+              In the <strong>Findings</strong> table, expand a row
+              whose CVE column is populated.
+            </li>
+            <li>
+              Look for the <strong>Public exploits</strong> block
+              directly below the CVE link. If there are no matches,
+              the block is hidden — take that as "no known public
+              exploit indexed yet".
+            </li>
+            <li>
+              Read the per-hit signals: <code>remote</code> /{" "}
+              <code>local</code> / <code>webapps</code> /{" "}
+              <code>dos</code> tells you the exploit class;{" "}
+              <em>✓ verified</em> means OffSec reproduced it; the
+              platform tag tells you whether it targets your stack.
+            </li>
+            <li>
+              Click <strong>View source</strong> on the most
+              promising hit. The body is pulled from upstream the
+              first time, cached under{" "}
+              <code>&lt;app_data_dir&gt;/exploitdb/cache/</code>, and
+              opens in a scrollable mono pane. Second clicks on any
+              cached exploit are offline and instant.
+            </li>
+            <li>
+              For the canonical record (advisory, attribution,
+              screenshots), click{" "}
+              <strong>Open on exploit-db.com ↗</strong>.
+            </li>
+          </ol>
+          <p className="callout">
+            Surfacing an exploit is not permission to run it.
+            Launching public exploits against systems you do not own
+            or have written authorisation to test is illegal in most
+            jurisdictions. Use these hits to prioritise remediation
+            and to inform engagement scope.
+          </p>
+
+          <h4>
+            17. Prioritise SCA findings by public-exploit availability
+          </h4>
+          <p>
+            On a mid-sized project it's common to get 40+ CVEs from
+            an SCA run. Exploit-DB is a fast way to sort them into
+            "fix today" vs "fix this sprint".
+          </p>
+          <ol className="numbered">
+            <li>
+              Switch to <strong>SCA → Dependency Analysis</strong>
+              and run a scan against your project directory.
+            </li>
+            <li>
+              In the results table, expand each CVE-bearing row. Rows
+              with a <strong>Public exploits</strong> block are your
+              first-pass "fix today" candidates — there's a working
+              exploit in the wild.
+            </li>
+            <li>
+              Cross-check against the row's EPSS score and the{" "}
+              <em>Fix available</em> badge. A high EPSS + one or more
+              verified Exploit-DB hits + an available fix version is
+              the unambiguous "upgrade now" case.
+            </li>
+            <li>
+              For exploits that look directly relevant to your stack
+              (same platform, webapps / remote, verified), click{" "}
+              <strong>View source</strong> to confirm the exploit
+              actually targets your component version range — some
+              CVEs are shared across versions but the exploit only
+              works on one.
+            </li>
+            <li>
+              Export the filtered view as CSV / JSON for the ticket
+              queue.
+            </li>
+          </ol>
+
+          <h4>
+            18. Keep the Exploit-DB index fresh between releases
+          </h4>
+          <p>
+            corvex ships with a pre-built Exploit-DB snapshot that's
+            refreshed at each release. Between releases, upstream
+            adds new exploits daily — if you're actively triaging
+            recent CVEs (log4shell-class incidents, zero-days), pull
+            a fresh index.
+          </p>
+          <ol className="numbered">
+            <li>
+              Open <strong>Databases → Exploit-DB</strong>. The
+              <em>Snapshot commit</em> cell shows which upstream
+              commit the current index was built from.
+            </li>
+            <li>
+              Click <strong>Re-sync</strong>. corvex downloads the
+              latest <code>files_exploits.csv</code> from{" "}
+              <code>gitlab.com/exploit-database/exploitdb</code>,
+              rebuilds the local SQLite index in one transaction,
+              and flips the <em>Origin</em> cell to{" "}
+              <em>user-synced</em>. If the upstream hasn't changed
+              since your last sync, it short-circuits on a 304 — no
+              reparse, no disk churn.
+            </li>
+            <li>
+              After a successful sync, any already-open Finding or
+              SCA detail row will re-fetch the next time you expand
+              it — the in-memory cache is invalidated automatically.
+            </li>
+            <li>
+              When a new corvex release ships with a newer bundled
+              snapshot than your current user-synced copy, the
+              upgrade check preserves your copy (it assumes you
+              synced for a reason). If you want to drop back to the
+              release snapshot, delete{" "}
+              <code>&lt;app_data_dir&gt;/exploitdb.sqlite</code> and
+              relaunch — the bundled snapshot re-seeds automatically.
+            </li>
+          </ol>
         </section>
 
         {/* ------------------------------------------------------------------ */}
@@ -3468,34 +3605,82 @@ Content-Length: 42
           <h3>Exploit-DB enrichment</h3>
           <p>
             Every CVE-bearing finding — whether it came from the Web
-            signature engine, an active plugin, or an SCA dependency
-            match — expands to show matching public exploits from{" "}
-            <strong>Exploit-DB</strong> (the public corpus behind{" "}
-            <code>searchsploit</code>). The signal you get is:{" "}
-            <em>does a working exploit for this CVE actually ship on
-            the public internet today?</em> That's the prioritisation
-            cue CVSS and EPSS can't give you.
+            signature engine, an active plugin, a Nuclei template, or
+            an SCA dependency match — expands to show matching public
+            exploits from <strong>Exploit-DB</strong> (the public
+            corpus behind <code>searchsploit</code>). The signal you
+            get is: <em>does a working exploit for this CVE actually
+            ship on the public internet today?</em> That's the
+            prioritisation axis CVSS and EPSS can't give you. CVSS
+            describes theoretical impact; EPSS predicts likelihood;
+            Exploit-DB confirms whether the weaponisation step has
+            already happened.
+          </p>
+
+          <h4>Where enrichment appears</h4>
+          <p>
+            The <strong>Public exploits</strong> block renders inside
+            the expandable detail pane, directly below the existing
+            NVD CVE link, in two places:
+          </p>
+          <ul>
+            <li>
+              <strong>Findings view</strong> — for every row whose{" "}
+              <em>CVE</em> column is populated, regardless of source
+              (signature match, active check, Nuclei template,
+              fingerprint-linked CVE).
+            </li>
+            <li>
+              <strong>SCA view</strong> — for every dependency-match
+              finding with a CVE. This is the highest-leverage spot:
+              you get component → CVE → exploit in a single expand.
+            </li>
+          </ul>
+          <p>
+            Findings with no CVE never render the block. Findings
+            with a CVE that has no Exploit-DB match also render
+            nothing — absence of the block means "no indexed public
+            exploit", not "failed to look up".
           </p>
 
           <h4>What ships, what syncs</h4>
           <p>
             corvex bundles a pre-built snapshot of Exploit-DB's{" "}
             <code>files_exploits.csv</code> (~12 MB) under{" "}
-            <code>program/databases/exploitdb/</code>. On first launch
-            the snapshot is copied into your per-user data directory
-            so enrichment works out of the box. The bundled copy is
-            refreshed at each corvex release; you can also click{" "}
-            <strong>Re-sync</strong> in{" "}
-            <strong>Databases → Exploit-DB</strong> to pull the latest
-            index directly from the upstream gitlab repo between
-            releases.
+            <code>program/databases/exploitdb/</code>, pinned to a
+            specific upstream commit recorded in{" "}
+            <code>MANIFEST.toml</code>. On first launch the snapshot
+            is copied into your per-user data directory as{" "}
+            <code>&lt;app_data_dir&gt;/exploitdb.sqlite</code> — so
+            enrichment works out of the box, no empty-state
+            configuration required.
           </p>
           <p>
-            No exploit source code is bundled. The first time you
-            click <em>View source</em> on a hit, corvex fetches just
-            that one file from upstream and caches it under{" "}
-            <code>&lt;app_data_dir&gt;/exploitdb/cache/</code>. From
-            then on that exploit is available offline.
+            When you click <strong>Re-sync</strong> in{" "}
+            <strong>Databases → Exploit-DB</strong>, corvex pulls the
+            latest CSV from the upstream gitlab repo, rebuilds the
+            index in one SQL transaction (~2 s on a dev laptop), and
+            marks the DB's <em>origin</em> as <code>user-synced</code>.
+            An <code>If-None-Match</code> ETag means a second
+            consecutive Re-sync short-circuits on 304 without a
+            reparse.
+          </p>
+          <p>
+            On app upgrade, if a corvex release ships a newer bundled
+            snapshot than your current <em>bundled</em> copy, it's
+            replaced automatically. If your copy is already{" "}
+            <em>user-synced</em>, it's preserved — the assumption is
+            you synced for a reason.
+          </p>
+          <p>
+            No exploit source code is ever bundled. The first time
+            you click <em>View source</em> on a specific hit, corvex
+            fetches just that one file from the upstream raw URL and
+            writes it to{" "}
+            <code>&lt;app_data_dir&gt;/exploitdb/cache/&lt;edb_id&gt;.&lt;ext&gt;</code>.
+            From then on that exploit renders from cache —
+            instantaneous, offline-capable, and you can grep the
+            cache directory directly with your own tools.
           </p>
 
           <h4>Reading a hit</h4>
@@ -3504,41 +3689,121 @@ Content-Length: 42
             <dd>
               Canonical Exploit-DB identifier. Click{" "}
               <em>Open on exploit-db.com</em> to view the record
-              upstream with attribution, advisory, and screenshots.
+              upstream with attribution, advisory, screenshots, and
+              full comment history. The EDB-ID is stable forever —
+              use it when referencing a specific exploit in tickets
+              or reports.
             </dd>
             <dt><strong>Type</strong> — remote / local / webapps / dos / shellcode</dt>
             <dd>
               <code>remote</code> fires over the network from a
-              separate host; <code>local</code> needs prior access on
-              the target; <code>webapps</code> targets a web
-              application; <code>dos</code> only induces denial of
-              service. <code>shellcode</code> entries are raw payload
-              fragments, not runnable exploits.
+              separate host (the high-priority class for most
+              pentests). <code>local</code> requires prior access on
+              the target — relevant for privilege escalation or
+              lateral movement, not initial access.{" "}
+              <code>webapps</code> targets a web application via HTTP
+              (XSS, SQLi, RCE via request). <code>dos</code> only
+              crashes or stalls the target — worth knowing about for
+              availability-critical systems but rarely the top
+              priority. <code>shellcode</code> entries are raw
+              payload fragments, not runnable exploits; they're
+              building blocks, not scripts.
             </dd>
             <dt><strong>Platform</strong></dt>
             <dd>
-              Target OS / runtime the exploit expects (e.g.{" "}
+              Target OS / runtime the exploit expects:{" "}
               <code>linux</code>, <code>windows</code>,{" "}
-              <code>php</code>, <code>java</code>,{" "}
-              <code>hardware</code>).
+              <code>multiple</code> (cross-platform),{" "}
+              <code>php</code>, <code>java</code>, <code>asp</code>,{" "}
+              <code>hardware</code> (firmware), etc. A platform
+              mismatch with your target stack is usually enough to
+              deprioritise the hit.
             </dd>
-            <dt><strong>Verified</strong></dt>
+            <dt><strong>✓ Verified</strong></dt>
             <dd>
               Exploit-DB maintainers have reproduced the exploit
-              themselves. Unverified entries can still be useful but
-              may be incomplete, target a slightly different version,
-              or require tweaks to run.
+              themselves in a controlled environment. Verified
+              entries are almost always runnable with minimal
+              modification. Unverified entries can still be useful
+              but may be incomplete, target a slightly different
+              version, or require tweaks; treat them as starting
+              points rather than finished tools.
+            </dd>
+            <dt><strong>Date published</strong></dt>
+            <dd>
+              When the exploit was first published on Exploit-DB.
+              Useful for judging maturity: an exploit from the week
+              of the CVE announcement is often rough; one polished
+              over months of community iteration is usually more
+              reliable.
+            </dd>
+            <dt><strong>Author</strong></dt>
+            <dd>
+              The researcher who submitted the exploit. Shown at the
+              end of each row. Click through to exploit-db.com to see
+              their full catalogue if you want more context on their
+              work.
             </dd>
           </dl>
 
+          <h4>Interactions with other corvex features</h4>
+          <ul>
+            <li>
+              <strong>Scan → Findings → Exploit-DB:</strong> after
+              any scan, the Findings table's existing filters (by
+              severity, by source, by search text) narrow the rows
+              you see, and every remaining CVE-bearing row gets the
+              enrichment block on expand. Export CSV / JSON preserves
+              the CVE column; downstream tools can match against
+              Exploit-DB independently.
+            </li>
+            <li>
+              <strong>SCA → package-pinned CVE → exploit:</strong>{" "}
+              the tightest loop, because component + CVE + exploit
+              are one click apart. A verified webapps exploit
+              targeting a pinned dependency is an immediate upgrade
+              trigger.
+            </li>
+            <li>
+              <strong>Proxy → Checks → Findings → Exploit-DB:</strong>{" "}
+              Check-driven findings flow through the same Findings
+              table, so the enrichment applies identically.
+            </li>
+          </ul>
+
+          <h4>Data location and privacy</h4>
+          <ul>
+            <li>
+              <strong>Local index:</strong>{" "}
+              <code>&lt;app_data_dir&gt;/exploitdb.sqlite</code> —
+              the full CSV translated to SQLite. Delete this file
+              and the bundled snapshot re-seeds on next launch.
+            </li>
+            <li>
+              <strong>Source cache:</strong>{" "}
+              <code>&lt;app_data_dir&gt;/exploitdb/cache/&lt;id&gt;.&lt;ext&gt;</code>{" "}
+              — one file per exploit you've viewed. Safe to delete
+              wholesale; the next View source will re-fetch.
+            </li>
+            <li>
+              <strong>Network egress:</strong> corvex contacts{" "}
+              <code>gitlab.com</code> only when you explicitly click
+              Re-sync or View source. There is no background fetch,
+              no startup ping, no telemetry on which exploits you
+              viewed.
+            </li>
+          </ul>
+
           <h4>Authorisation reminder</h4>
           <p>
-            Surfacing an exploit is <strong>not</strong> permission to
-            run it. Launching public exploits against systems you do
-            not own or have explicit written authorisation to test is
-            illegal in most jurisdictions. Use these hits to prioritise
-            remediation and to inform your engagement scope — not as a
-            green light to fire.
+            Surfacing an exploit is <strong>not</strong> permission
+            to run it. Launching public exploits against systems you
+            do not own or have explicit written authorisation to
+            test is illegal in most jurisdictions and an
+            unambiguous breach of most responsible-disclosure
+            norms. Use these hits to prioritise remediation, to
+            inform engagement scope, and to educate yourself on the
+            exploitation path — not as a green light to fire.
           </p>
         </section>
 

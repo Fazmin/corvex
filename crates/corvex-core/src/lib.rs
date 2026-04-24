@@ -38,4 +38,22 @@ pub mod vulndb;
 pub use error::{CorvexError, Result};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Short build identifier stamped by `build.rs`. Format: the short
+/// git SHA when the build happens inside a git tree (with a
+/// `-dirty` suffix if the working tree has uncommitted changes), or
+/// `sde.<epoch>` / `d<YYYYMMDD>` as fallbacks for off-tree builds.
+pub const BUILD_ID: &str = env!("CORVEX_BUILD_ID");
+
+/// UTC date the current binary was built, as `YYYYMMDD`.
+pub const BUILD_DATE: &str = env!("CORVEX_BUILD_DATE");
+
+/// Cargo profile the binary was compiled under (`debug` / `release`).
+pub const BUILD_PROFILE: &str = env!("CORVEX_BUILD_PROFILE");
+
+/// Full display-friendly version: the crate's semver plus a SemVer
+/// `+build` metadata tag that changes on every rebuild. This is what
+/// the UI surfaces in the title bar and exports in findings so every
+/// report is pinned to an identifiable build.
+pub const FULL_VERSION: &str = env!("CORVEX_FULL_VERSION");
 pub const PRODUCT_NAME: &str = "Corvex";

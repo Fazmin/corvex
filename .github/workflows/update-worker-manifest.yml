@@ -78,9 +78,14 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Publishing to the Cloudflare Worker manifest is optional —
+          # only forks that actually run the public update endpoint
+          # configure these secrets. A missing secret is a skip, not
+          # a failure, so contributor forks don't see a red check on
+          # every push.
           if [ -z "${UPDATE_URL:-}" ] || [ -z "${UPDATE_TOKEN:-}" ]; then
-            echo "Missing CF_WORKER_UPDATE_URL or CF_WORKER_UPDATE_TOKEN secrets." >&2
-            exit 1
+            echo "::notice title=Cloudflare Worker manifest skipped::CF_WORKER_UPDATE_URL / CF_WORKER_UPDATE_TOKEN not set; skipping remote publish."
+            exit 0
           fi
 
           curl -fsS -X POST "$UPDATE_URL" \
