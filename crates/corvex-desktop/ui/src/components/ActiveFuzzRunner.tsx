@@ -192,7 +192,22 @@ export function ActiveFuzzRunner({
       <form className="panel" onSubmit={submit} style={{ marginBottom: 12 }}>
         <div className="panel-body">
           <div className="field">
-            <label>Target URL</label>
+            <div className="label-row">
+              <label>Target URL</label>
+              <InfoTip label="Target URL help">
+                <strong>Target URL</strong>
+                The origin or starting URL for the fuzzing run. The scheme
+                is optional &mdash; all of these are accepted:
+                <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                  <li><code>example.com</code></li>
+                  <li><code>example.com:8080</code></li>
+                  <li><code>https://example.com/login?id=1</code></li>
+                  <li><code>10.0.0.1/app</code></li>
+                </ul>
+                For a single endpoint, paste the full URL and set scope to{" "}
+                <code>Page only</code> so the crawler doesn't spread.
+              </InfoTip>
+            </div>
             <input
               type="text"
               value={host}
@@ -206,7 +221,37 @@ export function ActiveFuzzRunner({
 
           <div className="row">
             <div>
-              <label>Scope</label>
+              <div className="label-row">
+                <label>Scope</label>
+                <InfoTip label="Scope help">
+                  <strong>Scope</strong>
+                  Controls how far the crawler spreads from the target URL
+                  before it starts fuzzing.
+                  <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                    <li>
+                      <strong>Domain</strong> &mdash; same host only. Default
+                      for new runs.
+                    </li>
+                    <li>
+                      <strong>Subdomains</strong> &mdash; host plus every{" "}
+                      <code>*.host</code>. Use when an app spans{" "}
+                      <code>api.</code>, <code>admin.</code>,{" "}
+                      <code>static.</code>, etc.
+                    </li>
+                    <li>
+                      <strong>Folder</strong> &mdash; only paths under the
+                      current directory, e.g. a target of{" "}
+                      <code>/app/v2/</code> stays inside <code>/app/v2/*</code>.
+                    </li>
+                    <li>
+                      <strong>Page only</strong> &mdash; hit exactly this URL,
+                      no crawl. This is what "Send to Fuzzer" uses so a single
+                      intercepted request is re-played against every injection
+                      point.
+                    </li>
+                  </ul>
+                </InfoTip>
+              </div>
               <select value={scope} onChange={(e) => setScope(e.target.value)}>
                 <option value="domain">Domain</option>
                 <option value="subdomains">Subdomains</option>
@@ -215,7 +260,30 @@ export function ActiveFuzzRunner({
               </select>
             </div>
             <div>
-              <label>Crawl depth</label>
+              <div className="label-row">
+                <label>Crawl depth</label>
+                <InfoTip label="Crawl depth help">
+                  <strong>Crawl depth</strong>
+                  Maximum number of link hops the crawler follows outward
+                  from the target URL.
+                  <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                    <li>
+                      <code>1</code> &mdash; only the target page and its
+                      direct links
+                    </li>
+                    <li>
+                      <code>3</code> &mdash; default; reaches most app
+                      routes without wandering
+                    </li>
+                    <li>
+                      <code>5+</code> &mdash; deep crawl; cost grows roughly
+                      geometrically with the branching factor
+                    </li>
+                  </ul>
+                  Clamped to 1&ndash;20. Ignored when scope is{" "}
+                  <code>Page only</code>.
+                </InfoTip>
+              </div>
               <input
                 type="number"
                 min={1}
@@ -227,7 +295,30 @@ export function ActiveFuzzRunner({
           </div>
 
           <div className="field">
-            <label>Max URLs</label>
+            <div className="label-row">
+              <label>Max URLs</label>
+              <InfoTip label="Max URLs help">
+                <strong>Max URLs</strong>
+                Hard cap on how many unique URLs the crawler will visit in
+                this run. A safety belt that keeps a broad scope from
+                running away.
+                <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                  <li>
+                    <code>50&ndash;100</code> &mdash; quick sanity probe
+                  </li>
+                  <li>
+                    <code>500</code> &mdash; default, covers most mid-sized
+                    apps
+                  </li>
+                  <li>
+                    <code>2000+</code> &mdash; large portals / full-site
+                    sweeps
+                  </li>
+                </ul>
+                Clamped to 10&ndash;10000. Combined with{" "}
+                <em>Crawl depth</em> to bound the run.
+              </InfoTip>
+            </div>
             <input
               type="number"
               min={10}
@@ -252,7 +343,36 @@ export function ActiveFuzzRunner({
 
             <div className="row">
               <div>
-                <label>Level (1-5)</label>
+                <div className="label-row">
+                  <label>Level (1-5)</label>
+                  <InfoTip label="Level help">
+                    <strong>Level</strong>
+                    Breadth of SQLi testing &mdash; higher levels inject into
+                    more parameter locations and use more payload variants
+                    per parameter.
+                    <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                      <li>
+                        <code>1</code> &mdash; GET / POST parameters only
+                        (default, fast)
+                      </li>
+                      <li>
+                        <code>2</code> &mdash; + cookies
+                      </li>
+                      <li>
+                        <code>3</code> &mdash; + HTTP headers
+                      </li>
+                      <li>
+                        <code>4</code> &mdash; + User-Agent / Referer / Host
+                      </li>
+                      <li>
+                        <code>5</code> &mdash; all of the above plus extended
+                        payload vectors
+                      </li>
+                    </ul>
+                    Start at <code>1</code>; raise only if the app looks like
+                    it reads SQLi-reachable data from cookies or headers.
+                  </InfoTip>
+                </div>
                 <input
                   type="number"
                   min={1}
@@ -262,7 +382,30 @@ export function ActiveFuzzRunner({
                 />
               </div>
               <div>
-                <label>Risk (1-3)</label>
+                <div className="label-row">
+                  <label>Risk (1-3)</label>
+                  <InfoTip label="Risk help">
+                    <strong>Risk</strong>
+                    How destructive the injected payloads are allowed to be.
+                    <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                      <li>
+                        <code>1</code> &mdash; safe, read-only payloads
+                        (default)
+                      </li>
+                      <li>
+                        <code>2</code> &mdash; + heavy timing payloads +
+                        stacked-query booleans that may briefly block the DB
+                      </li>
+                      <li>
+                        <code>3</code> &mdash; unlocks file read/write and
+                        OS-command exploitation (<code>sqli_exploit</code>,
+                        <code>file-read</code>, <code>os-cmd</code>).
+                        <strong> Only use on systems you own or have
+                        written authorisation to attack.</strong>
+                      </li>
+                    </ul>
+                  </InfoTip>
+                </div>
                 <input
                   type="number"
                   min={1}
@@ -274,7 +417,44 @@ export function ActiveFuzzRunner({
             </div>
 
             <div className="field">
-              <label>Techniques</label>
+              <div className="label-row">
+                <label>Techniques</label>
+                <InfoTip label="Techniques help">
+                  <strong>Techniques</strong>
+                  Which SQLi detection techniques the engine tries, in
+                  priority order. Short-circuits once a parameter is
+                  confirmed at high confidence.
+                  <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                    <li>
+                      <strong>Boolean</strong> (<code>B</code>) &mdash; compare
+                      true/false page responses. Works when errors are
+                      suppressed.
+                    </li>
+                    <li>
+                      <strong>Error</strong> (<code>E</code>) &mdash; parse DB
+                      error messages. Fastest &mdash; 1&ndash;3 requests per
+                      parameter.
+                    </li>
+                    <li>
+                      <strong>Union</strong> (<code>U</code>) &mdash;{" "}
+                      <code>UNION SELECT</code> to extract data directly. Most
+                      powerful for dumping.
+                    </li>
+                    <li>
+                      <strong>Stacked</strong> (<code>S</code>) &mdash;{" "}
+                      <code>;</code>-separated statements. Requires Risk{" "}
+                      &ge; 2.
+                    </li>
+                    <li>
+                      <strong>Time</strong> (<code>T</code>) &mdash;{" "}
+                      <code>SLEEP</code> / <code>WAITFOR</code> payloads.
+                      Slowest, but works when nothing else does.
+                    </li>
+                  </ul>
+                  Default <code>BEUST</code> enables all five. See the
+                  Techniques tab for deeper details.
+                </InfoTip>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px 8px" }}>
                 {["B", "E", "U", "S", "T"].map((t) => (
                   <label key={t} className="checkbox" style={{ margin: 0, fontSize: "var(--font-base)", whiteSpace: "nowrap" }}>
@@ -294,7 +474,29 @@ export function ActiveFuzzRunner({
 
             <div className="row">
               <div>
-                <label>DBMS</label>
+                <div className="label-row">
+                  <label>DBMS</label>
+                  <InfoTip label="DBMS help">
+                    <strong>DBMS</strong>
+                    Force a specific database backend when auto-detect picks
+                    the wrong one or keeps firing useless dialect-specific
+                    probes.
+                    <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                      <li>
+                        <strong>Auto-detect</strong> (default) &mdash; engine
+                        fingerprints the backend from error strings, version
+                        banners, and dialect-specific function responses
+                      </li>
+                      <li>
+                        Pin to one backend (MySQL, PostgreSQL, MSSQL, Oracle,
+                        SQLite, MariaDB, DB2, Firebird) to skip
+                        fingerprinting and cut request count
+                      </li>
+                    </ul>
+                    See the DBMS tab for per-backend error patterns, sleep
+                    functions, and catalog queries.
+                  </InfoTip>
+                </div>
                 <select value={sqliDbms} onChange={(e) => setSqliDbms(e.target.value)}>
                   <option value="">Auto-detect</option>
                   <option value="mysql">MySQL</option>
@@ -308,7 +510,31 @@ export function ActiveFuzzRunner({
                 </select>
               </div>
               <div>
-                <label>Time delay (s)</label>
+                <div className="label-row">
+                  <label>Time delay (s)</label>
+                  <InfoTip label="Time delay help">
+                    <strong>Time delay</strong>
+                    Seconds each time-based SQLi payload should sleep.
+                    Confirmation probes double this delay, so the real upper
+                    bound is 2&times; this value per confirmation.
+                    <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                      <li>
+                        <code>5</code> &mdash; default, safe on LAN / low-RTT
+                        targets
+                      </li>
+                      <li>
+                        <code>10&ndash;15</code> &mdash; noisy or slow
+                        network; lifts the signal above RTT jitter
+                      </li>
+                      <li>
+                        <code>1&ndash;3</code> &mdash; very fast localhost
+                        testing only
+                      </li>
+                    </ul>
+                    The request timeout is automatically extended to fit.
+                    Clamped to 1&ndash;30.
+                  </InfoTip>
+                </div>
                 <input
                   type="number"
                   min={1}
@@ -320,7 +546,35 @@ export function ActiveFuzzRunner({
             </div>
 
             <div className="field">
-              <label>Tamper modules</label>
+              <div className="label-row">
+                <label>Tamper modules</label>
+                <InfoTip label="Tamper modules help">
+                  <strong>Tamper modules</strong>
+                  Comma-separated list of payload transforms applied
+                  left-to-right to every SQLi payload before it's sent.
+                  Useful for bypassing WAFs, mod_security rules, and
+                  homegrown input filters.
+                  <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                    <li>
+                      <code>space2comment,randomcase</code> &mdash; rewrites
+                      spaces as <code>/**/</code> and randomises keyword
+                      case &mdash; a solid first attempt against most WAFs
+                    </li>
+                    <li>
+                      <code>charunicodeencode,between</code> &mdash; Unicode
+                      URL-encoded + rewrites <code>&gt;</code> as{" "}
+                      <code>NOT BETWEEN</code>
+                    </li>
+                    <li>
+                      <code>versionedkeywords</code> &mdash; MySQL-only, wraps
+                      keywords in <code>/*!50000&hellip;*/</code> versioned
+                      comments
+                    </li>
+                  </ul>
+                  Leave blank for no transforms. See the Tamper tab for the
+                  full list of 50 modules grouped by strategy.
+                </InfoTip>
+              </div>
               <input
                 type="text"
                 value={tamper}
@@ -330,7 +584,39 @@ export function ActiveFuzzRunner({
             </div>
 
             <div className="field">
-              <label>Enumerate</label>
+              <div className="label-row">
+                <label>Enumerate</label>
+                <InfoTip label="Enumerate help">
+                  <strong>Enumerate</strong>
+                  Post-detection extraction actions the engine runs once a
+                  parameter is confirmed injectable. Each ticked box costs
+                  extra requests; the blind techniques (~8 requests per
+                  character) dominate the cost.
+                  <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                    <li>
+                      <strong>Databases / Tables / Columns / Users</strong>{" "}
+                      &mdash; catalog enumeration. Safe and cheap; good
+                      first-run combo for "prove it's real".
+                    </li>
+                    <li>
+                      <strong>Passwords</strong> &mdash; reads{" "}
+                      <code>mysql.user</code>, <code>pg_shadow</code>,{" "}
+                      <code>sys.sql_logins</code>, etc. Pulls credential
+                      material &mdash; only if you have permission.
+                    </li>
+                    <li>
+                      <strong>Dump</strong> &mdash; extracts full row data
+                      from discovered tables. Very expensive over blind.
+                    </li>
+                    <li>
+                      <strong>File read / OS cmd</strong> &mdash; reads files
+                      off the host or runs shell commands as the DB user.
+                      <strong> Requires Risk 3.</strong>
+                    </li>
+                  </ul>
+                  Leave all unchecked for a detection-only run.
+                </InfoTip>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px 8px" }}>
                 {[
                   { value: "dbs", label: "Databases" },

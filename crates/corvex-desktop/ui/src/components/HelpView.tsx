@@ -221,6 +221,15 @@ export function HelpView() {
             fully wired; several other active modules (XSS, LFI, CRLF, open
             redirect, SSRF, etc.) are stubs at the moment.
           </p>
+          <p>
+            Every input on the Run form carries an <strong>(i)</strong> icon
+            next to its label. Click it for a popover with accepted values,
+            sensible defaults, and example settings &mdash; e.g. what{" "}
+            <em>Level 3</em> actually injects, which <em>Risk</em> tiers unlock
+            destructive payloads, or a starter tamper chain to try against a
+            WAF. Use these tooltips to tune a run without jumping between the
+            Run form and the reference tabs.
+          </p>
 
           <h4>Probing</h4>
           <p>
