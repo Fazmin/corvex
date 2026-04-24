@@ -26,17 +26,25 @@ installable application:
 5. A **service probing** engine (Nmap-class service detection + JARM TLS
    fingerprinting).
 6. An **intercepting HTTP/HTTPS proxy** with its own Certificate
-   Authority, per-session SQLite history, request/response interception,
-   and replay (Burp/mitmproxy-class workflow).
-7. A **Checks engine** that continuously evaluates proxy traffic against
-   OWASP Top-10-taxonomy passive/active checks.
+   Authority, per-session SQLite history, request *and* response
+   interception, WebSocket frame capture, scope rules, retention
+   policy, HAR export, OpenAPI / Postman spec import, and full replay
+   (Burp/mitmproxy-class workflow).
+7. A **Checks engine** that continuously evaluates proxy traffic
+   against the OWASP Top 10 v2025 taxonomy with 6 passive and 7 coded
+   active checks (plus an umbrella active-Nuclei runner and per-template
+   rules), writing findings to the shared SQLite store.
 8. A **Nuclei template runner** for community-maintained YAML detection
-   rules, with bundled + on-demand template trees.
+   rules, with bundled + on-demand template trees, surfaced as passive
+   matcher-only checks against captured traffic *and* as an active
+   umbrella check (`nuclei-active`) that fires eligible HTTP templates
+   against a target.
 
 Everything runs locally. The binary ships the signature databases,
 Wappalyzer-compatible fingerprints, a curated Nuclei template set, the
-OWASP taxonomy, and a private CA generator. No SaaS, no cloud, no
-telemetry.
+OWASP Top 10 v2025 taxonomy, a 13-group / ~220-name hidden-parameter
+wordlist, a curated Wappalyzer → CPE map for banner-CVE lookups, and a
+private CA generator. No SaaS, no cloud, no telemetry.
 
 The GUI is a Tauri v2 shell (Rust core + React/TypeScript front-end). The
 same Rust engines power both the headless CLI (`corvex`) and the desktop
@@ -188,35 +196,83 @@ user launch an active scan directly from this view with the right
 
 ### 4.6 Intercept (proxy + replay + checks)
 
-Five sub-tabs:
+Five sub-tabs, wrapped in a toolbar that exposes the listener lifecycle
+(Start / Stop, listen address, running badge, CA-ready badge), a
+session-level **Export HAR** button, and an **Import spec** button that
+seeds the active session from an OpenAPI 3 JSON or Postman v2.1
+collection.
 
 - **Traffic** — Live list of HTTP/HTTPS exchanges captured by the
   embedded MITM proxy. Each row shows method, scheme, host:port, path,
   status, size, duration, scope decision (`in`/`out`/`excluded`),
-  origin (browser, replay, check), and tags. Clicking opens
-  request/response headers and a base64 body viewer (so binary bodies
-  don't explode the UI).
-- **Intercept** — Queue of requests/responses paused by the user's
-  intercept mode (`off` / `request` / `response` / `both`). Each
-  pending item can be **Forwarded**, **Edited and forwarded** (raw
-  bytes replaced), or **Dropped**. Subscribes to
-  `proxy://intercept-pending` events for zero-poll updates.
+  origin (browser, replay, check, imported), and tags (`websocket`,
+  `ws-extension`, `body-truncated`, …). Clicking a row expands an
+  in-place detail strip with IDs, req/res size, MIME, scope chip, and
+  three cross-tool actions — **Send to Replay**, **Send to Checks**,
+  and **Send to Fuzzer** (seeds the Active Fuzzing form with the
+  captured URL and opens the Fuzzing view). WebSocket upgrades show a
+  `ws` badge; expanding the row reveals a live frame list (opcode,
+  direction, FIN flag, sequence, text/binary preview) fed by a
+  `proxy://ws-frame` broadcast. Request / response bodies follow a
+  two-tier cap: 512 KB inline in SQLite, anything bigger spills to a
+  blob file; 32 MB hard cap per side triggers a `body-truncated` tag.
+- **Intercept** — Queue of requests *and* responses paused by the
+  user's intercept mode (`off` / `request` / `response` / `both`).
+  Each pending item can be **Forwarded**, **Edited and forwarded**
+  (raw bytes replaced), or **Dropped**. Subscribes to
+  `proxy://intercept-pending` events for zero-poll updates, with a
+  5-minute auto-forward safety timeout so a forgotten pause can't hang
+  the browser.
 - **Replay** — Pick a captured exchange, optionally mutate its raw
   request bytes, and re-send through the same upstream client. The
   replayed exchange is written back to the session DB under origin
   `Replay{parent}` so replays stack alongside the original request in
   Traffic.
-- **Checks** — Library of passive + active checks grouped by OWASP Top
-  10 category (version, release date, and description sourced from the
-  active `top10.yaml` taxonomy). The user selects one or more exchanges
-  + one or more active check IDs and clicks Run; findings stream in
-  through `proxy://scan-finding` events and get persisted in the shared
-  SQLite DB. Passive checks run automatically on every in-scope
-  exchange via `check_bridge.rs`.
-- **Settings** — Listen address (default `127.0.0.1:8888`), session
-  start/stop, live status (session ID, exchanges captured, CA ready),
-  and a one-click **Export CA as PEM** button so users can trust the
-  generated CA in Firefox / Chrome / the OS root store.
+- **Checks** — Library of passive + active checks grouped by OWASP
+  Top 10 v2025 category (version, release date, and description
+  sourced from the active `top10.yaml` taxonomy; a banner at the top
+  surfaces version + upstream link). The current build ships **6
+  passive checks** (Security Headers, Verbose Errors, Version
+  Disclosure, Insecure Cookies, Stack Fingerprint, Banner CVE
+  Cross-Reference), **7 coded active checks** (Reflected XSS, Error-
+  based SQLi, Boolean-blind SQLi, Time-based SQLi, Open Redirect,
+  SSRF, Hidden-Parameter Discovery), an **active Nuclei umbrella**
+  (`nuclei-active`) that drives the bundled HTTP template store against
+  a chosen target, and **per-template rows** for every supported
+  Nuclei template so users can enable / disable individual rules. The
+  library supports free-text search, "enabled only" filter, and OWASP-
+  category descriptions in header tooltips. The user picks one or more
+  exchanges (via *Send to Checks* on Traffic rows) plus one or more
+  active check IDs and clicks Run; findings stream in through
+  `proxy://scan-finding` events and get persisted in the shared SQLite
+  DB. Passive checks run automatically on every in-scope exchange via
+  `check_bridge.rs`.
+- **Settings** — Seven-section guided setup:
+  1. **Overview** — ordered checklist (CA → Browser → Verify) with
+     deep links to each sub-section.
+  2. **Certificate authority** — one-click **Export CA as PEM**
+     button, path of the on-disk CA, per-OS install commands
+     (macOS `security add-trusted-cert`, Linux `update-ca-trust`,
+     Windows `certutil -addstore`) so users can trust the
+     auto-generated CA in the system root store.
+  3. **Browser setup** — Firefox, Chrome/Edge, and Safari walkthroughs
+     with proxy-extension hints (FoxyProxy, SwitchyOmega).
+  4. **Scope rules** — persisted include / exclude lists. Each rule
+     is `{ host, path_regex?, port? }`; host supports exact and
+     `*.example.com` wildcard, path is a Rust regex evaluated at
+     capture time, port is optional. Empty include = all in-scope;
+     exclude always wins. Stored in the proxy DB via `scope_set` /
+     `scope_get` and hydrated into the listener at startup.
+  5. **Retention** — configurable ring buffer `max_exchanges_per_session`
+     (presets 1k / 5k / 20k / 100k / unlimited, default 5,000). On
+     every ~250 ms flush the writer evicts oldest rows plus their
+     dependent WebSocket frames and scan findings; the cap is
+     per-session (each Start / Stop cycle gets its own budget).
+     Persisted via `retention_set` / `retention_get`.
+  6. **Verify** — smoke-test checklist (open an HTTP then an HTTPS
+     page, confirm Traffic rows appear, body visible).
+  7. **Troubleshooting** — common failure modes (CA not trusted,
+     HSTS pins, certificate pinning, proxy bypassed).
 
 ### 4.7 Databases (embedded datasets)
 
@@ -308,10 +364,15 @@ rest is rendering.
 | `jarm_lookup` | Decompose a JARM hash into cipher/version + extensions digest and look up known matches. |
 | `probe_start` / `probe_cancel` | Standalone service probing (target expansion, per-host concurrency, live events). |
 | `proxy_start` / `proxy_stop` / `proxy_status` / `proxy_export_ca_pem` | Proxy session lifecycle + CA export. |
-| `exchanges_list` / `exchange_get` | Query the per-session exchange store. |
-| `intercept_set_mode` / `intercept_get_mode` / `intercept_pending_list` / `intercept_resolve` / `intercept_drop_all` | Intercept queue control. |
-| `replay_send` | Re-send a stored request with optional raw-byte edit. |
-| `checks_list` / `findings_for_exchange` / `findings_for_session` / `checks_run` | Checks engine descriptors, per-exchange and per-session findings, on-demand active check runs. |
+| `scope_get` / `scope_set` | Persisted include / exclude scope rule list (host, path regex, port). Path regexes are validated on save. |
+| `retention_get` / `retention_set` | Ring-buffer `max_exchanges_per_session` policy; 0 disables eviction, values over 1,000,000 are clamped. |
+| `proxy_export_har` | Stream the active session's captured exchanges out as a HAR 1.2 file (non-blocking; runs on the blocking pool so capture keeps going). |
+| `proxy_import_spec` | Parse an OpenAPI 3 JSON or Postman v2.1 collection and seed the active session with one `Imported` exchange per endpoint so Checks can target never-visited routes. Reports `{imported, skipped, format}`. |
+| `ws_frames_for_exchange` / `ws_frame_count` | Per-exchange WebSocket frame listing + count. Used by the traffic detail panel's frame viewer. |
+| `exchanges_list` / `exchange_get` | Query the per-session exchange store. `exchange_get` returns a 1 MB-per-side preview plus full req/res size so the UI can show a "truncated" indicator. |
+| `intercept_set_mode` / `intercept_get_mode` / `intercept_pending_list` / `intercept_resolve` / `intercept_drop_all` | Intercept queue control (applies to both request and response phases). |
+| `replay_send` | Re-send a stored request with optional raw-byte edit. The result is persisted as a new exchange under origin `Replay{parent}` and broadcast. |
+| `checks_list` / `findings_for_exchange` / `findings_for_session` / `checks_run` | Checks engine descriptors, per-exchange and per-session findings, on-demand active check runs. Descriptor rows carry their resolved OWASP category label + description from the active `top10.yaml`. |
 | `owasp_taxonomy_info` | Version, release, source, and full category list for the active `top10.yaml`. |
 
 ---
@@ -324,7 +385,8 @@ rest is rendering.
 - `scan://{id}/done` — terminal status (`done` / `cancelled` / `error`).
 - `probe://{id}/host-start` / `host-end` / `open-port` / `summary` / `error`.
 - `proxy://exchange-new` — every captured HTTP exchange (summary).
-- `proxy://intercept-pending` — new item parked on the intercept queue.
+- `proxy://ws-frame` — every captured WebSocket frame (exchange id, sequence, direction, opcode, FIN flag, base64 payload).
+- `proxy://intercept-pending` — new item parked on the intercept queue (request or response phase).
 - `proxy://scan-finding` — passive or active Check finding for a captured exchange.
 - `log://line` — every `tracing` event the engine emits (level, target, message).
 
@@ -338,10 +400,11 @@ load — the front-end isn't polling anything.
 
 | Path (platform-resolved via `app_data_dir`) | Contents |
 | --- | --- |
-| `history.sqlite` | Scan history table + proxy sessions, exchanges, findings. WAL mode so scanner and proxy share it safely. |
+| `history.sqlite` | Scan history table + proxy sessions, exchanges, WebSocket frames, scope rules, retention setting, key/value settings, findings. WAL mode so scanner and proxy share it safely. |
 | `proxy/ca/ca.cert.pem` + `proxy/ca/ca.key.pem` | Locally-generated Certificate Authority for HTTPS MITM. Regenerated on first proxy start if missing. |
+| `proxy/bodies/<exchange-id>.{req,res}.bin` | Large request / response bodies that exceed the 512 KB inline cap are spilled here (up to the 32 MB per-side hard cap). Evicted alongside the parent exchange when retention trims. |
 | `corvex/nuclei-templates/<tag>/` | Tier-2 Nuclei template cache (only `http/` is unpacked from the GitHub tarball). |
-| Bundled in binary | Web-signature DBs, Nuclei tier-1 curated templates, Wappalyzer seed + dataset, JARM known hashes, default config, OWASP `top10.yaml`. |
+| Bundled in binary | Web-signature DBs, Nuclei tier-1 curated templates, Wappalyzer seed + dataset, JARM known hashes, default config, OWASP `top10.yaml`, hidden-parameter wordlist, Wappalyzer → CPE map. |
 
 Nothing is written outside the user's data dir. No registry entries. No
 network calls unless the user explicitly clicks **Update VulnDB** or
@@ -395,11 +458,42 @@ risk-3 exploitation are gated behind the same UI.
 
 ### 8.7 "Make the proxy scan my Burp-style workflow for OWASP findings."
 
-Intercept → Start → Checks tab → review the built-in OWASP Top 10
-library → passive checks run automatically on every exchange → select
-a suspicious exchange → run the specific active checks you care about
-(e.g. `redirect-*`, `cors-*`, `headers-*`, `authn-*`). Every finding is
-persisted and re-loadable next session.
+Intercept → Start → Checks tab → review the built-in OWASP Top 10 v2025
+library → passive checks (Security Headers, Verbose Errors, Version
+Disclosure, Insecure Cookies, Stack Fingerprint, Banner CVE) run
+automatically on every in-scope exchange → select a suspicious
+exchange → run the specific active checks you care about (Reflected
+XSS, Error-based SQLi, Boolean-blind SQLi, Time-based SQLi, Open
+Redirect, SSRF, Hidden-Parameter Discovery, `nuclei-active`). Every
+finding is persisted and re-loadable next session.
+
+### 8.8 "Drive the Checks engine against an API I haven't clicked through yet."
+
+Intercept → Start → **Import spec** → pick an OpenAPI 3 JSON or Postman
+v2.1 collection → every endpoint lands in Traffic as an
+`origin = Imported` row. Select rows → Send to Checks → Run the active
+checks — the engine mutates parameters from the spec just as if you'd
+recorded them live. Pair with **Scope rules** to exclude auth / logout
+paths so the run doesn't nuke your session cookie.
+
+### 8.9 "Archive a session for offline review or handoff."
+
+Intercept → (session running or finished) → **Export HAR** → file
+picker → HAR 1.2 file with every captured request / response (bodies
+base64-encoded) is written. The export streams through the blocking
+pool so capture keeps going on a live session. Counterpart for blue
+teams: feed the HAR into your SIEM or detection-rule tester.
+
+### 8.10 "Is this banner actually exploitable?"
+
+Keep the proxy running while you browse → the **Stack Fingerprint**
+passive check tags each response with detected products / versions
+(Wappalyzer-schema dataset) → **Banner CVE** then queries the local
+NVD mirror per versioned banner, produces one finding per CVE with
+CVSS-mapped severity, adds EPSS score + percentile as evidence, and
+caps at 25 findings per exchange to avoid flooding noisy pages. No
+vulndb = check silently disabled; run **Update VulnDB** once from the
+Databases view to light it up.
 
 ---
 
@@ -446,20 +540,31 @@ persisted and re-loadable next session.
 
 ## 10. Known scope / limitations (v1)
 
-- The GUI exposes *most* but not *all* CLI flags — VEX/triage, report
-  merging/diffing, and OpenAPI ingestion are CLI-only today.
+- The GUI exposes *most* but not *all* CLI flags — VEX/triage and
+  report merging/diffing are CLI-only today. OpenAPI / Postman import
+  is wired into the proxy (see §4.6 / §8.8).
 - Nuclei tier-2 downloads only `http/` (the other protocol trees —
-  `network/`, `dns/`, `ssl/`, … — are not runnable in v1 and would just
-  inflate cache).
-- XSS is reflected-only in v1; DOM-based and stored XSS are planned.
-- SSRF, file-upload, CMS fingerprint, tech fingerprint, subdomain
-  takeover, and Log4Shell detectors are declared ready-to-ship modules
-  marked **planned** in `FuzzingView.tsx` — they already have UI
-  surfaces but are not yet wired to runnable detectors.
+  `network/`, `dns/`, `ssl/`, … — are not runnable in v1 and would
+  just inflate cache).
+- XSS is reflected-only in v1 (both in the scan-engine fuzzer and the
+  Checks engine); DOM-based and stored XSS are planned.
+- In the **active fuzzer** (`FuzzingView.tsx` inventory), `file_upload`,
+  `cms`, `tech`, `subdomain_takeover`, and `log4shell` are still marked
+  **planned** — they have UI rows but aren't wired to runnable
+  detectors. SSRF is handled by the **Checks engine** (`ssrf` active
+  check) rather than the scan-engine fuzzer.
 - CIDR expansion is IPv4-only in v1 (IPv6 literals work as single
   targets).
-- The Checks engine runs against live proxy exchanges; running it
-  against stored HAR/history requires replay.
+- Response body / request body capture is capped at 32 MB per side;
+  larger payloads forward cleanly but only the initial prefix is
+  stored and the exchange is tagged `body-truncated`.
+- Coded Checks for OWASP 2025 A08 (Software/Data Integrity), A09
+  (Logging & Alerting), and A10 (Mishandling of Exceptional Conditions)
+  currently rely on Nuclei templates matched via the classifier — no
+  hand-written probes yet.
+- OOB / Interactsh-dependent Nuclei templates (~65) are parsed but
+  skipped at runtime until a first-party collaborator service is
+  shipped.
 
 ---
 
@@ -468,10 +573,16 @@ persisted and re-loadable next session.
 ```
 crates/corvex-desktop/
   src/
-    main.rs           Tauri bootstrap, log + proxy + history setup
-    commands.rs       Scan/probe/db/nuclei/wappalyzer/jarm commands
+    main.rs           Tauri bootstrap, log + proxy + history + checks setup,
+                      hydrates scope rules + retention policy at launch,
+                      fans `exchange-new` / `ws-frame` / `intercept-pending`
+                      broadcasts out as Tauri events
+    commands.rs       Scan / probe / db / nuclei / wappalyzer / jarm commands
     proxy_cmd.rs      Proxy + intercept + replay + checks commands
-    check_bridge.rs   Subscribes to proxy exchanges → runs passive checks
+                      (scope, retention, HAR, spec import, ws frames, checks)
+    check_bridge.rs   Owns CheckRegistry, subscribes to proxy exchanges,
+                      runs passive checks per in-scope exchange, persists
+                      findings, emits `proxy://scan-finding`
     event_sink.rs     ReportSink that emits Tauri events per finding
     history.rs        SQLite scan-history DB
     log_bridge.rs     Pipes `tracing` events into the UI log panel
@@ -479,15 +590,21 @@ crates/corvex-desktop/
     probe_state.rs    In-memory registry of running probe UUIDs
     scan_state.rs     In-memory registry of running scan UUIDs
   ui/src/
-    App.tsx           Root layout, view router, event wiring
-    api.ts            Typed wrappers over invoke + listen
-    components/       One file per view: Dashboard, ProxyView,
-                      FuzzingView, ScaView, ProbingView,
-                      DatabasesView, HistoryView, HelpView,
-                      PluginsView, SettingsView, plus small widgets
-                      (FindingsTable, StatsBar, LogPanel,
-                      SeverityBreakdown, Sidebar, Toast,
-                      OnboardingTour, etc.)
+    App.tsx           Root layout, view router, event wiring,
+                      fuzzer-seed relay for "Send to Fuzzer"
+    api.ts            Typed wrappers over invoke + listen (scan, probe,
+                      proxy, scope, retention, HAR, spec import, intercept,
+                      replay, checks, ws frames, taxonomy, wappalyzer)
+    components/       One file per view: Dashboard, ProxyView (Traffic /
+                      Intercept / Replay / Checks / Settings sub-tabs with
+                      scope, retention, CA, browser, verify, troubleshoot
+                      sections), FuzzingView + ActiveFuzzRunner, ScaView,
+                      ProbingView + ProbeRunner + JarmInfo, DatabasesView,
+                      HistoryView, HelpView, PluginsView, SettingsView,
+                      plus small widgets (FindingsTable, StatsBar, LogPanel,
+                      SeverityBreakdown, Sidebar, Toast, OnboardingTour,
+                      ScanIndicator, Icons, TuningPicker, PluginPicker,
+                      TitleBar, ThemeToggle, InfoTip, StatCard)
   tauri.conf.json     Tauri window + bundle + resource config
 ```
 
@@ -495,24 +612,52 @@ Shared engines under `crates/`:
 
 | Crate | Purpose |
 | --- | --- |
-| `corvex-core` | HTTP client, config, scan runner, plugin registry, DBs, tuning, evasion, scope, CLI shape, VulnDB, port-scan, fuzz runner, SCA |
+| `corvex-core` | HTTP client, config, scan runner, plugin registry, DBs, tuning, evasion, scope, CLI shape, VulnDB, port-scan, fuzz runner, SCA, curated Wappalyzer → CPE map (`sca::cpe_map`) |
 | `corvex-plugins` | The 26 compile-time scan plugins + report sinks |
 | `corvex-nuclei` | YAML template parser, store, runner |
 | `corvex-sonar` | Service probing engine (scripted + static probes, fingerprints, JARM) |
-| `corvex-proxy` | MITM proxy, CA authority, exchange store, intercept queue, replay |
-| `corvex-checks` | OWASP-taxonomy passive + active check registry |
-| `corvex-intel` | Wappalyzer dataset + OWASP taxonomy loader |
+| `corvex-proxy` | MITM proxy, CA authority, exchange store, intercept queue (request + response phases), replay, scope rules, retention ring buffer, WebSocket frame store, body-spill store, HAR writer, OpenAPI / Postman importer |
+| `corvex-checks` | OWASP-taxonomy passive + active check registry; 6 passive (incl. `banner-cve`) + 7 coded active (incl. `boolean-blind-sqli`, `time-based-sqli`, `ssrf`, `hidden-params`) + `nuclei-active` umbrella + per-template rows |
+| `corvex-intel` | Wappalyzer dataset loader, OWASP Top 10 taxonomy (`data/owasp/top10.yaml`), XSS canary + open-redirect payloads, hidden-parameter catalogue (`hidden_params`), Nuclei → OWASP classifier |
+
+Checks engine source layout:
+
+```
+crates/corvex-checks/src/
+  active/
+    reflected_xss.rs       — A05 Injection, canary-reflection oracle
+    sqli_error.rs          — A05, DBMS error-signature bank
+    sqli_boolean.rs        — A05, trigram-ratio boolean-blind oracle
+    sqli_time.rs           — A05, two-shot time-based oracle
+    open_redirect.rs       — A01, sentinel-host redirect detection
+    ssrf.rs                — A10, cloud-metadata + loopback probes
+    hidden_params.rs       — A05, 13-group ~220-name wordlist
+    nuclei_active.rs       — A03 umbrella, Critical+High+KEV/RCE tags
+  passive/
+    security_headers.rs    — A04 baseline (CSP, HSTS, XFO, …)
+    verbose_errors.rs      — A02 error-leak patterns
+    version_disclosure.rs  — A03 "Server: …/N.N" style banners
+    insecure_cookies.rs    — A02 Secure / HttpOnly / SameSite audit
+    stack_fingerprint.rs   — A03 Wappalyzer-schema detection
+    banner_cve.rs          — A03 versioned-banner → vulndb CVE lookup
+    nuclei_template.rs     — per-template adapter + OWASP classifier
+  registry.rs              — CheckRegistry, default + bundled builders
+```
 
 ---
 
 ## 12. TL;DR pitch
 
 > Corvex Desktop gives a security engineer a Nikto-class signature
-> scanner, an SQLMap-class SQLi engine, a Nuclei template runner, an
-> Nmap-class service prober, a mini-Burp intercepting proxy with
-> replay, an OWASP-aligned passive/active Checks engine, and an SBOM +
-> binary + dependency vulnerability workbench — all in one Tauri
-> binary, backed by a local NVD+EPSS mirror and a local SQLite history
-> store, with live streaming UI, teachable in-app documentation, and
-> zero required network access beyond the handful of updates the user
-> initiates explicitly.
+> scanner, an SQLMap-class SQLi engine, a Nuclei template runner
+> (passive *and* active), an Nmap-class service prober, a mini-Burp
+> intercepting proxy with full request-*and*-response intercept,
+> replay, WebSocket frame capture, scope rules, retention policy, HAR
+> export, OpenAPI / Postman import, an OWASP Top 10 v2025-aligned
+> Checks engine (6 passive + 7 active coded checks + active-Nuclei
+> umbrella + per-template rules), and an SBOM + binary + dependency
+> vulnerability workbench — all in one Tauri binary, backed by a
+> local NVD+EPSS mirror and a local SQLite history store, with live
+> streaming UI, teachable in-app documentation, and zero required
+> network access beyond the handful of updates the user initiates
+> explicitly.
