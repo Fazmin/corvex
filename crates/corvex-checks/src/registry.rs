@@ -7,17 +7,21 @@
 
 use std::sync::Arc;
 
+use corvex_core::vulndb::VulnDb;
 use corvex_intel::fingerprint::LoadedFingerprint;
 use corvex_nuclei::store::TemplateStore;
 use corvex_proxy::Exchange;
 use futures::future::join_all;
 
-use crate::active::{ErrorBasedSqli, OpenRedirect, ReflectedXss};
+use crate::active::{
+    BooleanBlindSqli, ErrorBasedSqli, HiddenParams, NucleiActive, OpenRedirect, ReflectedXss,
+    Ssrf, TimeBasedSqli,
+};
 use crate::check::{ActiveCheck, CheckCtx, CheckDescriptor, PassiveCheck};
 use crate::finding::Finding;
 use crate::passive::{
-    InsecureCookies, NucleiTemplateAdapter, SecurityHeaders, StackFingerprint, TemplateChecks,
-    VerboseErrors, VersionDisclosure,
+    BannerCve, InsecureCookies, NucleiTemplateAdapter, SecurityHeaders, StackFingerprint,
+    TemplateChecks, VerboseErrors, VersionDisclosure,
 };
 
 pub struct CheckRegistry {
@@ -43,11 +47,16 @@ impl CheckRegistry {
 
     /// Add per-template descriptors from a [`TemplateChecks`]. Each
     /// template becomes its own row in the Checks library so the user
-    /// can enable / disable individual rules.
+    /// can enable / disable individual rules. Also registers the
+    /// umbrella `nuclei-active` active check so the same bundled
+    /// templates can be fired against targets on demand (severity-
+    /// gated by default).
     pub fn with_templates(mut self, templates: Arc<TemplateChecks>) -> Self {
         self.template_descriptors = templates.descriptors();
+        let store = templates.store().clone();
         self.passive
             .push(Arc::new(NucleiTemplateAdapter { inner: templates }));
+        self.active.push(Arc::new(NucleiActive::new(store)));
         self
     }
 
@@ -116,21 +125,26 @@ impl CheckRegistry {
 /// [`registry_with_bundles`] since only the desktop layer knows the
 /// app-data paths.
 pub fn default_registry() -> CheckRegistry {
-    default_registry_with_fingerprint(StackFingerprint::new())
+    default_registry_with_fingerprint(StackFingerprint::new(), BannerCve::new(None))
 }
 
-fn default_registry_with_fingerprint(fp: StackFingerprint) -> CheckRegistry {
+fn default_registry_with_fingerprint(fp: StackFingerprint, banner: BannerCve) -> CheckRegistry {
     let passive: Vec<Arc<dyn PassiveCheck>> = vec![
         Arc::new(SecurityHeaders),
         Arc::new(VerboseErrors),
         Arc::new(VersionDisclosure),
         Arc::new(InsecureCookies),
         Arc::new(fp),
+        Arc::new(banner),
     ];
     let active: Vec<Arc<dyn ActiveCheck>> = vec![
         Arc::new(ReflectedXss),
         Arc::new(ErrorBasedSqli),
+        Arc::new(BooleanBlindSqli),
+        Arc::new(TimeBasedSqli),
         Arc::new(OpenRedirect),
+        Arc::new(Ssrf),
+        Arc::new(HiddenParams),
     ];
     CheckRegistry::new(passive, active)
 }
@@ -145,12 +159,16 @@ pub fn registry_with_templates(store: Arc<TemplateStore>) -> CheckRegistry {
 
 /// Full-bundle registry — Nuclei templates plus the vendored
 /// Wappalyzer upstream. `upstream` falls back to empty (seed only)
-/// when the user hasn't run the refresh script.
+/// when the user hasn't run the refresh script. `vulndb` is optional —
+/// when present, the Banner CVE cross-reference check produces CVE
+/// findings for every banner with a concrete version.
 pub fn registry_with_bundles(
     nuclei_store: Arc<TemplateStore>,
     upstream_fingerprints: Arc<Vec<LoadedFingerprint>>,
+    vulndb: Option<Arc<VulnDb>>,
 ) -> CheckRegistry {
-    let fp = StackFingerprint::with_upstream(upstream_fingerprints);
+    let fp = StackFingerprint::with_upstream(upstream_fingerprints.clone());
+    let banner = BannerCve::with_upstream(upstream_fingerprints, vulndb);
     let templates = Arc::new(TemplateChecks::new(nuclei_store));
-    default_registry_with_fingerprint(fp).with_templates(templates)
+    default_registry_with_fingerprint(fp, banner).with_templates(templates)
 }

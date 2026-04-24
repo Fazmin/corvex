@@ -9,6 +9,7 @@
 
 pub mod fingerprint;
 pub mod headers;
+pub mod hidden_params;
 pub mod nuclei_mapping;
 pub mod owasp;
 pub mod payloads;

@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use corvex_checks::{registry_with_bundles, CheckRegistry, Finding};
+use corvex_core::vulndb::VulnDb;
 use corvex_intel::fingerprint::{embedded_dataset, LoadedFingerprint};
 use corvex_nuclei::{locate, store::TemplateStore};
 use corvex_proxy::{Exchange, ProxyDb, ProxyState, StoredFinding};
@@ -48,8 +49,32 @@ impl CheckBridge {
             upstream.len()
         );
 
+        // Shared vulndb handle — same file the CLI uses. When the DB
+        // is missing we keep the rest of the pipeline running; the
+        // Banner CVE cross-reference degrades to a no-op and logs
+        // once at startup so the user knows why no CVE findings are
+        // appearing.
+        let vulndb = match VulnDb::open_default() {
+            Ok(db) => {
+                let count = db.cve_count().unwrap_or(0);
+                tracing::info!(
+                    target: "checks",
+                    "vulndb ready for banner-cve cross-reference ({count} CVEs)"
+                );
+                Some(Arc::new(db))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "checks",
+                    "vulndb unavailable ({e}) — banner-cve check disabled; \
+                     run `vulndb update` from the Databases view to enable it"
+                );
+                None
+            }
+        };
+
         Self {
-            registry: Arc::new(registry_with_bundles(store, upstream)),
+            registry: Arc::new(registry_with_bundles(store, upstream, vulndb)),
         }
     }
 

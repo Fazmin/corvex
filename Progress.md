@@ -55,6 +55,41 @@ explicitly deferred. Update this file as items close out.
       Version Disclosure, Insecure Cookies
 - [x] 3 active checks: Reflected XSS, Error-based SQLi,
       Open Redirect
+- [x] Boolean-blind SQLi active check (`boolean-blind-sqli`,
+      A05) — trigram page-ratio oracle with four SQL boundary
+      variants (numeric / single-quote / double-quote /
+      paren-quote), baseline-stripping via
+      `corvex_core::sqli::detection::remove_dynamic_content`,
+      original-value-preserving probes.
+- [x] Time-based blind SQLi active check (`time-based-sqli`,
+      A05) — two-shot oracle (4s probe + 7s confirmation) with
+      per-DBMS sleep payloads (MySQL/PostgreSQL/MSSQL/Oracle),
+      MARGIN_MS jitter guard, stop-on-first-hit per parameter.
+- [x] SSRF active check (`ssrf`, A10) — cloud metadata probes
+      (AWS IMDSv1 + creds, GCP, Azure, DigitalOcean) plus
+      loopback / filter-bypass variants, body-marker oracle
+      with baseline suppression, Critical severity on
+      AWS/GCP/Azure hits.
+- [x] Hidden-parameter discovery active check
+      (`hidden-params`, A05) — curated 13-group / ~220-name
+      wordlist in `corvex-intel::hidden_params`, two-pass
+      probing (random canary → truthy fallback), control-probe
+      jitter suppression, per-class evidence (admin-access /
+      debug / method-override / feature-flag / …). Force
+      multiplier for every other active check.
+- [x] Active Nuclei template execution (`nuclei-active`, A03)
+      — umbrella active check that drives the existing
+      `corvex_nuclei::Executor` against the target's base URL,
+      default severity+KEV-tag filter, 300-template hard cap,
+      shared 8-way request semaphore. Findings emit with
+      check id `nuclei-active:<template-id>` distinct from the
+      passive `nuclei:<template-id>` rows. Env toggle
+      `NUCLEI_ACTIVE_INCLUDE_ALL=1` drops the filter for full
+      sweeps.
+- [x] Banner CVE cross-reference passive check
+      (`banner-cve`, A03) — Stack Fingerprint → vulndb lookup,
+      CVSS-mapped severity, EPSS evidence, 25-findings cap per
+      exchange; disabled when vulndb is absent.
 - [x] `CheckBridge` hooks proxy broadcast → passive run →
       `proxy://scan-finding` + SQLite persist
 - [x] Tauri commands: `checks_list` / `findings_for_exchange` /
@@ -101,6 +136,21 @@ explicitly deferred. Update this file as items close out.
 - [x] Scenarios 11–16 — proxy-driven recipes (login capture,
       wire tampering, XSS hunt, SQLi probe, IDOR replay,
       passive header audit)
+- [x] Scenario 25 — Banner-CVE cross-reference recipe
+      (versioned banner → CVE list, CVSS + EPSS triage, false-
+      positive guard against CDN banner spoofing)
+- [x] Scenarios 26–27 — Boolean-blind SQLi confirmation
+      playbook + Time-based blind SQLi oracle (two-shot
+      confirmation, Replay validation, stall-time caveats)
+- [x] Scenario 28 — Cloud-credential SSRF playbook
+      (fetch-URL endpoints, AWS/GCP/Azure metadata leaks,
+      manual IAM token escalation via Replay)
+- [x] Scenario 29 — Hidden-parameter discovery playbook
+      (class-based triage, pivot to SQLi/SSRF/XSS on the
+      augmented parameter set, method-override CSRF bypass)
+- [x] Scenario 30 — Active Nuclei template execution
+      (path-specific templates, severity/KEV filter,
+      INCLUDE_ALL widening, triage by CVE vs topic tag)
 - [x] Glossary — 20 new terms under "Proxy & traffic
       interception" and "Checks & findings"
 
@@ -136,20 +186,27 @@ explicitly deferred. Update this file as items close out.
 - [x] OpenAPI / Postman import as a seed for Checks targets
 
 ### Checks — coverage gaps
-- [ ] Banner-CVE cross-reference check (consumes Stack
-      Fingerprint output + vulndb)
-- [ ] Active Nuclei-template execution (matcher-only runs
-      today; templates that send their own requests are
-      toggleable but no-ops)
+- [x] Banner-CVE cross-reference check (consumes Stack
+      Fingerprint output + vulndb) — shipped as the
+      `banner-cve` passive check, CVSS-mapped severity, EPSS
+      evidence, curated Wappalyzer → CPE map in
+      `corvex-core::sca::cpe_map::lookup_web_tech_cpe`.
+- [x] Active Nuclei-template execution — shipped as the
+      `nuclei-active` umbrella active check (see Phase 3A).
+      Matcher-only passive path still runs alongside against
+      already-captured traffic.
 - [ ] Coded checks for OWASP A08 (Software/Data Integrity),
       A09 (Logging & Alerting), A10 (Mishandling of Exceptional
       Conditions) — currently only Nuclei templates via the
       classifier populate these buckets
 
 ### Intel / datasets
-- [ ] Hidden-parameter wordlist (SecLists / FuzzDB subset)
+- [x] Hidden-parameter wordlist — 13-group / ~220-name curated
+      catalogue in `corvex-intel::hidden_params`, consumed by
+      the `hidden-params` active check.
 - [ ] Full SecLists / FuzzDB payload vendoring beyond the
-      current hand-curated seed in `corvex-intel::payloads`
+      current hand-curated seed in `corvex-intel::payloads` and
+      `corvex-intel::hidden_params`
 
 ### Desktop plumbing — cleanup
 - [ ] Remove or surface `wappalyzer_summary`'s stale `upstream` /

@@ -970,6 +970,23 @@ Port:       (blank)`}
               regex captured one.
             </li>
             <li>
+              <strong>Banner CVE Cross-Reference (A03, passive)</strong> —
+              for every Stack Fingerprint detection that captured a
+              version (e.g. <code>nginx 1.18.0</code>,{" "}
+              <code>WordPress 6.2.1</code>, <code>Apache Tomcat 9.0.45</code>),
+              queries the local vulndb for matching CVEs and emits one
+              finding per CVE with severity derived from the CVSS v3.1
+              base score (Critical ≥ 9.0, High ≥ 7.0, Medium ≥ 4.0, Low
+              &gt; 0). Evidence carries the CPE vendor/product, CVSS
+              score + vector, EPSS score if known, and the NVD
+              description. Needs the vulndb populated — open{" "}
+              <em>Databases → Vulnerabilities</em> and click{" "}
+              <strong>Refresh now</strong> if the check is quiet on
+              obvious banners. Bare banners without a version (e.g.{" "}
+              <code>Server: nginx</code>) are deliberately skipped — NVD
+              range matching needs a concrete version.
+            </li>
+            <li>
               <strong>Reflected XSS (A03, active)</strong> — injects a
               unique canary into each query parameter across several
               context-breakers (attribute break, script break, svg
@@ -982,6 +999,95 @@ Port:       (blank)`}
               <code>"</code>, <code>')</code>, <code>' OR '1'='1</code>)
               per parameter and matches responses against the existing
               corvex SQLi error-signature bank.
+            </li>
+            <li>
+              <strong>Boolean-blind SQL Injection (A05, active)</strong>{" "}
+              — sends paired probes that differ by a single truth value
+              (<code>AND 1=1</code> vs <code>AND 1=2</code>) across four
+              SQL boundaries (numeric, single-quote, double-quote,
+              paren-quote). Uses the same trigram page-similarity math
+              as sqlmap: a TRUE probe that matches the baseline page
+              while a FALSE probe diverges — and the two probes differ
+              from each other — is a confirmed injection. Works against
+              apps that suppress database errors entirely. Preserves
+              the original parameter value so the app's own parser
+              still accepts the input shape.
+            </li>
+            <li>
+              <strong>Time-based Blind SQL Injection (A05, active)</strong>
+              {" "}— injects per-DBMS sleep calls ({" "}
+              <code>SLEEP(n)</code> for MySQL/MariaDB,{" "}
+              <code>pg_sleep(n)</code> for PostgreSQL,{" "}
+              <code>WAITFOR DELAY</code> for MSSQL,{" "}
+              <code>DBMS_PIPE.RECEIVE_MESSAGE</code> for Oracle) and
+              times the response. Uses a <em>two-shot oracle</em>:
+              first a 4-second probe, then a 7-second confirmation —
+              only findings that clear both thresholds against a
+              measured baseline are emitted. Catches injection on
+              endpoints where the response content never varies with
+              input (stored-proc wrappers, logged-only queries, DELETE
+              / UPDATE paths that return "ok" regardless). Each probe
+              intentionally stalls the server's SQL thread, so the
+              check bails out of a parameter after one confirmed hit.
+            </li>
+            <li>
+              <strong>Nuclei Templates — active execution (A03,
+              active)</strong> — fires the HTTP-protocol subset of
+              the bundled Nuclei catalogue against the target's base
+              URL. Each template sends its own requests (the passive
+              Nuclei row only evaluates matchers against already-
+              captured responses, so a template whose finding
+              depends on <code>/wp-admin/admin-ajax.php?action=...</code>
+              {" "}or a specific CVE path you've never browsed will
+              stay silent there and fire here). Default filter:
+              Critical / High severity plus templates tagged{" "}
+              <code>kev</code>, <code>rce</code>,{" "}
+              <code>auth-bypass</code>, <code>ssrf</code>,{" "}
+              <code>sqli</code>, <code>lfi</code> / <code>rfi</code>,{" "}
+              <code>xxe</code>, <code>command-injection</code>,{" "}
+              <code>fileupload</code>, <code>deserialization</code>,{" "}
+              <code>takeover</code>. Hard cap 300 templates per
+              target to keep runs bounded. Set{" "}
+              <code>NUCLEI_ACTIVE_INCLUDE_ALL=1</code> in the
+              environment before launching the app to drop the
+              filter.
+            </li>
+            <li>
+              <strong>Hidden Parameter Discovery (A05, active)</strong>
+              {" "}— fuzzes a curated ~220-word wordlist (debug flags,
+              admin access toggles, HTTP method overrides, feature
+              flags, callback handlers, redirect targets, file
+              pointers, SSRF-shaped URLs, auth tokens, id aliases,
+              pagination, CMS / framework hooks) one parameter at a
+              time. Two-pass probing: first a random canary to catch
+              reflection (truthy-branch bugs), then <code>1</code> as
+              a fallback for strict-equality checks like{" "}
+              <code>if (param == "1")</code>. Hits are corroborated
+              with a control probe (bogus parameter name, "how much
+              does the endpoint naturally jitter?") so random content
+              doesn't trip the detector. Every discovered parameter
+              is a new attack surface for SQLi / SSRF / XSS / Open
+              Redirect — run this first on an unfamiliar target.
+            </li>
+            <li>
+              <strong>Server-Side Request Forgery (SSRF) (A10,
+              active)</strong> — substitutes each URL-shaped query
+              parameter with cloud-metadata endpoints (AWS IMDSv1,
+              GCP <code>metadata.google.internal</code>, Azure IMDS,
+              DigitalOcean) and loopback URLs (
+              <code>http://127.0.0.1/</code>,{" "}
+              <code>http://localhost/</code>, decimal-IP{" "}
+              <code>http://2130706433/</code> for filter bypass).
+              Confirms a hit via distinctive body markers —{" "}
+              <code>ami-id</code>, <code>AccessKeyId</code>,{" "}
+              <code>computeMetadata</code>,{" "}
+              <code>Welcome to nginx</code>, <code>It works!</code>,{" "}
+              <code>Connection refused</code> — and suppresses false
+              positives by requiring the marker to be absent from the
+              baseline response. AWS / GCP / Azure metadata hits are
+              Critical; DigitalOcean + loopback hits are High. Blind
+              SSRF still needs an OOB server and will light up when
+              active-Nuclei lands.
             </li>
             <li>
               <strong>Open Redirect (A01, active)</strong> — substitutes
@@ -1025,12 +1131,13 @@ Port:       (blank)`}
           <h4>Stack fingerprinting — the Wappalyzer dataset</h4>
           <p>
             Stack fingerprints power two things: the <em>Stack Fingerprint
-            </em> passive finding you'll see on most exchanges, and (in a
-            follow-up iteration) the Banner-CVE cross-reference. The engine
-            follows the Wappalyzer technology schema — a battle-tested
-            format that describes products as regex patterns against HTTP
-            headers, cookies, response HTML, meta tags, URL paths, and
-            implied-by relationships.
+            </em> passive finding you'll see on most exchanges, and the{" "}
+            <em>Banner CVE Cross-Reference</em> check, which turns
+            every versioned detection into a CVE lookup against the
+            local vulndb. The engine follows the Wappalyzer technology
+            schema — a battle-tested format that describes products as
+            regex patterns against HTTP headers, cookies, response
+            HTML, meta tags, URL paths, and implied-by relationships.
           </p>
           <p>
             Out of the box the project ships with a large upstream
@@ -2304,6 +2411,528 @@ Content-Length: 42
             substitute <code>example</code> on import so the URL parses;
             edit in Replay before firing if the real value matters.
           </p>
+
+          <h4>
+            25. Turn a version banner into a CVE list (Banner-CVE
+            cross-reference)
+          </h4>
+          <p>
+            Outdated middleware — nginx 1.14, Apache 2.4.49, WordPress
+            5.8, Tomcat 8.5.31 — is one of the highest-signal findings
+            in any web assessment, but only if you spot the version
+            banner <em>and</em> remember which CVEs affect it. This
+            scenario turns that into zero-effort passive work: browse
+            the site once, and every unpatched banner becomes a ranked
+            list of CVEs with CVSS scores and EPSS probabilities.
+          </p>
+          <ol className="numbered">
+            <li>
+              <strong>Confirm the vulndb is populated.</strong> Open{" "}
+              <em>Databases → Vulnerabilities</em>. If the "CVEs loaded"
+              counter is zero (or the "last NVD update" timestamp is
+              blank/stale), click <strong>Refresh now</strong>. The
+              first populate is a ~200 MB pull from NVD and takes a few
+              minutes; subsequent refreshes are incremental. A missing
+              or empty vulndb silently disables this check — nothing
+              breaks, but no CVE findings come out.
+            </li>
+            <li>
+              Start the proxy and browse the target app normally. No
+              special configuration — <em>Banner CVE Cross-Reference
+              </em> is a passive check that runs automatically on every
+              in-scope response.
+            </li>
+            <li>
+              Switch to the <strong>Checks</strong> tab. The{" "}
+              <em>Findings</em> pane fills in real time. Each CVE
+              finding is titled like{" "}
+              <code>nginx 1.18.0 affected by CVE-2021-23017</code> and
+              severity-coloured from the CVSS v3.1 base score:
+              Critical ≥ 9.0, High ≥ 7.0, Medium ≥ 4.0, Low &gt; 0.
+            </li>
+            <li>
+              Click a finding to expand its evidence. The JSON records{" "}
+              <code>product</code>, <code>version</code>,{" "}
+              <code>cpe_vendor</code>, <code>cpe_product</code>,{" "}
+              <code>cvss_v31_score</code>, <code>cvss_v31_vector</code>,
+              EPSS score + percentile when present, and the NVD
+              description trimmed to 500 chars. Use the CPE to
+              cross-reference against vendor advisories.
+            </li>
+            <li>
+              <strong>Triage tip.</strong> Sort the Findings pane by
+              severity, then by EPSS percentile (high-EPSS first). EPSS
+              reflects real-world exploitation probability in the next
+              30 days — a CVSS 7.5 with EPSS 0.94 should jump the
+              queue ahead of a CVSS 9.8 with EPSS 0.02. Stack
+              Fingerprint itself still emits one Info finding per
+              exchange listing the full detected stack, so you can
+              always see which banners were checked even when no CVEs
+              landed.
+            </li>
+            <li>
+              <strong>False-positive guard.</strong> A banner can lie:
+              a CDN or reverse proxy may emit{" "}
+              <code>Server: nginx/1.18.0</code> while the real origin
+              runs 1.24.0. Before filing, confirm the banner against
+              the origin (Send to Replay, strip the CDN host, re-fire)
+              or check for an explicit{" "}
+              <code>Server</code> override in the server config.
+            </li>
+          </ol>
+          <p className="callout">
+            The check is deliberately quiet about versionless banners
+            (<code>Server: nginx</code>, <code>Apache</code> without a
+            version) — NVD CPE ranges need a concrete version to match
+            accurately, and "maybe vulnerable" findings poison the
+            dashboard. If you need a versionless product to still be
+            flagged, pair this with the <em>Version Disclosure</em>{" "}
+            passive check (it fires on the same banners and at least
+            tells you a version is being leaked). Findings are capped
+            at 25 per exchange so a page that pulls in a dozen
+            outdated JS libs can't flood the feed; the full count is
+            recorded in the <code>total_cves_for_banner</code> evidence
+            field.
+          </p>
+
+          <h4>
+            26. Confirm a suspicious parameter with boolean-blind SQLi
+          </h4>
+          <p>
+            The Error-based SQLi check catches the obvious cases where
+            the app leaks a MySQL / Postgres / MSSQL error. Modern
+            apps increasingly swallow those errors — a 500 turns into
+            a friendly "something went wrong" page and detection goes
+            quiet. Boolean-blind SQLi fires where error-based does
+            not: it asks the database a true/false question and reads
+            the answer from the <em>shape of the response</em>, not
+            the error text.
+          </p>
+          <ol className="numbered">
+            <li>
+              Browse the app with the proxy on and exercise any
+              request that carries a parameter you suspect feeds a
+              WHERE clause — <code>GET /order?id=5</code>,{" "}
+              <code>GET /profile?username=alice</code>, pagination{" "}
+              <code>?page=3</code>, filters{" "}
+              <code>?status=open</code>.
+            </li>
+            <li>
+              Expand the row in Traffic and click{" "}
+              <strong>Send to Checks</strong>. It joins the Targets
+              list on the Checks tab.
+            </li>
+            <li>
+              In the Checks library, type <code>blind</code> into
+              the search. Tick <em>Boolean-blind SQL Injection</em>{" "}
+              (and <em>Error-based SQL Injection</em> if you want
+              both signals at once).
+            </li>
+            <li>
+              Click <strong>Run N active check(s)</strong>. For each
+              parameter, the runner fires three requests per SQL
+              boundary (baseline, <code>AND 1=1</code>,{" "}
+              <code>AND 1=2</code>) across four context boundaries
+              — numeric, single-quote, double-quote, paren-quote.
+              The first boundary that produces a confirmed diff
+              wins; the rest of the boundaries for that parameter
+              are skipped.
+            </li>
+            <li>
+              Click the resulting finding to inspect evidence. The
+              JSON carries the boundary that fired, the full
+              true/false payloads, and three ratios:{" "}
+              <code>ratio_true_vs_baseline</code> (should be ≥ 0.90),
+              {" "}<code>ratio_false_vs_baseline</code> (should be
+              ≤ 0.80), and <code>ratio_true_vs_false</code> (the
+              true/false gap must be ≥ 0.05). These are the same
+              page-similarity numbers sqlmap prints — if a finding
+              looks off, cross-check against sqlmap.
+            </li>
+            <li>
+              <strong>Confirm manually in Replay.</strong> Send the
+              original request to Replay. Duplicate it twice, tacking{" "}
+              <code>' AND '1'='1-- -</code> onto the parameter in one
+              copy and <code>' AND '1'='2-- -</code> in the other.
+              If the first comes back with the original content and
+              the second comes back empty or errorful, the finding
+              is real.
+            </li>
+          </ol>
+          <p className="callout">
+            The check uses <code>remove_dynamic_content</code> from{" "}
+            <code>corvex_core::sqli::detection</code> to strip CSRF
+            tokens, timestamps, session IDs, UUIDs and cache-busters
+            before comparing bodies — so a nonce-heavy HTML page
+            doesn't trigger a false negative. Endpoints that echo the
+            raw query string into the response are still a blind spot
+            (TRUE will look close to FALSE); prefer Error-based or
+            Time-based on those.
+          </p>
+
+          <h4>
+            27. Catch silent SQL injection with time-based blind SQLi
+          </h4>
+          <p>
+            There's a narrow class of injectable endpoints where
+            neither error-based nor boolean-blind work: the
+            application logs the query but returns a constant response
+            ("Operation queued"), or the statement is an INSERT /
+            UPDATE / DELETE whose effect isn't visible on the same
+            round-trip. Time-based blind SQLi fires there by stalling
+            the server's SQL thread for a chosen number of seconds and
+            watching the clock.
+          </p>
+          <ol className="numbered">
+            <li>
+              Send the suspect request to Checks (scenario 20 covers
+              the Send-to-X flow). Time-based works best on endpoints
+              where the baseline latency is low and consistent — API
+              endpoints that return quickly, background-queue
+              submission endpoints, "like" / "favourite" / "archive"
+              buttons.
+            </li>
+            <li>
+              In the Checks library, search <code>time</code>. Tick{" "}
+              <em>Time-based Blind SQL Injection</em>. Click{" "}
+              <strong>Run</strong>.
+            </li>
+            <li>
+              Per parameter the runner times a baseline request, then
+              iterates the four SQL boundaries × the big-four DBMS
+              payloads (MySQL/MariaDB, PostgreSQL, MSSQL, Oracle).
+              The first probe adds ~4 seconds; a passing probe
+              triggers a 7-second confirmation. Only findings that
+              clear both thresholds are reported. Expect ≈ 1 second
+              of active work per parameter when nothing fires and
+              ≈ 11 seconds on the parameter that does.
+            </li>
+            <li>
+              Open the finding. The evidence carries{" "}
+              <code>baseline_ms</code>,{" "}
+              <code>first_elapsed_ms</code>,{" "}
+              <code>confirm_elapsed_ms</code>, and the{" "}
+              <code>thresholds</code> block so you can see the
+              timing call. A typical confirmed hit looks like:
+              baseline 45 ms, first ~4,100 ms, confirm ~7,200 ms —
+              the confirmation probe adds three seconds over the
+              first probe, matching the 3-second bump in delay.
+            </li>
+            <li>
+              <strong>Validate from Replay.</strong> Send the
+              finding's <code>confirm_payload</code> verbatim and
+              watch the total time in the Replay response pane. If
+              it reliably sits near the injected sleep duration, it's
+              real. If the time is variable or drops back to
+              baseline on repeat, investigate whether an upstream
+              proxy is responsible (Cloudflare rate-limiting can
+              produce slow-then-fast patterns that mimic SLEEP).
+            </li>
+          </ol>
+          <p className="callout">
+            Time-based probes intentionally block SQL threads on the
+            target — treat this as an <em>active</em> attack that
+            briefly consumes a database connection per probe. Only
+            run against systems you own or have written authorization
+            for. The check stops after the first confirmed hit per
+            parameter to keep total stall time bounded; you won't
+            get a matrix of "also fires on boundary X with DBMS Y"
+            findings on the same parameter.
+          </p>
+
+          <h4>
+            28. Find cloud-credential-leak SSRF through a "fetch URL"
+            feature
+          </h4>
+          <p>
+            "Fetch-this-URL-for-me" features — preview generators,
+            PDF renderers, webhook endpoints, avatar importers, RSS
+            aggregators — are the classic SSRF shape. When the
+            application fetches a URL an attacker controls, the
+            attacker can redirect it inward: at{" "}
+            <code>http://169.254.169.254/</code> on AWS to steal IAM
+            credentials, at <code>http://127.0.0.1/</code> to reach
+            unauthenticated admin UIs bound to loopback. The SSRF
+            check probes exactly these targets and confirms with
+            body markers that can only have come from inside the
+            target's own network.
+          </p>
+          <ol className="numbered">
+            <li>
+              Browse the app and trigger anything that looks like a
+              URL fetch —{" "}
+              <code>POST /webhook?url=https://example.com</code>,{" "}
+              <code>GET /preview?u=https://blog.example/post/1</code>,
+              a profile avatar upload that accepts a URL, an
+              image-to-PDF converter. The request you want to probe
+              is the <em>one whose parameter carries the target URL
+              </em>, not the response.
+            </li>
+            <li>
+              Expand the row in Traffic. Click{" "}
+              <strong>Send to Checks</strong>.
+            </li>
+            <li>
+              In the Checks library, type <code>ssrf</code>. Tick{" "}
+              <em>Server-Side Request Forgery (SSRF)</em>. Hit{" "}
+              <strong>Run</strong>.
+            </li>
+            <li>
+              For every parameter whose value looks URL-shaped
+              (scheme, leading slash, host-shaped string, or a
+              recognisable TLD like <code>.com</code> /{" "}
+              <code>.net</code> / <code>.io</code>), the runner
+              swaps the value for each of ~8 probe URLs and watches
+              the response for distinctive markers —{" "}
+              <code>AccessKeyId</code> for AWS credentials,{" "}
+              <code>ami-id</code> for AWS metadata listings,{" "}
+              <code>computeMetadata</code> for GCP,{" "}
+              <code>Welcome to nginx</code> for a loopback default
+              page. Probes are filtered against the baseline body so
+              an app that always renders a footer containing
+              "Apache" doesn't trigger false positives.
+            </li>
+            <li>
+              Findings split by severity:{" "}
+              <strong>Critical</strong> — AWS / GCP / Azure
+              metadata leaks (the attacker is minutes away from
+              cloud-API credentials);{" "}
+              <strong>High</strong> — DigitalOcean metadata or any
+              loopback hit (the attacker can pivot to every
+              internal HTTP service on the target box). The
+              evidence JSON names the probe label (
+              <code>aws-imds</code>, <code>aws-imds-creds</code>,{" "}
+              <code>gcp-meta</code>, <code>azure-meta</code>,{" "}
+              <code>digitalocean-meta</code>,{" "}
+              <code>loopback-ipv4</code>,{" "}
+              <code>loopback-ipv4-int</code>,{" "}
+              <code>localhost</code>) and lists the markers that
+              matched.
+            </li>
+            <li>
+              <strong>Escalate manually.</strong> On a confirmed
+              AWS-IMDS finding, send the finding's payload to Replay,
+              change the target path to{" "}
+              <code>/latest/meta-data/iam/security-credentials/</code>{" "}
+              to list attached IAM roles, then follow up with{" "}
+              <code>/latest/meta-data/iam/security-credentials/&lt;role&gt;</code>
+              {" "}to grab a set of temporary STS credentials. For
+              the GCP variant, pivot to{" "}
+              <code>/computeMetadata/v1/instance/service-accounts/default/token</code>
+              {" "}for an OAuth access token. The initial finding is
+              the anchor; the real impact comes from the follow-up.
+            </li>
+          </ol>
+          <p className="callout">
+            The check is marker-based and catches the most common
+            SSRF classes reliably, but it is not complete: blind
+            SSRF (where the server makes the request but never
+            reflects the response) stays silent here. For blind
+            variants, wait for the active-Nuclei engine and its
+            Interactsh OOB support, or pair this check with a
+            standalone callback server (<code>burpcollaborator</code>
+            {" / "}<code>interactsh-client</code>) and a manually
+            crafted probe. Header-based SSRF (injecting into{" "}
+            <code>X-Forwarded-For</code>, <code>Referer</code>,{" "}
+            <code>X-Original-URL</code>) is also deferred — the
+            current check only probes query parameters with
+            URL-shaped values.
+          </p>
+
+          <h4>
+            29. Surface hidden parameters so every other active check
+            has more to probe
+          </h4>
+          <p>
+            Every injection check — SQLi, SSRF, XSS, Open Redirect —
+            can only fuzz parameters it can see. If the app accepts{" "}
+            <code>?admin=1</code> but nobody's ever sent{" "}
+            <code>admin</code> through the proxy, it's invisible.
+            Hidden-parameter discovery brute-forces ~220 common
+            parameter names against the target and reports the ones
+            the server reacts to, giving the other checks more to
+            work with. Run this <em>first</em> on an unfamiliar
+            target — then loop back and re-run SQLi / SSRF / XSS
+            against the now-augmented parameter set.
+          </p>
+          <ol className="numbered">
+            <li>
+              Browse the app and <strong>Send to Checks</strong> any
+              endpoint you want to examine. The check works on
+              GETs; POST-body discovery is a future extension.
+            </li>
+            <li>
+              In the Checks library, type <code>hidden</code>. Tick{" "}
+              <em>Hidden Parameter Discovery</em>. Click{" "}
+              <strong>Run</strong>.
+            </li>
+            <li>
+              Each candidate is probed with two values in sequence: a
+              random canary (maximises odds of hitting a reflection)
+              then a plain <code>1</code> if the canary didn't fire
+              (catches strict-equality admin flags). A control probe
+              with a bogus parameter name runs first to measure the
+              endpoint's natural response jitter — only diffs that
+              exceed that jitter count.
+            </li>
+            <li>
+              Expand each finding. The evidence JSON names the{" "}
+              <code>class</code> the parameter belongs to (
+              <code>admin-access</code>, <code>debug</code>,{" "}
+              <code>method-override</code>, <code>feature-flag</code>,{" "}
+              <code>redirect-target</code>, <code>ssrf-shaped</code>,
+              ...) so you can triage by impact class — admin-access
+              and method-override are near-immediate escalation
+              candidates; pagination finds are usually a SQLi
+              precursor. The{" "}
+              <code>value_that_matched</code> field tells you which
+              probe triggered the signal so you can reproduce the
+              exact request in Replay.
+            </li>
+            <li>
+              <strong>Pivot.</strong> A hit on{" "}
+              <code>admin</code>, <code>is_admin</code>,{" "}
+              <code>role</code>: set it in Replay, fire the request,
+              compare content against the public view. A hit on{" "}
+              <code>url</code>, <code>fetch</code>,{" "}
+              <code>callback_url</code>: re-run the SSRF check with
+              the same target URL — Hidden Params doesn't test the
+              URL-fetch pathway itself. A hit on{" "}
+              <code>sort</code>, <code>order_by</code>,{" "}
+              <code>id</code>, <code>uid</code>: re-run SQLi checks
+              (error-based, boolean-blind, time-based) — these are
+              very commonly SQL-injectable.
+            </li>
+            <li>
+              <strong>Narrow with method override.</strong> A
+              finding on <code>_method</code>,{" "}
+              <code>X-HTTP-Method-Override</code>, or{" "}
+              <code>http_method</code> means the app honours method
+              spoofing. Send the request to Replay, change the
+              method parameter to <code>DELETE</code> or{" "}
+              <code>PUT</code>, and see if the endpoint now performs
+              a destructive action it shouldn't from a{" "}
+              <code>GET</code>-originated request. Great CSRF-bypass
+              signal.
+            </li>
+          </ol>
+          <p className="callout">
+            The request budget is roughly <em>wordlist + 2</em> in
+            the best case (every hit on the first canary) and
+            <em> 2×wordlist + 2</em> in the worst case (nothing
+            fires on the canary, every probe retries with{" "}
+            <code>1</code>). On a 50 ms-per-request endpoint that's
+            roughly 25 seconds — on a chatty WordPress admin it can
+            stretch to a minute. The check is disabled in the Checks
+            library unless you explicitly tick it; it's too
+            expensive to run automatically on every target. Blind
+            spots: apps that compare to specific non-<code>1</code>
+            {" "}values (e.g. <code>mode == "debug"</code>), apps
+            that require POST / JSON bodies, apps that hash-verify
+            the query string before processing. Those need manual
+            probe crafting after the first pass narrows the surface.
+          </p>
+
+          <h4>
+            30. Fire path-specific Nuclei templates against a target
+            (active Nuclei)
+          </h4>
+          <p>
+            The passive Nuclei path matches templates against traffic
+            you've already captured, so it only covers endpoints you
+            actually browsed. Templates written for specific paths —{" "}
+            <code>/wp-admin/admin-ajax.php</code>,{" "}
+            <code>/server-status</code>,{" "}
+            <code>/actuator/env</code>,{" "}
+            <code>/.git/config</code>, per-CVE URLs — stay silent
+            until something requests that path. Active Nuclei fixes
+            that: it fires each template's own HTTP requests against
+            the target's base URL, exactly how the upstream Nuclei
+            CLI does, while sharing corvex's Checks pipeline for
+            findings storage and severity mapping.
+          </p>
+          <ol className="numbered">
+            <li>
+              Send a request to Checks — any request for the target
+              host will do since the active Nuclei check operates on
+              the base URL, not the specific path. Scenario 20
+              covers <strong>Send to Checks</strong>.
+            </li>
+            <li>
+              In the Checks library, type <code>nuclei-active</code>
+              {" "}into the search and tick{" "}
+              <em>Nuclei Templates (active execution)</em>. This is
+              a single umbrella row — it dispatches to the full
+              bundle filtered by severity and KEV tags. Click{" "}
+              <strong>Run</strong>.
+            </li>
+            <li>
+              For each eligible template (Critical / High severity
+              or tagged <code>kev</code>, <code>rce</code>,{" "}
+              <code>auth-bypass</code>, <code>ssrf</code>,{" "}
+              <code>sqli</code>, <code>lfi</code>, <code>rfi</code>,{" "}
+              <code>xxe</code>, <code>command-injection</code>,{" "}
+              <code>fileupload</code>, <code>deserialization</code>,{" "}
+              <code>takeover</code>), the runner executes every{" "}
+              <code>http:</code> request block in the template
+              against the target's base URL. The Executor respects
+              each template's <code>stop-at-first-match</code>{" "}
+              flag and the per-template request cap (64 by
+              default), and caps total in-flight HTTP requests at
+              8 across the whole run.
+            </li>
+            <li>
+              Findings land with check id{" "}
+              <code>nuclei-active:&lt;template-id&gt;</code> so
+              they're clearly distinguishable from the passive
+              Nuclei row (<code>nuclei:&lt;template-id&gt;</code>).
+              Each evidence JSON includes{" "}
+              <code>last_request_method</code>,{" "}
+              <code>last_request_uri</code>,{" "}
+              <code>last_response_status</code>,{" "}
+              <code>matched_at</code>, and any values the
+              template's extractor captured (version strings,
+              paths, error messages).
+            </li>
+            <li>
+              <strong>Widen the filter.</strong> A full-bundle
+              sweep (every Low / Info / Medium template, without
+              the tag gate) can surface valuable informational
+              findings — open dashboards, exposed debug endpoints,
+              misconfigured servers — but the request budget
+              explodes by ~10×. Set the env var{" "}
+              <code>NUCLEI_ACTIVE_INCLUDE_ALL=1</code> before
+              launching the app, then re-run the check. The hard
+              cap of 300 templates per target still applies as a
+              safety net.
+            </li>
+            <li>
+              <strong>Triage.</strong> Sort findings by severity,
+              then by template id prefix — CVE-tagged templates
+              point at known vulnerabilities (confirm against the
+              NVD URL in the bundled template), while topic-tagged
+              templates (<code>exposures/</code>,{" "}
+              <code>misconfiguration/</code>,{" "}
+              <code>takeovers/</code>) describe operational risk
+              that may not have a CVE assigned. Pair with scenario
+              25 (Banner-CVE) to cross-reference banner-leaked
+              versions against the CVEs a Nuclei hit mentions.
+            </li>
+          </ol>
+          <p className="callout">
+            Active Nuclei and the per-template passive descriptors
+            (<code>nuclei:&lt;id&gt;</code>) share the same
+            template store — refreshing the bundle from{" "}
+            <em>Databases → Nuclei templates → Expand coverage</em>
+            {" "}updates both paths in the same pass. Blind SSRF
+            templates (ones that rely on Interactsh / OOB callbacks)
+            are still skipped at load; their finding path needs the
+            Interactsh support that's called out in the Deferred
+            list. A template that hits during active execution but
+            never triggered on passive traffic is <em>expected
+            behaviour</em> — that gap is exactly the problem this
+            check was built to close.
+          </p>
         </section>
 
         {/* ------------------------------------------------------------------ */}
@@ -2708,6 +3337,91 @@ Content-Length: 42
               Exploit Prediction Scoring System — a 0–1 probability that a given
               CVE will be exploited in the wild in the next 30 days. Useful for
               prioritization when CVSS alone produces too much noise.
+            </dd>
+            <dt>Banner CVE cross-reference</dt>
+            <dd>
+              A passive Checks entry (<code>banner-cve</code>, OWASP A03)
+              that pairs Stack Fingerprint detections with the local
+              vulndb. For every banner that captured a version, it emits
+              one finding per matching CVE with severity mapped from the
+              CVSS v3.1 base score. Silent when the vulndb is missing
+              or the banner lacks a version — see scenario 25 for a
+              worked example.
+            </dd>
+            <dt>Boolean-blind SQLi</dt>
+            <dd>
+              Active Checks entry (<code>boolean-blind-sqli</code>,
+              OWASP A05) that confirms SQL injection even when the app
+              hides database errors. Sends paired{" "}
+              <code>AND 1=1</code> / <code>AND 1=2</code> probes across
+              four boundary contexts (numeric, single-quote,
+              double-quote, paren-quote) and compares response
+              similarity against a baseline using a trigram page ratio.
+              Finding includes the boundary that fired and three
+              similarity ratios for audit.
+            </dd>
+            <dt>Time-based blind SQLi</dt>
+            <dd>
+              Active Checks entry (<code>time-based-sqli</code>, OWASP
+              A05) that proves SQL injection by stalling the server's
+              SQL thread for a measured number of seconds. Uses a
+              two-shot oracle (4-second probe, 7-second confirmation)
+              and per-DBMS sleep payloads (
+              <code>SLEEP</code>, <code>pg_sleep</code>,{" "}
+              <code>WAITFOR DELAY</code>,{" "}
+              <code>DBMS_PIPE.RECEIVE_MESSAGE</code>). See scenario 27
+              for the triage playbook.
+            </dd>
+            <dt>SSRF — Server-Side Request Forgery</dt>
+            <dd>
+              Attack class where the server fetches a URL on an
+              attacker's behalf, letting the attacker reach networks
+              (cloud metadata at <code>169.254.169.254</code>, services
+              bound to <code>127.0.0.1</code>) that are not directly
+              reachable from the internet. Active Checks entry{" "}
+              <code>ssrf</code> (OWASP A10) probes cloud-metadata and
+              loopback targets via URL-shaped query parameters and
+              confirms on distinctive body markers (AWS IAM keys, GCP
+              access tokens, default server landing pages). See
+              scenario 28.
+            </dd>
+            <dt>Hidden-parameter discovery</dt>
+            <dd>
+              Active Checks entry (<code>hidden-params</code>, OWASP
+              A05) that fuzzes a ~220-word wordlist of common
+              parameter names (admin flags, debug toggles, feature
+              flags, HTTP method overrides, callback handlers,
+              redirect targets, URL fetchers, auth tokens, id
+              aliases, pagination, CMS hooks) against the target.
+              Uses a two-pass oracle: random canary for reflection,
+              fallback to <code>1</code> for strict-equality checks.
+              Scenario 29 covers the recipe.
+            </dd>
+            <dt>Active Nuclei execution</dt>
+            <dd>
+              Umbrella active check (<code>nuclei-active</code>,
+              OWASP A03) that runs the HTTP-protocol subset of
+              bundled Nuclei templates against the target's base
+              URL. Unlike the passive per-template rows (
+              <code>nuclei:&lt;id&gt;</code>), this one actually
+              sends the template's requests and evaluates matchers
+              on the response. Default filter: Critical / High
+              severity plus KEV tags; widen with the env var{" "}
+              <code>NUCLEI_ACTIVE_INCLUDE_ALL=1</code>. See scenario
+              30.
+            </dd>
+            <dt>IMDS — Instance Metadata Service</dt>
+            <dd>
+              The HTTP endpoint cloud providers expose to their VMs so
+              apps can retrieve instance info and temporary
+              credentials. AWS lives at{" "}
+              <code>http://169.254.169.254/latest/meta-data/</code>;
+              GCP at <code>http://metadata.google.internal/</code>;
+              Azure at{" "}
+              <code>http://169.254.169.254/metadata/instance</code>.
+              Only reachable from inside the instance, which is why
+              SSRF against an IMDS endpoint confirms the
+              vulnerability beyond doubt.
             </dd>
             <dt>SCA — Software Composition Analysis</dt>
             <dd>

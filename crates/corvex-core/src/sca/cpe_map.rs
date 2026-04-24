@@ -23,6 +23,19 @@ pub fn lookup_cpe(ecosystem: Ecosystem, name: &str) -> Option<(&'static str, &'s
     }
 }
 
+/// Look up the CPE vendor and product for a Wappalyzer-detected web
+/// technology name. Keyed on display names produced by the stack
+/// fingerprint engine (e.g. "nginx", "Apache HTTP Server", "WordPress").
+/// Match is case-insensitive. Returns `None` when the product isn't in
+/// the curated banner map — callers can fall back to [`guess_cpe`].
+pub fn lookup_web_tech_cpe(name: &str) -> Option<(&'static str, &'static str)> {
+    let key = name.to_lowercase();
+    WEB_TECH_MAP
+        .iter()
+        .find(|(n, _, _)| n.eq_ignore_ascii_case(&key))
+        .map(|(_, v, p)| (*v, *p))
+}
+
 /// Guess CPE from the package name when no mapping exists.
 /// Uses the package name as both vendor and product.
 pub fn guess_cpe(name: &str) -> (String, String) {
@@ -176,3 +189,129 @@ static PHP_MAP: &[(&str, &str, &str)] = &[
     ("vlucas/phpdotenv", "vlucas", "phpdotenv"),
     ("league/flysystem", "thephpleague", "flysystem"),
 ];
+
+// (wappalyzer_display_name, cpe_vendor, cpe_product)
+//
+// Keyed on the names the stack-fingerprint engine emits (both the seed
+// set and high-signal upstream Wappalyzer entries). Only products with
+// a reasonable version-aware CPE on NVD are mapped — anything missing
+// falls back to `guess_cpe`, which still produces usable findings for
+// well-named products.
+static WEB_TECH_MAP: &[(&str, &str, &str)] = &[
+    // Web servers
+    ("nginx", "nginx", "nginx"),
+    ("apache http server", "apache", "http_server"),
+    ("apache", "apache", "http_server"),
+    ("microsoft iis", "microsoft", "internet_information_services"),
+    ("iis", "microsoft", "internet_information_services"),
+    ("lighttpd", "lighttpd", "lighttpd"),
+    ("caddy", "caddyserver", "caddy"),
+    ("openresty", "openresty", "openresty"),
+    // CDNs / load balancers (limited CVE footprint but still mapped)
+    ("cloudflare", "cloudflare", "cloudflare"),
+    ("haproxy", "haproxy", "haproxy"),
+    // Programming languages / runtimes
+    ("php", "php", "php"),
+    ("node.js", "nodejs", "node.js"),
+    ("python", "python", "python"),
+    ("ruby", "ruby-lang", "ruby"),
+    ("perl", "perl", "perl"),
+    ("openssl", "openssl", "openssl"),
+    // App servers / containers
+    ("apache tomcat", "apache", "tomcat"),
+    ("tomcat", "apache", "tomcat"),
+    ("jetty", "eclipse", "jetty"),
+    ("jboss", "redhat", "jboss_enterprise_application_platform"),
+    ("wildfly", "redhat", "wildfly"),
+    ("websphere", "ibm", "websphere_application_server"),
+    ("weblogic", "oracle", "weblogic_server"),
+    // CMS / web frameworks (product-level CPE)
+    ("wordpress", "wordpress", "wordpress"),
+    ("drupal", "drupal", "drupal"),
+    ("joomla", "joomla", "joomla\\!"),
+    ("magento", "magento", "magento"),
+    ("typo3", "typo3", "typo3"),
+    ("moodle", "moodle", "moodle"),
+    ("mediawiki", "mediawiki", "mediawiki"),
+    ("phpbb", "phpbb", "phpbb"),
+    ("laravel", "laravel", "laravel"),
+    ("django", "djangoproject", "django"),
+    ("flask", "palletsprojects", "flask"),
+    ("express", "expressjs", "express"),
+    ("next.js", "vercel", "next.js"),
+    ("nuxt.js", "nuxtjs", "nuxt"),
+    ("asp.net", "microsoft", "asp.net"),
+    ("spring framework", "vmware", "spring_framework"),
+    ("spring boot", "vmware", "spring_boot"),
+    ("struts", "apache", "struts"),
+    ("symfony", "sensiolabs", "symfony"),
+    ("codeigniter", "codeigniter", "codeigniter"),
+    ("yii", "yiisoft", "yii"),
+    ("cakephp", "cakefoundation", "cakephp"),
+    ("zend", "zend", "zend_framework"),
+    // JS libraries (banner-style hits from HTML/script references)
+    ("jquery", "jquery", "jquery"),
+    ("jquery ui", "jquery", "jquery_ui"),
+    ("bootstrap", "getbootstrap", "bootstrap"),
+    ("angular", "google", "angular"),
+    ("angularjs", "angularjs", "angular.js"),
+    ("react", "facebook", "react"),
+    ("vue.js", "vuejs", "vue.js"),
+    ("vue", "vuejs", "vue.js"),
+    ("underscore.js", "underscorejs", "underscore"),
+    ("lodash", "lodash", "lodash"),
+    ("moment.js", "momentjs", "moment"),
+    // Data stores surfaced via admin UIs (phpMyAdmin etc.) and ops panels
+    ("phpmyadmin", "phpmyadmin", "phpmyadmin"),
+    ("mysql", "oracle", "mysql"),
+    ("mariadb", "mariadb", "mariadb"),
+    ("postgresql", "postgresql", "postgresql"),
+    ("redis", "redis", "redis"),
+    ("mongodb", "mongodb", "mongodb"),
+    // Other tools often banner-detected
+    ("jira", "atlassian", "jira"),
+    ("confluence", "atlassian", "confluence"),
+    ("bitbucket", "atlassian", "bitbucket"),
+    ("gitlab", "gitlab", "gitlab"),
+    ("jenkins", "jenkins", "jenkins"),
+    ("grafana", "grafana", "grafana"),
+    ("kibana", "elastic", "kibana"),
+    ("elasticsearch", "elastic", "elasticsearch"),
+    ("prometheus", "prometheus", "prometheus"),
+    ("exim", "exim", "exim"),
+    ("postfix", "postfix", "postfix"),
+    ("openssh", "openbsd", "openssh"),
+    ("git", "git-scm", "git"),
+    ("subversion", "apache", "subversion"),
+    ("nextcloud", "nextcloud", "nextcloud"),
+    ("owncloud", "owncloud", "owncloud"),
+    // Misc high-value CVE targets
+    ("rails", "rubyonrails", "rails"),
+    ("ruby on rails", "rubyonrails", "rails"),
+    ("werkzeug", "palletsprojects", "werkzeug"),
+    ("gunicorn", "gunicorn", "gunicorn"),
+    ("uvicorn", "encode", "uvicorn"),
+    ("varnish", "varnish-cache", "varnish"),
+    ("openproject", "openproject", "openproject"),
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_tech_lookup_is_case_insensitive() {
+        assert_eq!(lookup_web_tech_cpe("nginx"), Some(("nginx", "nginx")));
+        assert_eq!(lookup_web_tech_cpe("NGINX"), Some(("nginx", "nginx")));
+        assert_eq!(
+            lookup_web_tech_cpe("Apache HTTP Server"),
+            Some(("apache", "http_server")),
+        );
+        assert_eq!(lookup_web_tech_cpe("WordPress"), Some(("wordpress", "wordpress")));
+    }
+
+    #[test]
+    fn web_tech_lookup_returns_none_for_unknown() {
+        assert!(lookup_web_tech_cpe("Definitely-Not-A-Product").is_none());
+    }
+}
