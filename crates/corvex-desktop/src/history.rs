@@ -53,9 +53,17 @@ impl HistoryDb {
     pub fn open<P: AsRef<Path>>(path: P) -> SqlResult<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
-        // PRAGMAs: WAL gives concurrent reader/writer access; foreign
-        // keys are off by default but harmless to enable for the future.
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+        // PRAGMAs: WAL gives concurrent reader/writer access; synchronous
+        // NORMAL is WAL-safe and much faster than the default FULL.
+        // temp_store=MEMORY avoids temp-file spills; the cache and mmap
+        // sizes speed up list/filter queries once the DB grows.
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;\n\
+             PRAGMA synchronous=NORMAL;\n\
+             PRAGMA temp_store=MEMORY;\n\
+             PRAGMA cache_size=-20000;\n\
+             PRAGMA mmap_size=268435456;",
+        )?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -103,7 +111,7 @@ impl HistoryDb {
 
     pub fn list(&self, limit: usize) -> SqlResult<Vec<HistoryEntry>> {
         let conn = self.conn.lock().expect("history mutex");
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             "SELECT id, host, params_json, started_at, ended_at, status,
                     total_requests, total_findings, total_errors
                FROM scans

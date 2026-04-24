@@ -44,6 +44,7 @@ import {
   type SeverityFilter,
 } from "./components/SeverityBreakdown";
 import { OnboardingTour, hasSeenTour } from "./components/OnboardingTour";
+import { createRafBatcher } from "./util/rafBatch";
 
 export interface FuzzerSeed {
   url: string;
@@ -204,6 +205,7 @@ export default function App() {
   const unlisteners = useRef<(() => void)[]>([]);
   const statsTimer = useRef<number | null>(null);
   const lastStatsSample = useRef<{ requests: number; at: number } | null>(null);
+  const findingsBatcher = useRef<ReturnType<typeof createRafBatcher<FindingPayload>> | null>(null);
 
   // One-time: load version banner, DB stats, plugin count, and
   // subscribe to the global tracing log stream. The log subscription
@@ -214,19 +216,22 @@ export default function App() {
     dbSummary().then(setDbs);
 
     let unlisten: (() => void) | null = null;
-    onLogLine((line: LogLine) => {
-      const short = line.target.split("::").pop() ?? line.target;
-      const formatted = `${line.level.padEnd(5)} ${short.padEnd(14)} ${line.message}`;
+    const logBatcher = createRafBatcher<string>((batch) => {
       setLog((prev) => {
-        const next = [...prev, formatted];
+        const next = prev.length === 0 ? batch.slice() : [...prev, ...batch];
         return next.length > 500 ? next.slice(-500) : next;
       });
+    });
+    onLogLine((line: LogLine) => {
+      const short = line.target.split("::").pop() ?? line.target;
+      logBatcher.push(`${line.level.padEnd(5)} ${short.padEnd(14)} ${line.message}`);
     }).then((fn) => {
       unlisten = fn;
     });
 
     return () => {
       if (unlisten) unlisten();
+      logBatcher.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -250,6 +255,10 @@ export default function App() {
     if (statsTimer.current !== null) {
       window.clearInterval(statsTimer.current);
       statsTimer.current = null;
+    }
+    if (findingsBatcher.current) {
+      findingsBatcher.current.dispose();
+      findingsBatcher.current = null;
     }
     lastStatsSample.current = null;
     setRequestRate(null);
@@ -282,8 +291,12 @@ export default function App() {
           setCurrentHost(null);
           appendLog(`⊗ host end ${h.hostname}:${h.port}`);
         });
+        const batcher = createRafBatcher<FindingPayload>((batch) => {
+          setFindings((prev) => [...prev, ...batch]);
+        });
+        findingsBatcher.current = batcher;
         const f = await onFinding(id, (finding) => {
-          setFindings((prev) => [...prev, finding]);
+          batcher.push(finding);
         });
         const sum = await onSummary(id, (s) => {
           appendLog(
@@ -292,6 +305,7 @@ export default function App() {
         });
         const done = await onDone(id, (d) => {
           setRunning(false);
+          batcher.flush();
           if (d.cancelled) {
             appendLog("✗ cancelled");
             pushToast("info", "Scan cancelled");

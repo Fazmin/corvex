@@ -248,8 +248,9 @@ export function ProbeRunningProvider({ children }: { children: ReactNode }) {
           },
         }));
       });
-      const uOpen = await onProbeOpenPort(id, (p: ProbeOpenPort) => {
-        setOpenPorts((prev) => [...prev, p]);
+      const uOpen = await onProbeOpenPort(id, (batch: ProbeOpenPort[]) => {
+        if (batch.length === 0) return;
+        setOpenPorts((prev) => [...prev, ...batch]);
       });
       const uErr = await onProbeError(id, (p: ProbeTargetError) => {
         setErrors((prev) => [...prev, p]);

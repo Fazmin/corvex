@@ -9,6 +9,7 @@ mod check_bridge;
 mod commands;
 mod error;
 mod event_sink;
+mod exploitdb;
 mod history;
 mod log_bridge;
 mod params;
@@ -22,6 +23,7 @@ mod scan_state;
 use std::sync::Arc;
 
 use corvex_proxy::{Authority, CaConfig, ProxyDb, ProxyState};
+use exploitdb::ExploitDb;
 use history::HistoryDb;
 use probe_state::ProbeRegistry;
 use recon_state::ReconRegistry;
@@ -65,6 +67,21 @@ fn main() {
                 }
                 Err(e) => {
                     tracing::error!(target: "recon", "recon db: {e}");
+                }
+            }
+
+            // Open the Exploit-DB index. On first launch (or after an
+            // app upgrade with a fresher bundled snapshot) this seeds
+            // the per-user DB from the bundled resource under
+            // `program/databases/exploitdb/`. Failure is non-fatal —
+            // enrichment just returns empty results.
+            match open_exploitdb(app) {
+                Ok(db) => {
+                    app.manage(Arc::new(db));
+                    tracing::info!(target: "exploitdb", "exploit-db ready");
+                }
+                Err(e) => {
+                    tracing::error!(target: "exploitdb", "failed to open exploit-db: {e}");
                 }
             }
 
@@ -300,6 +317,10 @@ fn main() {
             proxy_cmd::findings_for_session,
             proxy_cmd::checks_run,
             proxy_cmd::owasp_taxonomy_info,
+            commands::exploitdb_summary,
+            commands::exploitdb_by_cve,
+            commands::exploitdb_update,
+            commands::exploitdb_fetch_source,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -351,6 +372,30 @@ fn open_history(app: &tauri::App) -> anyhow::Result<HistoryDb> {
     let path = dir.join("history.sqlite");
     tracing::info!(target: "history", "opening history db at {}", path.display());
     HistoryDb::open(&path).map_err(|e| anyhow::anyhow!("sqlite: {e}"))
+}
+
+fn open_exploitdb(app: &tauri::App) -> anyhow::Result<ExploitDb> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| anyhow::anyhow!("app_data_dir: {e}"))?;
+    std::fs::create_dir_all(&data_dir)?;
+    let user_path = data_dir.join("exploitdb.sqlite");
+
+    // Seed (missing) or upgrade (bundled commit is fresher) from the
+    // resource-bundled snapshot. `resource_dir()` may fail in dev when
+    // assets aren't staged there; `seed_or_upgrade` will still find the
+    // source-tree path via its `cwd` candidate.
+    let resource_dir = app.path().resource_dir().ok();
+    exploitdb::seed_or_upgrade(&user_path, resource_dir.as_deref())
+        .map_err(|e| anyhow::anyhow!("seed exploit-db: {e}"))?;
+
+    tracing::info!(
+        target: "exploitdb",
+        "opening exploit-db at {}",
+        user_path.display()
+    );
+    ExploitDb::open(&user_path).map_err(|e| anyhow::anyhow!("sqlite: {e}"))
 }
 
 fn open_recon(app: &tauri::App) -> anyhow::Result<ReconDb> {

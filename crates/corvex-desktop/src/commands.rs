@@ -3,7 +3,7 @@
 //! Every `#[tauri::command]` exported here can be called from the
 //! frontend via `invoke('<name>', { ... })`.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use corvex_core::config::Config;
 use corvex_core::db;
@@ -819,12 +819,16 @@ async fn run_probe(
                 ) => r,
             };
 
-            let mut open_count = 0usize;
+            // Collect every open port for this host and emit one event
+            // with the full list. A per-port emit was one IPC round-trip
+            // per open port — on a host with 20+ open ports that's 20+
+            // serialize/emit calls for data the UI was already merging
+            // into a single array.
+            let mut host_ports: Vec<ProbeOpenPort> = Vec::with_capacity(scan_result.open_ports.len());
             for op in &scan_result.open_ports {
-                open_count += 1;
                 let svc = op.service.clone();
                 let over_tls = svc.as_ref().map(|s| s.tls).unwrap_or(false);
-                let payload = ProbeOpenPort {
+                host_ports.push(ProbeOpenPort {
                     probe_id: id_str.clone(),
                     display: target.display.clone(),
                     hostname: target.hostname.clone(),
@@ -839,8 +843,11 @@ async fn run_probe(
                     cpe: svc.as_ref().map(|s| s.cpe.clone()).unwrap_or_default(),
                     jarm: svc.as_ref().and_then(|s| s.jarm.clone()),
                     banner: svc.as_ref().map(|s| s.banner.clone()).unwrap_or_default(),
-                };
-                let _ = app.emit(&ev(&id_str, "open-port"), payload);
+                });
+            }
+            let open_count = host_ports.len();
+            if !host_ports.is_empty() {
+                let _ = app.emit(&ev(&id_str, "open-port"), host_ports);
             }
 
             open_ports_total.fetch_add(open_count, std::sync::atomic::Ordering::Relaxed);
@@ -926,7 +933,9 @@ async fn expand_target(entry: &str) -> Result<Vec<ProbeResolvedTarget>, String> 
         return Ok(out);
     }
 
-    // CIDR form (IPv4 only in v1).
+    // CIDR form (IPv4 only in v1). The expansion loop can touch up to
+    // 65 536 entries — run it on a blocking worker so a /16 doesn't
+    // stall the tokio runtime for the tens of ms it takes.
     if let Some((net, bits)) = trimmed.split_once('/') {
         let prefix: u8 = bits
             .parse()
@@ -937,16 +946,26 @@ async fn expand_target(entry: &str) -> Result<Vec<ProbeResolvedTarget>, String> 
         if prefix > 32 {
             return Err(format!("CIDR prefix /{prefix} out of range"));
         }
-        return Ok(expand_ipv4_cidr(addr, prefix, trimmed));
+        let display = trimmed.to_string();
+        return tokio::task::spawn_blocking(move || expand_ipv4_cidr(addr, prefix, &display))
+            .await
+            .map_err(|e| format!("CIDR expand task: {e}"));
     }
 
     // Dash-range forms. We only split on the *first* '-' so that an
     // upstream hostname containing a dash is still treated as a hostname
-    // if both halves don't look like IPs.
+    // if both halves don't look like IPs. Same large-span concern as
+    // CIDR — run the expansion on a blocking worker.
     if let Some((left_raw, right_raw)) = trimmed.split_once('-') {
-        let left = left_raw.trim();
-        let right = right_raw.trim();
-        if let Some(range) = parse_ipv4_dash_range(left, right, trimmed) {
+        let left = left_raw.trim().to_string();
+        let right = right_raw.trim().to_string();
+        let display = trimmed.to_string();
+        let parsed = tokio::task::spawn_blocking(move || {
+            parse_ipv4_dash_range(&left, &right, &display)
+        })
+        .await
+        .map_err(|e| format!("dash-range task: {e}"))?;
+        if let Some(range) = parsed {
             return range;
         }
     }
@@ -1129,6 +1148,18 @@ pub async fn nuclei_summary() -> NucleiSummary {
         "true" | "1" | "yes" | "on"
     );
 
+    // Cached roll-up — invalidated alongside the template list whenever
+    // the Tier-2 extras cache is added or removed. `enabled` can flip
+    // via config edits but the counts wouldn't, so the cache stores
+    // everything *except* `enabled`.
+    if let Ok(guard) = NUCLEI_SUMMARY_CACHE.read() {
+        if let Some(cached) = guard.as_ref() {
+            let mut fresh = (**cached).clone();
+            fresh.enabled = enabled;
+            return fresh;
+        }
+    }
+
     let mut store = TemplateStore::new();
     for root in locate::default_roots() {
         let _ = store.load_dir(&root);
@@ -1160,7 +1191,7 @@ pub async fn nuclei_summary() -> NucleiSummary {
         .first()
         .map(|p| p.display().to_string());
 
-    NucleiSummary {
+    let summary = NucleiSummary {
         enabled,
         bundle_tag: store.upstream_tag.clone(),
         bundle_commit: store.upstream_commit.clone(),
@@ -1177,7 +1208,12 @@ pub async fn nuclei_summary() -> NucleiSummary {
         by_tag_top: counts.by_tag_top,
         extras_cached,
         extras_cache_path,
+    };
+
+    if let Ok(mut guard) = NUCLEI_SUMMARY_CACHE.write() {
+        *guard = Some(Arc::new(summary.clone()));
     }
+    summary
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1249,12 +1285,36 @@ pub async fn wappalyzer_summary() -> WappalyzerSummary {
     }
 }
 
+// Cache of the full template enumeration. The bundle is static for the
+// lifetime of the process except when the user downloads or removes
+// the Tier-2 extras cache — both of those paths call
+// `nuclei_template_list_invalidate()` below. Every subsequent UI open
+// of the "All bundled Nuclei templates" panel then returns the cached
+// Vec instead of re-walking thousands of files.
+static NUCLEI_TEMPLATE_LIST_CACHE: RwLock<Option<Arc<Vec<NucleiTemplateEntry>>>> =
+    RwLock::new(None);
+static NUCLEI_SUMMARY_CACHE: RwLock<Option<Arc<NucleiSummary>>> = RwLock::new(None);
+
+fn nuclei_template_list_invalidate() {
+    if let Ok(mut guard) = NUCLEI_TEMPLATE_LIST_CACHE.write() {
+        *guard = None;
+    }
+    if let Ok(mut guard) = NUCLEI_SUMMARY_CACHE.write() {
+        *guard = None;
+    }
+}
+
 /// Enumerate every template on disk — supported AND skipped — with
 /// enough metadata for the Help view's "All bundled Nuclei templates"
-/// list to render a filterable table. Re-walks the bundle each call;
-/// this isn't on a hot path (user-initiated via expand-to-view).
+/// list to render a filterable table. Result is cached until the
+/// Tier-2 extras cache is modified.
 #[tauri::command]
 pub async fn nuclei_template_list() -> Vec<NucleiTemplateEntry> {
+    if let Ok(guard) = NUCLEI_TEMPLATE_LIST_CACHE.read() {
+        if let Some(cached) = guard.as_ref() {
+            return (**cached).clone();
+        }
+    }
     use corvex_nuclei::locate;
     use corvex_nuclei::parser::{load_file, LoadOutcome, SkipReason};
     use corvex_nuclei::schema::Severity as NS;
@@ -1361,6 +1421,10 @@ pub async fn nuclei_template_list() -> Vec<NucleiTemplateEntry> {
     }
 
     out.sort_by(|a, b| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()));
+
+    if let Ok(mut guard) = NUCLEI_TEMPLATE_LIST_CACHE.write() {
+        *guard = Some(Arc::new(out.clone()));
+    }
     out
 }
 
@@ -1420,62 +1484,71 @@ pub async fn nuclei_extras_download(tag: Option<String>) -> AppResult<NucleiExtr
 
     // Extract only the `http/` subtree of the archive. GitHub release
     // tarballs nest everything under `nuclei-templates-<tag>/` so we
-    // strip the first path component.
-    let gz = GzDecoder::new(Cursor::new(bytes.as_ref()));
-    let mut archive = tar::Archive::new(gz);
-    let mut count = 0usize;
-    for entry in archive
-        .entries()
-        .map_err(|e| AppError::Other(format!("tar entries: {e}")))?
-    {
-        let mut entry = entry
-            .map_err(|e| AppError::Other(format!("tar entry: {e}")))?;
-        let path_in_archive = entry
-            .path()
-            .map_err(|e| AppError::Other(format!("entry path: {e}")))?
-            .into_owned();
-
-        // Strip the top-level `nuclei-templates-<tag>/` directory.
-        let mut components = path_in_archive.components();
-        let _root = components.next();
-        let rel: std::path::PathBuf = components.collect();
-        if rel.as_os_str().is_empty() {
-            continue;
-        }
-
-        let first = rel
-            .components()
-            .next()
-            .map(|c| c.as_os_str().to_string_lossy().to_string())
-            .unwrap_or_default();
-        if first != "http" {
-            continue;
-        }
-
-        let is_yaml = rel
-            .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| matches!(s, "yaml" | "yml"))
-            .unwrap_or(false);
-        if !entry
-            .header()
-            .entry_type()
-            .is_file()
-            || !is_yaml
+    // strip the first path component. The gzip + tar pass is CPU- and
+    // IO-heavy (~100MB, thousands of files), so it runs on a blocking
+    // worker instead of stalling a tokio async runtime thread.
+    let bytes_owned = bytes.to_vec();
+    let dest_for_task = dest.clone();
+    let count = tauri::async_runtime::spawn_blocking(move || -> AppResult<usize> {
+        let gz = GzDecoder::new(Cursor::new(bytes_owned));
+        let mut archive = tar::Archive::new(gz);
+        let mut count = 0usize;
+        for entry in archive
+            .entries()
+            .map_err(|e| AppError::Other(format!("tar entries: {e}")))?
         {
-            continue;
-        }
+            let mut entry = entry
+                .map_err(|e| AppError::Other(format!("tar entry: {e}")))?;
+            let path_in_archive = entry
+                .path()
+                .map_err(|e| AppError::Other(format!("entry path: {e}")))?
+                .into_owned();
 
-        let target = dest.join(&rel);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Other(format!("mkdir {}: {e}", parent.display())))?;
+            // Strip the top-level `nuclei-templates-<tag>/` directory.
+            let mut components = path_in_archive.components();
+            let _root = components.next();
+            let rel: std::path::PathBuf = components.collect();
+            if rel.as_os_str().is_empty() {
+                continue;
+            }
+
+            let first = rel
+                .components()
+                .next()
+                .map(|c| c.as_os_str().to_string_lossy().to_string())
+                .unwrap_or_default();
+            if first != "http" {
+                continue;
+            }
+
+            let is_yaml = rel
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|s| matches!(s, "yaml" | "yml"))
+                .unwrap_or(false);
+            if !entry
+                .header()
+                .entry_type()
+                .is_file()
+                || !is_yaml
+            {
+                continue;
+            }
+
+            let target = dest_for_task.join(&rel);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| AppError::Other(format!("mkdir {}: {e}", parent.display())))?;
+            }
+            entry
+                .unpack(&target)
+                .map_err(|e| AppError::Other(format!("unpack {}: {e}", target.display())))?;
+            count += 1;
         }
-        entry
-            .unpack(&target)
-            .map_err(|e| AppError::Other(format!("unpack {}: {e}", target.display())))?;
-        count += 1;
-    }
+        Ok(count)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("extract task: {e}")))??;
 
     // Write a marker so future launches know which tag this cache was
     // populated from and can trigger a refresh if we bump the pinned
@@ -1484,6 +1557,9 @@ pub async fn nuclei_extras_download(tag: Option<String>) -> AppResult<NucleiExtr
         "upstream_tag = \"{tag}\"\nextracted_count = {count}\nkind = \"tier2-http\"\n"
     );
     let _ = std::fs::write(dest.join("MANIFEST.toml"), manifest);
+
+    // New files on disk — any cached enumeration is now stale.
+    nuclei_template_list_invalidate();
 
     Ok(NucleiExtrasStatus {
         cache_path: dest.display().to_string(),
@@ -1502,6 +1578,7 @@ pub async fn nuclei_extras_remove() -> AppResult<()> {
         std::fs::remove_dir_all(&cache_root)
             .map_err(|e| AppError::Other(format!("remove {}: {e}", cache_root.display())))?;
     }
+    nuclei_template_list_invalidate();
     Ok(())
 }
 
@@ -1525,4 +1602,337 @@ fn user_data_dir() -> Option<std::path::PathBuf> {
                 })
             })
     }
+}
+
+/* ================================================================== */
+/* Exploit-DB — CVE → public-exploit enrichment                        */
+/* ================================================================== */
+
+use crate::exploitdb::{self, ExploitDb, ExploitDbSummary, ExploitHit};
+
+/// Body of an exploit fetched lazily on "View source". Cached on disk
+/// under `<app_data_dir>/exploitdb/cache/<edb_id>.<ext>` after first
+/// fetch so repeat views are instant and offline.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExploitSource {
+    pub edb_id: i64,
+    pub body: String,
+    /// Best-guess language hint for syntax highlighting — mapped from
+    /// the file extension.
+    pub lang_hint: Option<String>,
+    /// Absolute path where the body was cached.
+    pub cached_path: String,
+    /// Origin URL the body was fetched from (shown in the UI for
+    /// transparency / attribution).
+    pub source_url: String,
+}
+
+#[tauri::command]
+pub async fn exploitdb_summary(
+    db: State<'_, Arc<ExploitDb>>,
+) -> AppResult<ExploitDbSummary> {
+    db.summary()
+        .map_err(|e| AppError::Other(format!("exploitdb summary: {e}")))
+}
+
+#[tauri::command]
+pub async fn exploitdb_by_cve(
+    cve: String,
+    db: State<'_, Arc<ExploitDb>>,
+) -> AppResult<Vec<ExploitHit>> {
+    db.by_cve(&cve)
+        .map_err(|e| AppError::Other(format!("exploitdb by_cve: {e}")))
+}
+
+/// Re-sync the per-user Exploit-DB index from upstream. Downloads
+/// `files_exploits.csv` from gitlab, parses it, and replaces the rows
+/// in the per-user SQLite in one transaction. Flips the `origin` meta
+/// to `user-synced` so future app upgrades won't clobber it without
+/// reason.
+#[tauri::command]
+pub async fn exploitdb_update(
+    app: AppHandle,
+    db: State<'_, Arc<ExploitDb>>,
+) -> AppResult<ExploitDbSummary> {
+    const CSV_URL: &str =
+        "https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv";
+    const COMMITS_API: &str =
+        "https://gitlab.com/api/v4/projects/exploit-database%2Fexploitdb/repository/commits?ref_name=main&per_page=1";
+
+    let db_for_task = Arc::clone(&*db);
+    let handle = app.clone();
+    let _ = handle.emit("exploitdb://progress", progress("start", 0));
+
+    let client = reqwest::Client::builder()
+        .user_agent(format!("corvex-rust/{}", corvex_core::VERSION))
+        .build()
+        .map_err(|e| AppError::Other(format!("reqwest client: {e}")))?;
+
+    // Short-circuit if the upstream CSV hasn't changed since we last
+    // synced. The `source_etag` meta is set at the end of a successful
+    // sync (below).
+    let current_etag = db_for_task.get_meta(exploitdb::META_SOURCE_ETAG).ok().flatten();
+
+    let mut head_req = client.get(CSV_URL);
+    if let Some(ref etag) = current_etag {
+        head_req = head_req.header("If-None-Match", etag.clone());
+    }
+    let _ = handle.emit("exploitdb://progress", progress("download", 10));
+    let resp = head_req
+        .send()
+        .await
+        .map_err(|e| AppError::Other(format!("GET csv: {e}")))?;
+
+    if resp.status().as_u16() == 304 {
+        let _ = handle.emit("exploitdb://progress", progress("up_to_date", 100));
+        return db_for_task
+            .summary()
+            .map_err(|e| AppError::Other(format!("summary: {e}")));
+    }
+    if !resp.status().is_success() {
+        return Err(AppError::Other(format!(
+            "GET csv: {}",
+            resp.status()
+        )));
+    }
+    let new_etag = resp
+        .headers()
+        .get("etag")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::Other(format!("read csv body: {e}")))?;
+
+    // Capture upstream HEAD commit for provenance. Best-effort — we
+    // still complete the sync even if the API is rate-limited.
+    let _ = handle.emit("exploitdb://progress", progress("commit_lookup", 40));
+    let commit = match client.get(COMMITS_API).send().await {
+        Ok(r) if r.status().is_success() => r
+            .text()
+            .await
+            .ok()
+            .and_then(|t| parse_first_commit_id(&t)),
+        _ => None,
+    };
+
+    // Parse + replace on a blocking worker — CSV parsing + 50k upserts
+    // would stall the async runtime thread otherwise.
+    let _ = handle.emit("exploitdb://progress", progress("parse", 60));
+    let bytes_owned = bytes.to_vec();
+    let db_task = Arc::clone(&db_for_task);
+    let commit_for_task = commit.clone();
+    let etag_for_task = new_etag.clone();
+
+    let stats = tauri::async_runtime::spawn_blocking(move || -> AppResult<u64> {
+        use std::io::Write as _;
+        // Write to a temp file so the CSV parser (which wants a path)
+        // can mmap it; simpler than refactoring `parse_csv` to take an
+        // arbitrary `Read`.
+        let tmp = std::env::temp_dir().join(format!(
+            "corvex-exploitdb-sync-{}.csv",
+            std::process::id()
+        ));
+        {
+            let mut f = std::fs::File::create(&tmp)
+                .map_err(|e| AppError::Other(format!("tmp create: {e}")))?;
+            f.write_all(&bytes_owned)
+                .map_err(|e| AppError::Other(format!("tmp write: {e}")))?;
+            f.sync_all().ok();
+        }
+        let rows = exploitdb::parse_csv(&tmp)
+            .map_err(|e| AppError::Other(format!("csv parse: {e}")))?;
+        let _ = std::fs::remove_file(&tmp);
+
+        let row_count = rows.len() as u64;
+        db_task
+            .replace_all(&rows)
+            .map_err(|e| AppError::Other(format!("replace_all: {e}")))?;
+        db_task
+            .set_meta(exploitdb::META_ORIGIN, exploitdb::ORIGIN_USER_SYNCED)
+            .ok();
+        db_task
+            .set_meta(exploitdb::META_REFRESHED_AT, &utc_now_iso())
+            .ok();
+        db_task
+            .set_meta(exploitdb::META_ROW_COUNT, &row_count.to_string())
+            .ok();
+        if let Some(c) = commit_for_task {
+            db_task.set_meta(exploitdb::META_SOURCE_COMMIT, &c).ok();
+        }
+        if let Some(e) = etag_for_task {
+            db_task.set_meta(exploitdb::META_SOURCE_ETAG, &e).ok();
+        }
+        Ok(row_count)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("parse task: {e}")))??;
+
+    let _ = handle.emit(
+        "exploitdb://progress",
+        ProgressPayload {
+            stage: "done".into(),
+            pct: 100,
+            detail: Some(format!("{stats} rows")),
+        },
+    );
+
+    db.summary()
+        .map_err(|e| AppError::Other(format!("summary: {e}")))
+}
+
+/// Fetch the source of an exploit by EDB-ID. Checks the local cache
+/// first; if missing, downloads from the gitlab raw URL and writes to
+/// `<app_data_dir>/exploitdb/cache/<edb_id>.<ext>`. Subsequent calls
+/// are offline.
+#[tauri::command]
+pub async fn exploitdb_fetch_source(
+    edb_id: i64,
+    app: AppHandle,
+    db: State<'_, Arc<ExploitDb>>,
+) -> AppResult<ExploitSource> {
+    let (file_rel, _title) = db
+        .get_file(edb_id)
+        .map_err(|e| AppError::Other(format!("get_file: {e}")))?
+        .ok_or_else(|| AppError::Other(format!("no such EDB-ID: {edb_id}")))?;
+
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("app_data_dir: {e}")))?;
+    let cache_dir = base.join("exploitdb").join("cache");
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e| AppError::Other(format!("mkdir {}: {e}", cache_dir.display())))?;
+
+    // Use the upstream file's extension so syntax highlighting works
+    // naturally (e.g. `50406.py` → lang_hint = "python").
+    let ext = std::path::Path::new(&file_rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("txt")
+        .to_string();
+    let cached = cache_dir.join(format!("{edb_id}.{ext}"));
+    let source_url = format!(
+        "https://gitlab.com/exploit-database/exploitdb/-/raw/main/{}",
+        file_rel
+    );
+
+    let body = if cached.exists() {
+        std::fs::read_to_string(&cached)
+            .map_err(|e| AppError::Other(format!("read cache: {e}")))?
+    } else {
+        let client = reqwest::Client::builder()
+            .user_agent(format!("corvex-rust/{}", corvex_core::VERSION))
+            .build()
+            .map_err(|e| AppError::Other(format!("reqwest client: {e}")))?;
+        let resp = client
+            .get(&source_url)
+            .send()
+            .await
+            .map_err(|e| AppError::Other(format!("GET {source_url}: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(AppError::Other(format!(
+                "GET {source_url}: {}",
+                resp.status()
+            )));
+        }
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| AppError::Other(format!("body: {e}")))?;
+        std::fs::write(&cached, &text)
+            .map_err(|e| AppError::Other(format!("cache write: {e}")))?;
+        text
+    };
+
+    Ok(ExploitSource {
+        edb_id,
+        body,
+        lang_hint: lang_from_ext(&ext),
+        cached_path: cached.display().to_string(),
+        source_url,
+    })
+}
+
+fn lang_from_ext(ext: &str) -> Option<String> {
+    Some(
+        match ext.to_ascii_lowercase().as_str() {
+            "py" => "python",
+            "rb" => "ruby",
+            "pl" => "perl",
+            "php" => "php",
+            "c" | "h" => "c",
+            "cpp" | "cc" | "hpp" => "cpp",
+            "java" => "java",
+            "js" => "javascript",
+            "ts" => "typescript",
+            "sh" | "bash" => "bash",
+            "ps1" => "powershell",
+            "html" | "htm" => "html",
+            "asm" | "nasm" => "asm",
+            "go" => "go",
+            "rs" => "rust",
+            "txt" => return None,
+            _ => return None,
+        }
+        .to_string(),
+    )
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProgressPayload {
+    stage: String,
+    pct: u32,
+    detail: Option<String>,
+}
+
+fn progress(stage: &str, pct: u32) -> ProgressPayload {
+    ProgressPayload {
+        stage: stage.to_string(),
+        pct,
+        detail: None,
+    }
+}
+
+/// Pull the first `"id":"<sha>"` out of GitLab's commits JSON without a
+/// JSON dep — the API response is a tiny array, regex-free scan is
+/// more than sufficient.
+fn parse_first_commit_id(json: &str) -> Option<String> {
+    let key = "\"id\":\"";
+    let start = json.find(key)? + key.len();
+    let tail = &json[start..];
+    let end = tail.find('"')?;
+    Some(tail[..end].to_string())
+}
+
+fn utc_now_iso() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    // Reuse the helper in exploitdb.rs so formats match exactly.
+    let (y, mo, d, h, mi, s) = civil(secs);
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")
+}
+
+fn civil(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400) as u32;
+    let h = rem / 3600;
+    let mi = (rem % 3600) / 60;
+    let s = rem % 60;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe as i32 + (era as i32) * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d, h, mi, s)
 }

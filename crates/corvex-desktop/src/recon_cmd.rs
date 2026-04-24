@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::recon_state::{ReconRegistry, RunningRecon};
 use crate::recon_store::{
-    ReconDb, ReconFindingKind, ReconFindingRow, ReconRunSummary,
+    PendingFinding, ReconDb, ReconFindingKind, ReconFindingRow, ReconRunSummary,
 };
 
 /// Shape the UI supplies at `recon_start`. Matches
@@ -131,6 +131,67 @@ pub async fn recon_start(
             run_recon(params_for_task, tx, engine_cancel).await;
         });
 
+        // Spawn a dedicated writer task that receives pending findings
+        // and flushes them to SQLite in batches. This decouples the
+        // per-event UI emit path from DB commits — the event loop no
+        // longer awaits a spawn_blocking per finding. Flush triggers:
+        // 32 accumulated rows or 150 ms elapsed, whichever first. The
+        // per-event UI emit still fires immediately so live counters
+        // update without waiting for a batch.
+        const FLUSH_SIZE: usize = 32;
+        const FLUSH_INTERVAL: std::time::Duration =
+            std::time::Duration::from_millis(150);
+        let (writer_tx, mut writer_rx) = mpsc::unbounded_channel::<PendingFinding>();
+        let writer_db = db_for_task.clone();
+        let writer_handle = tokio::spawn(async move {
+            let mut buf: Vec<PendingFinding> = Vec::with_capacity(FLUSH_SIZE);
+            let mut ticker = tokio::time::interval(FLUSH_INTERVAL);
+            ticker.set_missed_tick_behavior(
+                tokio::time::MissedTickBehavior::Delay,
+            );
+            // The first tick fires immediately; skip it so we don't
+            // flush an empty batch before anything arrives.
+            ticker.tick().await;
+            let flush = |buf: &mut Vec<PendingFinding>, db: &Arc<ReconDb>| {
+                if buf.is_empty() {
+                    return;
+                }
+                let rows = std::mem::take(buf);
+                let db = db.clone();
+                // Fire-and-forget — we don't block the writer task on
+                // disk I/O any longer than necessary, and errors are
+                // logged (not propagated) so one bad batch doesn't
+                // abort the run.
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(e) = db.insert_findings_batch(&run_id, &rows) {
+                        tracing::warn!(target: "recon", "batch insert: {e}");
+                    }
+                });
+            };
+            loop {
+                tokio::select! {
+                    maybe = writer_rx.recv() => {
+                        match maybe {
+                            Some(row) => {
+                                buf.push(row);
+                                if buf.len() >= FLUSH_SIZE {
+                                    flush(&mut buf, &writer_db);
+                                }
+                            }
+                            None => {
+                                // Channel closed — flush remainder and exit.
+                                flush(&mut buf, &writer_db);
+                                break;
+                            }
+                        }
+                    }
+                    _ = ticker.tick() => {
+                        flush(&mut buf, &writer_db);
+                    }
+                }
+            }
+        });
+
         let mut found_subdomains: u64 = 0;
         let mut found_records: u64 = 0;
         let mut final_status = "complete".to_string();
@@ -146,20 +207,13 @@ pub async fn recon_start(
                     } else {
                         Some(ips.join(","))
                     };
-                    let db = db_for_task.clone();
-                    let host = host.clone();
-                    let sources = sources.clone();
-                    let _ = tauri::async_runtime::spawn_blocking(move || {
-                        db.insert_finding(
-                            &run_id,
-                            ReconFindingKind::Subdomain,
-                            &host,
-                            value.as_deref(),
-                            None,
-                            &sources,
-                        )
-                    })
-                    .await;
+                    let _ = writer_tx.send(PendingFinding {
+                        kind: ReconFindingKind::Subdomain,
+                        name: host.clone(),
+                        value,
+                        record_type: None,
+                        sources: sources.clone(),
+                    });
                 }
                 ReconEvent::RecordDiscovered {
                     name,
@@ -167,23 +221,17 @@ pub async fn recon_start(
                     value,
                 } => {
                     found_records += 1;
-                    let db = db_for_task.clone();
-                    let name = name.clone();
-                    let record_type = record_type.clone();
-                    let value = value.clone();
-                    let _ = tauri::async_runtime::spawn_blocking(move || {
-                        db.insert_finding(
-                            &run_id,
-                            ReconFindingKind::Record,
-                            &name,
-                            Some(&value),
-                            Some(&record_type),
-                            &[],
-                        )
-                    })
-                    .await;
+                    let _ = writer_tx.send(PendingFinding {
+                        kind: ReconFindingKind::Record,
+                        name: name.clone(),
+                        value: Some(value.clone()),
+                        record_type: Some(record_type.clone()),
+                        sources: Vec::new(),
+                    });
                 }
                 ReconEvent::WildcardDetected { ips } => {
+                    // One-shot per run — stays on the awaited path so
+                    // the wildcard row is durable before the run finishes.
                     let db = db_for_task.clone();
                     let ips = ips.clone();
                     let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -192,18 +240,13 @@ pub async fn recon_start(
                     .await;
                 }
                 ReconEvent::ZoneTransfer { .. } => {
-                    let db = db_for_task.clone();
-                    let _ = tauri::async_runtime::spawn_blocking(move || {
-                        db.insert_finding(
-                            &run_id,
-                            ReconFindingKind::ZoneTransfer,
-                            "AXFR",
-                            None,
-                            None,
-                            &[],
-                        )
-                    })
-                    .await;
+                    let _ = writer_tx.send(PendingFinding {
+                        kind: ReconFindingKind::ZoneTransfer,
+                        name: "AXFR".to_string(),
+                        value: None,
+                        record_type: None,
+                        sources: Vec::new(),
+                    });
                 }
                 ReconEvent::Cancelled => {
                     final_status = "cancelled".to_string();
@@ -215,7 +258,8 @@ pub async fn recon_start(
                 _ => {}
             }
 
-            // Bridge to the UI.
+            // Bridge to the UI. Fires immediately per event so live
+            // counters don't wait for a batch flush.
             let payload = ReconEventPayload {
                 run_id: run_id.to_string(),
                 event,
@@ -224,6 +268,12 @@ pub async fn recon_start(
         }
 
         let _ = engine_handle.await;
+
+        // Close the writer channel so the writer task flushes its
+        // remaining buffer and exits, then wait for it so the
+        // finish_run() update reads fully-committed counts.
+        drop(writer_tx);
+        let _ = writer_handle.await;
 
         let db = db_for_task.clone();
         let err_str = final_error.clone();

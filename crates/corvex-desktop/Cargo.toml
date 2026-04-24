@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 description = "Tauri desktop GUI for the corvex-rust scanner"
+default-run = "corvex-desktop"
 
 [[bin]]
 name = "corvex-desktop"
@@ -44,3 +45,8 @@ flate2.workspace = true
 base64.workspace = true
 bincode.workspace = true
 indexmap.workspace = true
+csv = "1"
+
+[[bin]]
+name = "build-exploitdb-snapshot"
+path = "src/bin/build_exploitdb_snapshot.rs"

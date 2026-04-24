@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createRafBatcher } from "../util/rafBatch";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   checksList,
@@ -100,15 +101,29 @@ export function ProxyView({ onSendToFuzzer }: ProxyViewProps = {}) {
   // that — nothing arrives, nothing breaks.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
-    onProxyExchange((summary) => {
+    const batcher = createRafBatcher<ExchangeSummary>((batch) => {
       // Dedupe by exchange id — in React 18 strict-mode the effect
       // mounts the listener twice in dev builds, and the backend can
       // also emit a refresh for the same exchange when its intercept
       // state or tags change. Either way we want one row per id.
       setExchanges((prev) => {
-        if (prev.some((p) => p.id === summary.id)) return prev;
-        return [summary, ...prev].slice(0, 1000);
+        const seen = new Set(prev.map((p) => p.id));
+        const fresh: ExchangeSummary[] = [];
+        for (const s of batch) {
+          if (!seen.has(s.id)) {
+            seen.add(s.id);
+            fresh.push(s);
+          }
+        }
+        if (fresh.length === 0) return prev;
+        // Reverse so the newest arrival is first within the batch,
+        // matching the original per-event prepend order.
+        fresh.reverse();
+        return [...fresh, ...prev].slice(0, 1000);
       });
+    });
+    onProxyExchange((summary) => {
+      batcher.push(summary);
     })
       .then((fn) => {
         unlisten = fn;
@@ -118,6 +133,7 @@ export function ProxyView({ onSendToFuzzer }: ProxyViewProps = {}) {
       });
     return () => {
       if (unlisten) unlisten();
+      batcher.dispose();
     };
   }, []);
 
@@ -1473,22 +1489,25 @@ function ProxyChecksTab({
     }
     findingsForSession(sessionId, 500).then(setFindings).catch(() => {});
     let unlisten: (() => void) | null = null;
+    const batcher = createRafBatcher<FindingRow>((batch) => {
+      // Reverse so the newest within a batch ends up closest to the
+      // top, matching the original per-event prepend order.
+      const fresh = batch.slice().reverse();
+      setFindings((prev) => [...fresh, ...prev]);
+    });
     onScanFinding((live: LiveFindingPayload) => {
       // Adapt the live payload to the stored-row shape.
-      setFindings((prev) => [
-        {
-          id: live.id,
-          exchange_id: live.exchange_id,
-          check_id: live.check_id,
-          severity:
-            (live.severity as FindingRow["severity"]) ?? "info",
-          title: live.title,
-          description: live.description,
-          evidence: live.evidence,
-          created_at_unix: Math.floor(Date.now() / 1000),
-        },
-        ...prev,
-      ]);
+      batcher.push({
+        id: live.id,
+        exchange_id: live.exchange_id,
+        check_id: live.check_id,
+        severity:
+          (live.severity as FindingRow["severity"]) ?? "info",
+        title: live.title,
+        description: live.description,
+        evidence: live.evidence,
+        created_at_unix: Math.floor(Date.now() / 1000),
+      });
     })
       .then((fn) => {
         unlisten = fn;
@@ -1496,6 +1515,7 @@ function ProxyChecksTab({
       .catch(() => {});
     return () => {
       if (unlisten) unlisten();
+      batcher.dispose();
     };
   }, [sessionId]);
 

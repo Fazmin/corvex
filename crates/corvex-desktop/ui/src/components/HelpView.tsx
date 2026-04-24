@@ -19,6 +19,7 @@ const SECTIONS: Section[] = [
   { id: "scan-form", title: "Scan form reference" },
   { id: "interface-tips", title: "Interface tips" },
   { id: "data-storage", title: "Data & storage" },
+  { id: "exploitdb", title: "Exploit-DB enrichment" },
   { id: "nuclei-catalog", title: "Bundled Nuclei templates" },
   { id: "glossary", title: "Glossary" },
   { id: "limitations", title: "Known limitations" },
@@ -3460,6 +3461,85 @@ Content-Length: 42
             <dt><code>corvexTourSeen</code></dt>
             <dd>Flag preventing the welcome tour from auto-appearing after first launch.</dd>
           </dl>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        <section id="exploitdb">
+          <h3>Exploit-DB enrichment</h3>
+          <p>
+            Every CVE-bearing finding — whether it came from the Web
+            signature engine, an active plugin, or an SCA dependency
+            match — expands to show matching public exploits from{" "}
+            <strong>Exploit-DB</strong> (the public corpus behind{" "}
+            <code>searchsploit</code>). The signal you get is:{" "}
+            <em>does a working exploit for this CVE actually ship on
+            the public internet today?</em> That's the prioritisation
+            cue CVSS and EPSS can't give you.
+          </p>
+
+          <h4>What ships, what syncs</h4>
+          <p>
+            corvex bundles a pre-built snapshot of Exploit-DB's{" "}
+            <code>files_exploits.csv</code> (~12 MB) under{" "}
+            <code>program/databases/exploitdb/</code>. On first launch
+            the snapshot is copied into your per-user data directory
+            so enrichment works out of the box. The bundled copy is
+            refreshed at each corvex release; you can also click{" "}
+            <strong>Re-sync</strong> in{" "}
+            <strong>Databases → Exploit-DB</strong> to pull the latest
+            index directly from the upstream gitlab repo between
+            releases.
+          </p>
+          <p>
+            No exploit source code is bundled. The first time you
+            click <em>View source</em> on a hit, corvex fetches just
+            that one file from upstream and caches it under{" "}
+            <code>&lt;app_data_dir&gt;/exploitdb/cache/</code>. From
+            then on that exploit is available offline.
+          </p>
+
+          <h4>Reading a hit</h4>
+          <dl>
+            <dt><strong>EDB-ID</strong></dt>
+            <dd>
+              Canonical Exploit-DB identifier. Click{" "}
+              <em>Open on exploit-db.com</em> to view the record
+              upstream with attribution, advisory, and screenshots.
+            </dd>
+            <dt><strong>Type</strong> — remote / local / webapps / dos / shellcode</dt>
+            <dd>
+              <code>remote</code> fires over the network from a
+              separate host; <code>local</code> needs prior access on
+              the target; <code>webapps</code> targets a web
+              application; <code>dos</code> only induces denial of
+              service. <code>shellcode</code> entries are raw payload
+              fragments, not runnable exploits.
+            </dd>
+            <dt><strong>Platform</strong></dt>
+            <dd>
+              Target OS / runtime the exploit expects (e.g.{" "}
+              <code>linux</code>, <code>windows</code>,{" "}
+              <code>php</code>, <code>java</code>,{" "}
+              <code>hardware</code>).
+            </dd>
+            <dt><strong>Verified</strong></dt>
+            <dd>
+              Exploit-DB maintainers have reproduced the exploit
+              themselves. Unverified entries can still be useful but
+              may be incomplete, target a slightly different version,
+              or require tweaks to run.
+            </dd>
+          </dl>
+
+          <h4>Authorisation reminder</h4>
+          <p>
+            Surfacing an exploit is <strong>not</strong> permission to
+            run it. Launching public exploits against systems you do
+            not own or have explicit written authorisation to test is
+            illegal in most jurisdictions. Use these hits to prioritise
+            remediation and to inform your engagement scope — not as a
+            green light to fire.
+          </p>
         </section>
 
         {/* ------------------------------------------------------------------ */}

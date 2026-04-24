@@ -87,6 +87,17 @@ pub struct ReconRunSummary {
     pub error: Option<String>,
 }
 
+/// One pending finding handed to [`ReconDb::insert_findings_batch`].
+/// Owns its strings so the caller can drop the originating event.
+#[derive(Debug, Clone)]
+pub struct PendingFinding {
+    pub kind: ReconFindingKind,
+    pub name: String,
+    pub value: Option<String>,
+    pub record_type: Option<String>,
+    pub sources: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReconFindingRow {
     pub id: i64,
@@ -109,7 +120,10 @@ impl ReconDb {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;\n\
              PRAGMA synchronous=NORMAL;\n\
-             PRAGMA foreign_keys=ON;",
+             PRAGMA foreign_keys=ON;\n\
+             PRAGMA temp_store=MEMORY;\n\
+             PRAGMA cache_size=-20000;\n\
+             PRAGMA mmap_size=268435456;",
         )?;
         conn.execute_batch(SCHEMA)?;
         Ok(Self {
@@ -154,6 +168,10 @@ impl ReconDb {
         Ok(())
     }
 
+    // Kept as a single-row helper for tests and potential one-shot
+    // callers. The production recon pipeline uses
+    // `insert_findings_batch` to fold many events into one commit.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn insert_finding(
         &self,
         run_id: &Uuid,
@@ -183,6 +201,48 @@ impl ReconDb {
             ],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    /// Bulk-insert a batch of findings for one run in a single
+    /// transaction. Used by the recon event loop to collapse many
+    /// per-event inserts into one commit, which is dramatically
+    /// cheaper on SQLite (one fsync instead of N).
+    pub fn insert_findings_batch(
+        &self,
+        run_id: &Uuid,
+        rows: &[PendingFinding],
+    ) -> SqlResult<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock().expect("recon db mutex");
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO recon_findings
+                    (run_id, kind, name, value, record_type, sources, discovered_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            let now = now_secs();
+            let run_id_s = run_id.to_string();
+            for r in rows {
+                stmt.execute(params![
+                    run_id_s,
+                    r.kind.as_str(),
+                    r.name,
+                    r.value,
+                    r.record_type,
+                    if r.sources.is_empty() {
+                        None
+                    } else {
+                        Some(r.sources.join(","))
+                    },
+                    now,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn finish_run(
@@ -216,7 +276,7 @@ impl ReconDb {
 
     pub fn list_runs(&self, limit: usize) -> SqlResult<Vec<ReconRunSummary>> {
         let conn = self.conn.lock().expect("recon db mutex");
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             "SELECT id, domain, started_at, ended_at, status,
                     passive_sources, active_enabled, wildcard_ips,
                     found_subdomains, found_records, error
@@ -251,38 +311,37 @@ impl ReconDb {
 
     pub fn get_run(&self, id: &Uuid) -> SqlResult<Option<ReconRunSummary>> {
         let conn = self.conn.lock().expect("recon db mutex");
-        conn.query_row(
+        let mut stmt = conn.prepare_cached(
             "SELECT id, domain, started_at, ended_at, status,
                     passive_sources, active_enabled, wildcard_ips,
                     found_subdomains, found_records, error
                FROM recon_runs
               WHERE id = ?1",
-            params![id.to_string()],
-            |row| {
-                let passive_sources: Option<String> = row.get(5)?;
-                let wildcard_ips: Option<String> = row.get(7)?;
-                let active: i64 = row.get(6)?;
-                Ok(ReconRunSummary {
-                    id: row.get(0)?,
-                    domain: row.get(1)?,
-                    started_at_unix: row.get(2)?,
-                    ended_at_unix: row.get(3)?,
-                    status: row.get(4)?,
-                    passive_sources: split_csv(passive_sources),
-                    active_enabled: active != 0,
-                    wildcard_ips: split_csv(wildcard_ips),
-                    found_subdomains: row.get::<_, i64>(8)? as u64,
-                    found_records: row.get::<_, i64>(9)? as u64,
-                    error: row.get(10)?,
-                })
-            },
-        )
+        )?;
+        stmt.query_row(params![id.to_string()], |row| {
+            let passive_sources: Option<String> = row.get(5)?;
+            let wildcard_ips: Option<String> = row.get(7)?;
+            let active: i64 = row.get(6)?;
+            Ok(ReconRunSummary {
+                id: row.get(0)?,
+                domain: row.get(1)?,
+                started_at_unix: row.get(2)?,
+                ended_at_unix: row.get(3)?,
+                status: row.get(4)?,
+                passive_sources: split_csv(passive_sources),
+                active_enabled: active != 0,
+                wildcard_ips: split_csv(wildcard_ips),
+                found_subdomains: row.get::<_, i64>(8)? as u64,
+                found_records: row.get::<_, i64>(9)? as u64,
+                error: row.get(10)?,
+            })
+        })
         .optional()
     }
 
     pub fn findings_for_run(&self, run_id: &Uuid) -> SqlResult<Vec<ReconFindingRow>> {
         let conn = self.conn.lock().expect("recon db mutex");
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             "SELECT id, run_id, kind, name, value, record_type, sources, discovered_at
                FROM recon_findings
               WHERE run_id = ?1

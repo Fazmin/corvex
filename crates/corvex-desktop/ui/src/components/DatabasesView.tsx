@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   dbSummary,
+  exploitdbSummary,
+  exploitdbUpdate,
   nucleiExtrasDownload,
   nucleiExtrasRemove,
   nucleiSummary,
@@ -8,11 +10,13 @@ import {
   vulndbSummary,
   wappalyzerSummary,
   type DbSummary,
+  type ExploitDbSummary,
   type NucleiSummary,
   type SonarSummary,
   type VulnDbInfo,
   type WappalyzerSummary,
 } from "../api";
+import { clearExploitHitsCache } from "./ExploitHits";
 import { useSettings } from "../settings";
 import type { View } from "./Sidebar";
 import {
@@ -29,7 +33,14 @@ interface Cell {
   hint: string;
 }
 
-type DbTab = "web" | "probing" | "sca" | "fuzzing" | "nuclei" | "fingerprints";
+type DbTab =
+  | "web"
+  | "probing"
+  | "sca"
+  | "fuzzing"
+  | "nuclei"
+  | "fingerprints"
+  | "exploits";
 
 const TABS: { key: DbTab; label: string }[] = [
   { key: "web", label: "Web signatures" },
@@ -38,6 +49,7 @@ const TABS: { key: DbTab; label: string }[] = [
   { key: "fuzzing", label: "Fuzzing" },
   { key: "nuclei", label: "Nuclei templates" },
   { key: "fingerprints", label: "Fingerprints (Wappalyzer)" },
+  { key: "exploits", label: "Exploit-DB" },
 ];
 
 interface Props {
@@ -111,6 +123,7 @@ export function DatabasesView({ onNavigate }: Props) {
       {tab === "fuzzing" && <FuzzingTab onNavigate={onNavigate} />}
       {tab === "nuclei" && <NucleiTab onNavigate={onNavigate} />}
       {tab === "fingerprints" && <FingerprintsTab onNavigate={onNavigate} />}
+      {tab === "exploits" && <ExploitDbTab />}
     </div>
   );
 }
@@ -901,6 +914,253 @@ function FingerprintsTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
         view="proxy"
         label="Stack Fingerprint check lives under Proxy → Checks"
       />
+    </>
+  );
+}
+
+/* ====================================================================== */
+/* Tab 7 — Exploit-DB                                                      */
+/* ====================================================================== */
+
+function ExploitDbTab() {
+  const [summary, setSummary] = useState<ExploitDbSummary | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [syncErr, setSyncErr] = useState<string | null>(null);
+
+  const refresh = () => {
+    exploitdbSummary()
+      .then((s) => {
+        setSummary(s);
+        setErr(null);
+      })
+      .catch((e: unknown) => {
+        setErr(
+          typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
+        );
+      });
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const onResync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncMsg(null);
+    setSyncErr(null);
+    try {
+      const s = await exploitdbUpdate();
+      setSummary(s);
+      // Invalidate the detail-pane cache so already-open Findings and
+      // SCA rows see fresh results on next expand.
+      clearExploitHitsCache();
+      setSyncMsg(
+        `Synced ${s.total.toLocaleString()} exploits from upstream${
+          s.source_commit ? ` @ ${s.source_commit.slice(0, 10)}` : ""
+        }.`
+      );
+    } catch (e: unknown) {
+      setSyncErr(
+        typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
+      );
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  if (err) {
+    return <div className="empty">Failed to load Exploit-DB summary: {err}</div>;
+  }
+  if (!summary) return <div className="empty">Loading…</div>;
+
+  const commitShort = summary.source_commit
+    ? summary.source_commit.slice(0, 10)
+    : "—";
+  const refreshedShort = summary.refreshed_at_utc
+    ? summary.refreshed_at_utc.replace("T", " ").replace("Z", " UTC")
+    : "—";
+  const originLabel = summary.origin
+    ? summary.origin === "bundled"
+      ? "bundled snapshot"
+      : "user-synced"
+    : "—";
+
+  const cells: Cell[] = [
+    {
+      label: "Indexed exploits",
+      value: summary.total,
+      hint: "Unique EDB-IDs loaded from files_exploits.csv.",
+    },
+    {
+      label: "Verified",
+      value: summary.verified,
+      hint: "Entries Exploit-DB maintainers have independently verified.",
+    },
+    {
+      label: "Snapshot commit",
+      value: commitShort,
+      hint: "Upstream gitlab.com/exploit-database/exploitdb commit the current index was built from.",
+    },
+    {
+      label: "Refreshed",
+      value: refreshedShort,
+      hint: "When the current index was written — bundled snapshot date or the moment you last clicked Re-sync.",
+    },
+    {
+      label: "Origin",
+      value: originLabel,
+      hint: "`bundled` means this is the snapshot shipped with the app; `user-synced` means you re-synced from upstream.",
+    },
+  ];
+
+  return (
+    <>
+      <div className="sub" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+        A local SQLite snapshot of the Exploit-DB CSV index. CVE-bearing
+        findings on the <strong>Findings</strong> and <strong>SCA</strong>
+        views expand to show matching public exploits, each with type,
+        platform, verification status, and an on-demand "View source"
+        action that pulls the exploit body from upstream and caches it
+        locally.
+      </div>
+
+      <div className="info-grid">
+        {cells.map((c) => (
+          <InfoCell key={c.label} cell={c} />
+        ))}
+      </div>
+
+      {summary.by_type.length > 0 && (
+        <div
+          className="form-panel"
+          style={{
+            maxWidth: 900,
+            marginTop: 16,
+            fontSize: "calc(var(--font-base) - 1px)",
+          }}
+        >
+          <strong>Type breakdown</strong>
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "6px 14px",
+              fontFamily: "monospace",
+              fontSize: "calc(var(--font-base) - 2px)",
+            }}
+          >
+            {summary.by_type.map(([t, n]) => (
+              <span key={t}>
+                <span style={{ color: "var(--muted)" }}>{t} </span>
+                {n.toLocaleString()}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {summary.by_platform_top.length > 0 && (
+        <div
+          className="form-panel"
+          style={{
+            maxWidth: 900,
+            marginTop: 12,
+            fontSize: "calc(var(--font-base) - 1px)",
+          }}
+        >
+          <strong>Top platforms</strong>
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "6px 14px",
+              fontFamily: "monospace",
+              fontSize: "calc(var(--font-base) - 2px)",
+            }}
+          >
+            {summary.by_platform_top.map(([p, n]) => (
+              <span key={p}>
+                <span style={{ color: "var(--muted)" }}>{p} </span>
+                {n.toLocaleString()}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Provenance title="Where the data comes from">
+        <ul style={{ margin: "6px 0 0 18px", padding: 0, lineHeight: 1.6 }}>
+          <li>
+            <strong>Exploit-DB</strong> is maintained by OffSec and
+            published under <strong>GPL-2.0</strong> at{" "}
+            <code>gitlab.com/exploit-database/exploitdb</code>. Full
+            copyright and license notice ships in{" "}
+            <code>THIRD_PARTY_LICENSES.md</code>.
+          </li>
+          <li>
+            <strong>What ships with the app:</strong> a pre-built
+            SQLite snapshot of the CSV index (~12 MB). No exploit
+            source code is bundled.
+          </li>
+          <li>
+            <strong>What's stored locally after use:</strong> clicking
+            Re-sync below overwrites the user copy at{" "}
+            <code>&lt;app_data_dir&gt;/exploitdb.sqlite</code> with a
+            fresh pull from upstream. Individual exploit source files
+            are fetched on demand the first time you click{" "}
+            <em>View source</em> on a hit and cached under{" "}
+            <code>&lt;app_data_dir&gt;/exploitdb/cache/</code>.
+          </li>
+          <li>
+            <strong>Attribution per exploit:</strong> each hit's{" "}
+            <code>author</code> field is preserved and shown in the
+            detail pane next to its EDB-ID.
+          </li>
+          <li>
+            ⚠ <strong>Authorisation:</strong> running exploits against
+            systems you do not own or have written permission to test
+            is illegal in most jurisdictions. This tool surfaces
+            exploits for triage and research; actioning them is your
+            responsibility.
+          </li>
+        </ul>
+
+        <div
+          style={{
+            marginTop: 12,
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={onResync}
+            disabled={syncing}
+            style={{ padding: "6px 12px" }}
+            title="Download the latest files_exploits.csv from upstream and rebuild the local index."
+          >
+            {syncing ? "Syncing…" : summary.total === 0 ? "Sync from upstream" : "Re-sync"}
+          </button>
+        </div>
+        {syncMsg && (
+          <div className="sub" style={{ marginTop: 6 }}>
+            {syncMsg}
+          </div>
+        )}
+        {syncErr && (
+          <div className="field-error" style={{ marginTop: 6 }}>
+            {syncErr}
+          </div>
+        )}
+      </Provenance>
     </>
   );
 }

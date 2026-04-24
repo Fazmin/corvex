@@ -34,6 +34,7 @@
     "icon": ["icons/icon.ico"],
     "resources": {
       "../../program/databases/nuclei": "program/databases/nuclei",
+      "../../program/databases/exploitdb": "program/databases/exploitdb",
       "../../THIRD_PARTY_LICENSES.md": "THIRD_PARTY_LICENSES.md",
       "../../program/corvex.conf.default": "corvex.conf.default"
     }

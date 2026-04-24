@@ -13,6 +13,8 @@ import {
   type VulnDbInfo,
 } from "../api";
 import { InfoTip } from "./InfoTip";
+import { ExploitHits } from "./ExploitHits";
+import { createRafBatcher } from "../util/rafBatch";
 
 type Tab = "dependency" | "binary" | "results" | "vulndb";
 
@@ -56,6 +58,7 @@ export function ScaView() {
 
   const unlisteners = useRef<(() => void)[]>([]);
   const statsTimer = useRef<number | null>(null);
+  const findingsBatcher = useRef<ReturnType<typeof createRafBatcher<FindingPayload>> | null>(null);
 
   useEffect(() => {
     vulndbSummary().then(setVulndb);
@@ -70,6 +73,10 @@ export function ScaView() {
       window.clearInterval(statsTimer.current);
       statsTimer.current = null;
     }
+    if (findingsBatcher.current) {
+      findingsBatcher.current.dispose();
+      findingsBatcher.current = null;
+    }
   };
 
   const runScan = useCallback(async (params: Record<string, unknown>) => {
@@ -81,11 +88,16 @@ export function ScaView() {
     try {
       const id = await startScan({ host: "sca://local", ...params } as any);
       setScanId(id);
+      const batcher = createRafBatcher<FindingPayload>((batch) => {
+        setFindings((prev) => [...prev, ...batch]);
+      });
+      findingsBatcher.current = batcher;
       const f = await onFinding(id, (finding) => {
-        setFindings((prev) => [...prev, finding]);
+        batcher.push(finding);
       });
       const done = await onDone(id, () => {
         setRunning(false);
+        batcher.flush();
       });
       unlisteners.current.push(f, done);
       statsTimer.current = window.setInterval(async () => {
@@ -702,6 +714,7 @@ function ScaRow({
                     </dd>
                   </>
                 )}
+                <ExploitHits cve={finding.cve} />
                 <dt>Message</dt>
                 <dd className="break">{finding.message}</dd>
                 <dt>Plugin</dt>

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { FindingPayload, SeverityLevel } from "../api";
+import { ExploitHits } from "./ExploitHits";
 
 type FilterMode = "all" | "signature" | "active" | "fingerprint";
 type SeverityFilter = "all" | SeverityLevel;
@@ -86,11 +87,20 @@ const ACTIVE_PREFIXES = [
 ];
 const FINGERPRINT_PREFIXES = ["fingerprint:", "cms", "tech", "subdomain_takeover"];
 
+// Plugin names repeat heavily across findings (dozens of unique values,
+// thousands of findings). Memoize the prefix scan so repeated lookups
+// on filter/sort passes become O(1).
+const classifyCache = new Map<string, "active" | "fingerprint" | "signature">();
 function classify(plugin: string): "active" | "fingerprint" | "signature" {
+  const hit = classifyCache.get(plugin);
+  if (hit !== undefined) return hit;
   const lower = plugin.toLowerCase();
-  if (ACTIVE_PREFIXES.some((p) => lower.startsWith(p))) return "active";
-  if (FINGERPRINT_PREFIXES.some((p) => lower.startsWith(p))) return "fingerprint";
-  return "signature";
+  let result: "active" | "fingerprint" | "signature";
+  if (ACTIVE_PREFIXES.some((p) => lower.startsWith(p))) result = "active";
+  else if (FINGERPRINT_PREFIXES.some((p) => lower.startsWith(p))) result = "fingerprint";
+  else result = "signature";
+  classifyCache.set(plugin, result);
+  return result;
 }
 
 type Source = "sca" | "web";
@@ -177,6 +187,9 @@ export function FindingsTable({
     () => (readStorage(SOURCE_FILTER_KEY, "all") as SourceFilter),
   );
   const [query, setQuery] = useState(() => readStorage(QUERY_KEY, ""));
+  // Deferred copy of `query` — the input stays responsive while the
+  // filter pass runs at React's idle priority on large finding sets.
+  const deferredQuery = useDeferredValue(query);
 
   useEffect(() => writeStorage(FILTER_KEY, filter), [filter]);
   useEffect(() => {
@@ -187,7 +200,24 @@ export function FindingsTable({
     }
   }, [internalSevFilter, externalSevFilter]);
   useEffect(() => writeStorage(SOURCE_FILTER_KEY, sourceFilter), [sourceFilter]);
-  useEffect(() => writeStorage(QUERY_KEY, query), [query]);
+  // Debounce the query write so fast typing doesn't thrash localStorage.
+  // Chip filters write immediately — they fire rarely.
+  const queryWriteTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (queryWriteTimer.current !== null) {
+      window.clearTimeout(queryWriteTimer.current);
+    }
+    queryWriteTimer.current = window.setTimeout(() => {
+      writeStorage(QUERY_KEY, query);
+      queryWriteTimer.current = null;
+    }, 300);
+    return () => {
+      if (queryWriteTimer.current !== null) {
+        window.clearTimeout(queryWriteTimer.current);
+        queryWriteTimer.current = null;
+      }
+    };
+  }, [query]);
 
   const toggle = useCallback((idx: number) => {
     setExpanded((prev) => {
@@ -209,7 +239,7 @@ export function FindingsTable({
     if (sourceFilter !== "all") {
       result = result.filter((f) => source(f) === sourceFilter);
     }
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     if (q) {
       result = result.filter((f) => {
         const haystack = [
@@ -231,7 +261,7 @@ export function FindingsTable({
       (a, b) =>
         (SEVERITY_ORDER[b.severity] ?? 0) - (SEVERITY_ORDER[a.severity] ?? 0)
     );
-  }, [findings, filter, sevFilter, sourceFilter, query]);
+  }, [findings, filter, sevFilter, sourceFilter, deferredQuery]);
 
   const sourceCounts = useMemo(() => {
     const m: Record<Source, number> = { sca: 0, web: 0 };
@@ -526,6 +556,7 @@ function FindingRow({ finding, isOpen, onToggle }: RowProps) {
                     </dd>
                   </>
                 )}
+                <ExploitHits cve={finding.cve} />
                 {finding.component && (
                   <>
                     <dt>Component</dt>

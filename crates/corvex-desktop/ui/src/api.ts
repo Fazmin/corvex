@@ -424,9 +424,11 @@ export function onProbeHostEnd(
 
 export function onProbeOpenPort(
   id: string,
-  cb: (p: ProbeOpenPort) => void
+  cb: (batch: ProbeOpenPort[]) => void
 ): Promise<UnlistenFn> {
-  return listen<ProbeOpenPort>(probeEventName(id, "open-port"), (e) =>
+  // The Rust side emits one event per host with every open port for
+  // that host in a single payload, so the listener receives a batch.
+  return listen<ProbeOpenPort[]>(probeEventName(id, "open-port"), (e) =>
     cb(e.payload)
   );
 }
@@ -990,4 +992,58 @@ export interface WappalyzerSummary {
 
 export function wappalyzerSummary(): Promise<WappalyzerSummary> {
   return invoke<WappalyzerSummary>("wappalyzer_summary");
+}
+
+// --- Exploit-DB enrichment -----------------------------------------------
+// CVE-bearing findings (FindingsTable + ScaView detail panes) enrich
+// against a local SQLite snapshot of the Exploit-DB CSV index. The
+// snapshot is seeded from a release-time bundle under
+// `program/databases/exploitdb/` and can be re-synced from upstream
+// via the Databases view.
+
+export interface ExploitHit {
+  edb_id: number;
+  title: string;
+  kind: string;
+  platform: string;
+  author: string | null;
+  date_published: string | null;
+  verified: boolean;
+  exploitdb_url: string;
+  raw_url: string;
+  file: string;
+}
+
+export interface ExploitDbSummary {
+  total: number;
+  verified: number;
+  origin: string | null;           // "bundled" | "user-synced"
+  source_commit: string | null;
+  refreshed_at_utc: string | null;
+  by_type: [string, number][];
+  by_platform_top: [string, number][];
+}
+
+export interface ExploitSource {
+  edb_id: number;
+  body: string;
+  lang_hint: string | null;
+  cached_path: string;
+  source_url: string;
+}
+
+export function exploitdbSummary(): Promise<ExploitDbSummary> {
+  return invoke<ExploitDbSummary>("exploitdb_summary");
+}
+
+export function exploitdbByCve(cve: string): Promise<ExploitHit[]> {
+  return invoke<ExploitHit[]>("exploitdb_by_cve", { cve });
+}
+
+export function exploitdbUpdate(): Promise<ExploitDbSummary> {
+  return invoke<ExploitDbSummary>("exploitdb_update");
+}
+
+export function exploitdbFetchSource(edbId: number): Promise<ExploitSource> {
+  return invoke<ExploitSource>("exploitdb_fetch_source", { edbId });
 }

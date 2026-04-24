@@ -533,7 +533,10 @@ export function ReconView({
           </section>
 
           <section className="panel recon-status">
-            <div className="muted">Status: {status}</div>
+            <div className="recon-status-line">
+              {running && <span className="recon-spinner" aria-hidden="true" />}
+              <span className="muted">Status: {status}</span>
+            </div>
             {Object.keys(sourceStatus).length > 0 && (
               <div className="recon-source-row">
                 {Object.entries(sourceStatus).map(([source, s]) => (
@@ -566,7 +569,7 @@ export function ReconView({
             {actionStatus && <div className="muted">{actionStatus}</div>}
           </section>
 
-          <section className="panel">
+          <section className="panel recon-subdomains-panel">
             <h3 style={{ marginTop: 0 }}>
               Subdomains ({subdomainRows.length})
             </h3>
