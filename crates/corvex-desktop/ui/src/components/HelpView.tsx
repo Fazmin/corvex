@@ -113,10 +113,12 @@ export function HelpView() {
               checkbox.
             </li>
             <li>
-              <strong>Pick tuning and plugins (optional).</strong> Leave tuning
-              empty to run everything, or click categories to narrow scope. The
-              plugin selector defaults to <code>@@DEFAULT</code>, which runs the
-              standard set.
+              <strong>Pick check categories and plugins (optional).</strong>{" "}
+              <em>Check categories</em> is the named-checkbox grid — every
+              vulnerability category is on by default, untick one to skip it.
+              The <em>Safe (skip DoS)</em> preset turns off the one category
+              that can crash a target. The plugin selector defaults to{" "}
+              <code>@@DEFAULT</code>, which runs the standard set.
             </li>
             <li>
               <strong>Press Start scan.</strong> The button is disabled if any
@@ -184,7 +186,7 @@ export function HelpView() {
           <p>
             The main scan cockpit for web-vulnerability scans. The scan form
             supports roughly 30 fields covering HTTP basics (host, ports, SSL,
-            redirects, timeout, concurrency), tuning, plugin selection,
+            redirects, timeout, concurrency), check categories, plugin selection,
             evasion flags, port scanning, DNS subdomain brute-force, active
             fuzzing with crawl controls, and a SQL-injection sub-section that
             reveals when active fuzzing is on.
@@ -1604,7 +1606,8 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
           <ol className="numbered">
             <li>Enter the URL in <em>Host / URL</em>.</li>
             <li>
-              Leave tuning empty, leave plugins at <code>@@DEFAULT</code>.
+              Leave <em>Check categories</em> at the default (every box
+              ticked), leave plugins at <code>@@DEFAULT</code>.
             </li>
             <li>Leave active fuzzing <em>off</em>.</li>
             <li>Press <strong>Start scan</strong>.</li>
@@ -3301,13 +3304,19 @@ Content-Length: 42
             </dd>
           </dl>
 
-          <h4>Tuning and plugins</h4>
+          <h4>Check categories and plugins</h4>
           <dl className="kv">
-            <dt>Tuning</dt>
+            <dt>Check categories</dt>
             <dd>
-              A chip picker for categories <code>0–9</code> and{" "}
-              <code>a–e</code>. Empty runs everything. <code>x</code> inverts —
-              instead of "include only these", it means "exclude these".
+              Sixteen named vulnerability categories — file upload,
+              XSS, SQL injection, DoS, XML injection, etc. Every box
+              is ticked by default, so the scan runs every category.
+              Untick a box to skip that category. The status line
+              above the grid translates the current selection into
+              plain English ("Skipping: DoS" / "Running only: SQL
+              injection, XSS"). Two preset buttons: <em>All</em>{" "}
+              (every box on) and <em>Safe (skip DoS)</em> (every box
+              on except the one category that can crash a target).
             </dd>
             <dt>Plugins</dt>
             <dd>
@@ -3844,10 +3853,14 @@ Content-Length: 42
               (recon, scan, prefetch, postfetch, active). The Plugins view lists
               all plugins this build knows about.
             </dd>
-            <dt>Tuning categories</dt>
+            <dt>Check categories</dt>
             <dd>
               Each test in the embedded databases is tagged with a category
-              (0–9, a–e). Setting <em>Tuning</em> filters which categories run.
+              (0–9, a–f, sixteen total — file upload, info disclosure, XSS,
+              DoS, SQL injection, XML injection, etc.). The{" "}
+              <em>Check categories</em> grid on the Dashboard form is one
+              checkbox per category; ticked categories run, unticked ones
+              are skipped.
             </dd>
             <dt>Evasion flags</dt>
             <dd>
@@ -4602,9 +4615,11 @@ Content-Length: 42
           <ul>
             <li>Check the log panel for connection errors.</li>
             <li>
-              Confirm you didn't invert tuning — a leading <code>x</code> in the
-              Tuning field means <em>exclude these</em>, so <code>x1</code>{" "}
-              actually turns off category 1 and runs everything else.
+              Glance at the <em>Check categories</em> status line on
+              the Dashboard form. If it reads <em>Running only: …</em>{" "}
+              with a short list, the scan is restricted to those
+              categories — click the <em>All</em> preset to widen it
+              back out.
             </li>
             <li>
               Some targets legitimately have no hits against the standard plugin

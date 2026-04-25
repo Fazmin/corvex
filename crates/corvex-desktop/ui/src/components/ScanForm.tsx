@@ -64,7 +64,7 @@ const HOST_REGEX = /^(?:[a-z][a-z0-9+.-]*:\/\/)?[^\s/]+(?::\d{1,5})?(?:\/\S*)?$/
 // Comma-separated ports or port ranges: "80", "80,443", "1-1000", "80,8000-8100".
 const PORT_LIST_REGEX = /^\d{1,5}(?:-\d{1,5})?(?:,\d{1,5}(?:-\d{1,5})?)*$/;
 const EVASION_REGEX = /^[1-9aA]*$/;
-const TUNING_REGEX = /^[0-9a-ex]*$/i;
+const TUNING_REGEX = /^[0-9a-fx]*$/i;
 
 function validatePortList(raw: string, max = 65535): string | null {
   if (!raw) return null;
@@ -91,7 +91,11 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
   const [host, setHost] = useState("http://example.com");
   const [ports, setPorts] = useState("");
   const [ssl, setSsl] = useState(false);
-  const [tuning, setTuning] = useState("");
+  // Default to "Safe (skip DoS)". DoS is the one check category that
+  // can crash a target or get the scanner blacklisted by an upstream
+  // WAF. Users who want it back can click the "All" preset in the
+  // Check categories card.
+  const [tuning, setTuning] = useState("x6");
   const [plugins, setPlugins] = useState("@@DEFAULT");
   const [format, setFormat] = useState("txt");
   const [output, setOutput] = useState("");
@@ -201,7 +205,7 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
       else if (!portsRange.trim()) e.portsRange = "Required when port scanning is enabled";
     }
     if (evasion && !EVASION_REGEX.test(evasion)) e.evasion = "Only digits 1–9 and letter A";
-    if (tuning && !TUNING_REGEX.test(tuning)) e.tuning = "Only 0–9, a–e, or x (inverse)";
+    if (tuning && !TUNING_REGEX.test(tuning)) e.tuning = "Only 0–9, a–f, or x (inverse)";
     if (timeout < 1) e.timeout = "Must be ≥ 1";
     if (concurrent < 1 || concurrent > 64) e.concurrent = "1–64";
     return e;
@@ -287,150 +291,164 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
           </button>
         </div>
       </div>
-      <div className="field">
-        <label>Host / URL</label>
-        <input
-          type="text"
-          value={host}
-          onChange={(e) => setHost(e.target.value)}
-          placeholder="http://example.com"
-          aria-invalid={!!errors.host}
-          required
-        />
-        {errors.host && <div className="field-error">{errors.host}</div>}
-      </div>
-      <div className="row">
-        <div>
-          <label>Ports</label>
+      {/* ---- Target & connection card ---- */}
+      <section className="scan-card">
+        <h3 className="scan-card-title">Target &amp; connection</h3>
+        <div className="field">
+          <label>Host / URL</label>
           <input
             type="text"
-            value={ports}
-            onChange={(e) => setPorts(e.target.value)}
-            placeholder="80,443"
-            aria-invalid={!!errors.ports}
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+            placeholder="http://example.com"
+            aria-invalid={!!errors.host}
+            required
           />
-          {errors.ports && <div className="field-error">{errors.ports}</div>}
+          {errors.host && <div className="field-error">{errors.host}</div>}
         </div>
-        <div>
-          <label>Timeout (s)</label>
-          <input
-            type="number"
-            min={1}
-            value={timeout}
-            onChange={(e) => setTimeoutVal(parseInt(e.target.value) || 15)}
-            aria-invalid={!!errors.timeout}
-          />
-          {errors.timeout && <div className="field-error">{errors.timeout}</div>}
-        </div>
-      </div>
-
-      <div className="field">
-        <label className="checkbox">
-          <input type="checkbox" checked={ssl} onChange={(e) => setSsl(e.target.checked)} />
-          Force SSL
-        </label>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={followRedirects}
-            onChange={(e) => setFollowRedirects(e.target.checked)}
-          />
-          Follow redirects
-        </label>
-      </div>
-
-      <TuningPicker value={tuning} onChange={setTuning} />
-
-      <PluginPicker value={plugins} onChange={setPlugins} />
-
-      {/* ---- Port Scanning Section ---- */}
-      <div className="field">
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={portscan}
-            onChange={(e) => setPortscan(e.target.checked)}
-          />
-          Port scanning
-        </label>
-        <InfoTip label="Port scanning help">
-          <strong>Port Scanner</strong>
-          TCP connect scan before web tests. Discovers open ports, identifies
-          services via banner grabbing, and auto-adds HTTP services as scan targets.
-          Non-HTTP services (FTP, SSH, SMTP, etc.) are tested for common vulnerabilities.
-        </InfoTip>
-      </div>
-      {portscan && (
-        <>
-          <div className="field indent">
-            <label>Port range</label>
+        <div className="row">
+          <div>
+            <label>Ports</label>
             <input
               type="text"
-              value={portsRange}
-              onChange={(e) => setPortsRange(e.target.value)}
-              placeholder="1-1000"
-              aria-invalid={!!errors.portsRange}
+              value={ports}
+              onChange={(e) => setPorts(e.target.value)}
+              placeholder="80,443"
+              aria-invalid={!!errors.ports}
             />
-            {errors.portsRange && <div className="field-error">{errors.portsRange}</div>}
+            {errors.ports && <div className="field-error">{errors.ports}</div>}
           </div>
-          <div className="field indent">
-            <label>Scan mode</label>
-            <div role="radiogroup" style={{ display: "flex", gap: 12 }}>
-              <label className="radio">
-                <input
-                  type="radio"
-                  name="scanMode"
-                  value="rapid"
-                  checked={scanMode === "rapid"}
-                  onChange={() => setScanMode("rapid")}
-                />
-                Rapid (fast sweep)
-              </label>
-              <label className="radio">
-                <input
-                  type="radio"
-                  name="scanMode"
-                  value="deep"
-                  checked={scanMode === "deep"}
-                  onChange={() => setScanMode("deep")}
-                />
-                Deep (service fingerprint)
-              </label>
-            </div>
+          <div>
+            <label>Timeout (s)</label>
+            <input
+              type="number"
+              min={1}
+              value={timeout}
+              onChange={(e) => setTimeoutVal(parseInt(e.target.value) || 15)}
+              aria-invalid={!!errors.timeout}
+            />
+            {errors.timeout && <div className="field-error">{errors.timeout}</div>}
           </div>
-          {scanMode === "deep" && (
-            <div className="field indent">
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={jarm}
-                  onChange={(e) => setJarm(e.target.checked)}
-                />
-                Collect JARM TLS fingerprint (extra probes per TLS port)
-              </label>
-            </div>
-          )}
-        </>
-      )}
+        </div>
 
-      {/* ---- DNS Enumeration Section ---- */}
-      <div className="field">
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={dnsBrute}
-            onChange={(e) => setDnsBrute(e.target.checked)}
-          />
-          DNS subdomain brute-force
-        </label>
-        <InfoTip label="DNS enumeration help">
-          <strong>DNS Enumeration</strong>
-          DNS record lookups (A, AAAA, MX, NS, TXT, CNAME, SOA), SPF
-          analysis, and zone transfer checks always run automatically.
-          Enable this toggle to also brute-force subdomain discovery
-          using a built-in wordlist of common prefixes.
-        </InfoTip>
-      </div>
+        <div className="field">
+          <label className="checkbox">
+            <input type="checkbox" checked={ssl} onChange={(e) => setSsl(e.target.checked)} />
+            Force SSL
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={followRedirects}
+              onChange={(e) => setFollowRedirects(e.target.checked)}
+            />
+            Follow redirects
+          </label>
+        </div>
+      </section>
+
+      {/* ---- Check categories card ---- */}
+      <section className="scan-card">
+        <TuningPicker value={tuning} onChange={setTuning} />
+      </section>
+
+      {/* ---- Plugins card ---- */}
+      <section className="scan-card">
+        <PluginPicker value={plugins} onChange={setPlugins} />
+      </section>
+
+      {/* ---- Port scanning card ---- */}
+      <section className="scan-card">
+        <div className="field" style={{ margin: 0 }}>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={portscan}
+              onChange={(e) => setPortscan(e.target.checked)}
+            />
+            Port scanning
+          </label>
+          <InfoTip label="Port scanning help">
+            <strong>Port Scanner</strong>
+            TCP connect scan before web tests. Discovers open ports, identifies
+            services via banner grabbing, and auto-adds HTTP services as scan targets.
+            Non-HTTP services (FTP, SSH, SMTP, etc.) are tested for common vulnerabilities.
+          </InfoTip>
+        </div>
+        {portscan && (
+          <>
+            <div className="field indent">
+              <label>Port range</label>
+              <input
+                type="text"
+                value={portsRange}
+                onChange={(e) => setPortsRange(e.target.value)}
+                placeholder="1-1000"
+                aria-invalid={!!errors.portsRange}
+              />
+              {errors.portsRange && <div className="field-error">{errors.portsRange}</div>}
+            </div>
+            <div className="field indent">
+              <label>Scan mode</label>
+              <div role="radiogroup" style={{ display: "flex", gap: 12 }}>
+                <label className="radio">
+                  <input
+                    type="radio"
+                    name="scanMode"
+                    value="rapid"
+                    checked={scanMode === "rapid"}
+                    onChange={() => setScanMode("rapid")}
+                  />
+                  Rapid (fast sweep)
+                </label>
+                <label className="radio">
+                  <input
+                    type="radio"
+                    name="scanMode"
+                    value="deep"
+                    checked={scanMode === "deep"}
+                    onChange={() => setScanMode("deep")}
+                  />
+                  Deep (service fingerprint)
+                </label>
+              </div>
+            </div>
+            {scanMode === "deep" && (
+              <div className="field indent">
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={jarm}
+                    onChange={(e) => setJarm(e.target.checked)}
+                  />
+                  Collect JARM TLS fingerprint (extra probes per TLS port)
+                </label>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* ---- DNS enumeration card ---- */}
+      <section className="scan-card">
+        <div className="field" style={{ margin: 0 }}>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={dnsBrute}
+              onChange={(e) => setDnsBrute(e.target.checked)}
+            />
+            DNS subdomain brute-force
+          </label>
+          <InfoTip label="DNS enumeration help">
+            <strong>DNS Enumeration</strong>
+            DNS record lookups (A, AAAA, MX, NS, TXT, CNAME, SOA), SPF
+            analysis, and zone transfer checks always run automatically.
+            Enable this toggle to also brute-force subdomain discovery
+            using a built-in wordlist of common prefixes.
+          </InfoTip>
+        </div>
+      </section>
 
       {/* ---- Active Fuzzing Section ---- */}
       <div className="field active-section">
@@ -839,110 +857,118 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
         )}
       </div>
 
-      <div className="row">
-        <div>
+      {/* ---- Output & advanced card ---- */}
+      <section className="scan-card">
+        <h3 className="scan-card-title">Output &amp; advanced</h3>
+        <div className="row">
+          <div>
+            <div className="label-row">
+              <label>Format</label>
+              <InfoTip label="Format help">
+                <strong>Output formats</strong>
+                Choose the file format for a saved report. The UI always
+                streams findings live regardless; this only affects what
+                gets written to <em>Output file</em> below.
+              </InfoTip>
+            </div>
+            <select value={format} onChange={(e) => setFormat(e.target.value)}>
+              <option value="txt">Text</option>
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+              <option value="htm">HTML</option>
+              <option value="xml">XML</option>
+              <option value="sql">SQL</option>
+            </select>
+          </div>
+          <div>
+            <div className="label-row">
+              <label>Concurrency</label>
+              <InfoTip label="Concurrency help">
+                <strong>Concurrent requests</strong>
+                Cap on in-flight HTTP requests per host. The scan loop uses a
+                tokio semaphore so higher values shorten total scan time at
+                the cost of server load. Default is 8.
+              </InfoTip>
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={64}
+              value={concurrent}
+              onChange={(e) => setConcurrent(parseInt(e.target.value) || 8)}
+            />
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Output file (optional)</label>
+          <input
+            type="text"
+            value={output}
+            onChange={(e) => setOutput(e.target.value)}
+            placeholder="/path/to/report.html"
+          />
+        </div>
+
+        <div className="field">
           <div className="label-row">
-            <label>Format</label>
-            <InfoTip label="Format help">
-              <strong>Output formats</strong>
-              Choose the file format for a saved report. The UI always
-              streams findings live regardless; this only affects what
-              gets written to <em>Output file</em> below.
+            <label>Auth (user:pass[:realm])</label>
+            <InfoTip label="Auth help">
+              <strong>HTTP authentication</strong>
+              The scheme (<em>Basic</em>, <em>Digest</em>, or <em>NTLM</em>) is
+              picked automatically from the server's WWW-Authenticate challenge.
+              Leave blank if the target doesn't require auth.
             </InfoTip>
           </div>
-          <select value={format} onChange={(e) => setFormat(e.target.value)}>
-            <option value="txt">Text</option>
-            <option value="json">JSON</option>
-            <option value="csv">CSV</option>
-            <option value="htm">HTML</option>
-            <option value="xml">XML</option>
-            <option value="sql">SQL</option>
-          </select>
+          <input type="text" value={id} onChange={(e) => setId(e.target.value)} />
         </div>
-        <div>
+
+        <div className="field">
+          <label>Custom User-Agent</label>
+          <input type="text" value={useragent} onChange={(e) => setUseragent(e.target.value)} />
+        </div>
+
+        <div className="field" style={{ marginBottom: 0 }}>
           <div className="label-row">
-            <label>Concurrency</label>
-            <InfoTip label="Concurrency help">
-              <strong>Concurrent requests</strong>
-              Cap on in-flight HTTP requests per host. The scan loop uses a
-              tokio semaphore so higher values shorten total scan time at
-              the cost of server load. Default is 8.
+            <label>Evasion</label>
+            <InfoTip label="Evasion help">
+              <strong>IDS evasion</strong>
+              Flags <dt style={{ display: "inline" }}>1</dt>–
+              <dt style={{ display: "inline" }}>9</dt> +{" "}
+              <dt style={{ display: "inline" }}>A</dt> apply URI transforms that
+              obfuscate requests — random %-encoding, directory self-reference,
+              session splicing, etc. Combine multiple flags in one string.
             </InfoTip>
           </div>
           <input
-            type="number"
-            min={1}
-            max={64}
-            value={concurrent}
-            onChange={(e) => setConcurrent(parseInt(e.target.value) || 8)}
+            type="text"
+            value={evasion}
+            onChange={(e) => setEvasion(e.target.value)}
+            placeholder="e.g. 13"
+            aria-invalid={!!errors.evasion}
           />
+          {errors.evasion && <div className="field-error">{errors.evasion}</div>}
         </div>
+      </section>
       </div>
-
-      <div className="field">
-        <label>Output file (optional)</label>
-        <input
-          type="text"
-          value={output}
-          onChange={(e) => setOutput(e.target.value)}
-          placeholder="/path/to/report.html"
-        />
-      </div>
-
-      <div className="field">
-        <div className="label-row">
-          <label>Auth (user:pass[:realm])</label>
-          <InfoTip label="Auth help">
-            <strong>HTTP authentication</strong>
-            The scheme (<em>Basic</em>, <em>Digest</em>, or <em>NTLM</em>) is
-            picked automatically from the server's WWW-Authenticate challenge.
-            Leave blank if the target doesn't require auth.
-          </InfoTip>
-        </div>
-        <input type="text" value={id} onChange={(e) => setId(e.target.value)} />
-      </div>
-
-      <div className="field">
-        <label>Custom User-Agent</label>
-        <input type="text" value={useragent} onChange={(e) => setUseragent(e.target.value)} />
-      </div>
-
-      <div className="field">
-        <div className="label-row">
-          <label>Evasion</label>
-          <InfoTip label="Evasion help">
-            <strong>IDS evasion</strong>
-            Flags <dt style={{ display: "inline" }}>1</dt>–
-            <dt style={{ display: "inline" }}>9</dt> +{" "}
-            <dt style={{ display: "inline" }}>A</dt> apply URI transforms that
-            obfuscate requests — random %-encoding, directory self-reference,
-            session splicing, etc. Combine multiple flags in one string.
-          </InfoTip>
-        </div>
-        <input
-          type="text"
-          value={evasion}
-          onChange={(e) => setEvasion(e.target.value)}
-          placeholder="e.g. 13"
-          aria-invalid={!!errors.evasion}
-        />
-        {errors.evasion && <div className="field-error">{errors.evasion}</div>}
-      </div>
-
-      {running ? (
-        <button type="button" className="danger" onClick={onCancel}>
-          Cancel scan
-        </button>
-      ) : (
-        <button
-          type="submit"
-          className="primary"
-          disabled={hasErrors}
-          title={hasErrors ? "Fix the highlighted fields above" : undefined}
-        >
-          Start scan
-        </button>
-      )}
+      {/* The Start / Cancel button lives outside the scrolling panel-body
+          so it stays visible no matter how far the user has scrolled the
+          form. Mirrors the panel-fixed-header pattern at the top. */}
+      <div className="panel-fixed-footer">
+        {running ? (
+          <button type="button" className="danger" onClick={onCancel}>
+            Cancel scan
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="primary"
+            disabled={hasErrors}
+            title={hasErrors ? "Fix the highlighted fields above" : undefined}
+          >
+            Start scan
+          </button>
+        )}
       </div>
     </form>
   );

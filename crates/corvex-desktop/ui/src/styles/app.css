@@ -649,6 +649,21 @@ code {
   padding: 12px 16px 16px 16px;
 }
 
+/* Sticks to the bottom of the panel so the primary action (Start /
+   Cancel scan) stays in view no matter how far the form has been
+   scrolled. Mirrors the panel-fixed-header pattern at the top. */
+.panel-fixed-footer {
+  flex: none;
+  padding: 10px 16px 12px 16px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--panel);
+}
+
+.panel-fixed-footer button.primary,
+.panel-fixed-footer button.danger {
+  width: 100%;
+}
+
 .panel.results {
   grid-area: results;
   min-width: 0;
@@ -760,6 +775,100 @@ select:focus {
   background: var(--accent-gradient);
   color: var(--accent-fg);
   border-color: transparent;
+}
+
+/* ---------- Tuning picker (named-checkbox grid) ---------- */
+
+.tuning-status {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  border-radius: var(--radius-sm, 4px);
+  font-size: calc(var(--font-base) - 1px);
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tuning-status.tuning-status-warn {
+  background: rgba(231, 192, 106, 0.12);
+  border-color: rgba(231, 192, 106, 0.5);
+  color: #b08533;
+}
+
+.tuning-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.tuning-preset-btn {
+  padding: 4px 10px;
+  font-size: calc(var(--font-base) - 2px);
+}
+
+.tuning-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: calc(var(--font-base) - 2px);
+  font-variant-numeric: tabular-nums;
+}
+
+.tuning-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 16px;
+}
+
+@media (max-width: 720px) {
+  .tuning-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.tuning-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  font-size: calc(var(--font-base) - 1px);
+  color: var(--fg);
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid transparent;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.tuning-cat:hover {
+  background: var(--panel-hover);
+}
+
+.tuning-cat input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent, var(--fg));
+}
+
+.tuning-cat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tuning-cat.tuning-cat-warn .tuning-cat-warn-icon {
+  color: #d18a3b;
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+.tuning-cat.tuning-cat-warn.tuning-cat-on {
+  background: rgba(231, 192, 106, 0.10);
+  border-color: rgba(231, 192, 106, 0.35);
 }
 
 /* ---------- Primary / danger buttons ---------- */
@@ -1580,13 +1689,43 @@ button[disabled] {
   cursor: not-allowed;
 }
 
-/* ---------- Active fuzzing form section ---------- */
+/* ---------- Scan-form section cards ----------
+   Each major group of fields (target, check categories, plugins,
+   port scanning, DNS, active fuzzing, output) sits in its own card
+   so the form scans top-to-bottom as discrete bands instead of one
+   long undifferentiated stack. */
+
+.scan-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--panel-alt);
+  margin-bottom: 10px;
+}
+
+.scan-card:last-of-type {
+  margin-bottom: 12px;
+}
+
+.scan-card-title {
+  margin: 0 0 8px 0;
+  font-size: calc(var(--font-base) - 1px);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* The active-fuzzing card pre-dates the generic .scan-card styling.
+   Keep its rules so the fuzzing block keeps its specific behaviour
+   (collapsible options panel, label-row alignment with InfoTip). */
 
 .active-section {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   background: var(--panel-alt);
+  margin-bottom: 10px;
 }
 
 .active-options {
