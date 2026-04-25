@@ -32,6 +32,18 @@ export function DashboardIcon({ size = 18 }: IconProps) {
   );
 }
 
+/** Shield-with-dot icon for the Home / landing view — visually
+ *  echoes the corvex shield logo without dragging the PNG into the
+ *  sidebar's strict colour theme. */
+export function HomeIcon({ size = 18 }: IconProps) {
+  return (
+    <svg {...stroke(size)} aria-hidden>
+      <path d="M12 3l8 3v5.5c0 4.5-3.2 8.5-8 9.5-4.8-1-8-5-8-9.5V6l8-3z" />
+      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function NewScanIcon({ size = 18 }: IconProps) {
   return (
     <svg {...stroke(size)} aria-hidden>

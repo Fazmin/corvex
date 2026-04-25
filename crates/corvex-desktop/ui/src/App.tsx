@@ -38,6 +38,7 @@ import { ReconView } from "./components/ReconView";
 import { ScaView } from "./components/ScaView";
 import { SettingsView } from "./components/SettingsView";
 import { HelpView } from "./components/HelpView";
+import { LandingView } from "./components/LandingView";
 import { ToastContainer, type Toast, type ToastKind } from "./components/Toast";
 import {
   SeverityBreakdown,
@@ -54,7 +55,7 @@ export interface FuzzerSeed {
 }
 
 export default function App() {
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>("home");
   const [fuzzerSeed, setFuzzerSeed] = useState<FuzzerSeed | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try {
@@ -394,6 +395,7 @@ export default function App() {
     : "";
 
   const titleByView: Record<View, string> = {
+    home: "corvex-rust",
     dashboard: "Dashboard",
     history: "Scan history",
     plugins: "Plugins",
@@ -419,22 +421,28 @@ export default function App() {
           onToggleCollapsed={toggleSidebar}
           webScanRunning={running}
         />
-        <main className="main">
-          <header className="main-header">
-            <div>
-              <h1>{titleByView[view]}</h1>
-              <div className="sub">{sub}</div>
-            </div>
-            <div className="sub" style={{ textAlign: "right" }}>
-              {headline}
-              {scanId && (
-                <>
-                  {" · "}
-                  <code>{scanId.slice(0, 8)}</code>
-                </>
-              )}
-            </div>
-          </header>
+        <main className={`main${view === "home" ? " main-home" : ""}`}>
+          {/* The landing page has its own hero — skip the standard
+              page header so the two don't compete. */}
+          {view !== "home" && (
+            <header className="main-header">
+              <div>
+                <h1>{titleByView[view]}</h1>
+                <div className="sub">{sub}</div>
+              </div>
+              <div className="sub" style={{ textAlign: "right" }}>
+                {headline}
+                {scanId && (
+                  <>
+                    {" · "}
+                    <code>{scanId.slice(0, 8)}</code>
+                  </>
+                )}
+              </div>
+            </header>
+          )}
+
+          {view === "home" && <LandingView onNavigate={setView} />}
 
           {view === "dashboard" && (
             <div className="dashboard">

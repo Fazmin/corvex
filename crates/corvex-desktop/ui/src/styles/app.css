@@ -388,6 +388,12 @@ code {
   overflow: hidden;
 }
 
+/* Home / landing view: no fixed header so the LandingView's hero
+   uses the full pane. The single grid row scrolls. */
+.main.main-home {
+  grid-template-rows: 1fr;
+}
+
 .main-header {
   padding: 22px 28px 6px 28px;
   display: flex;
@@ -3759,4 +3765,288 @@ button[disabled] {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ============================================================
+   Landing / Home view
+   ============================================================ */
+
+.landing {
+  height: 100%;
+  overflow-y: auto;
+  padding: 18px 28px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 1280px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ---- Hero ---- */
+
+.landing-hero {
+  position: relative;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(ellipse at top right, rgba(80, 180, 120, 0.10), transparent 55%),
+    radial-gradient(ellipse at bottom left, rgba(80, 130, 220, 0.12), transparent 60%),
+    var(--panel);
+  border-radius: var(--radius);
+  padding: 22px 28px 22px 28px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.landing-hero-glow {
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  background:
+    linear-gradient(120deg, transparent 60%, rgba(80, 180, 120, 0.04) 80%, transparent 95%);
+}
+
+.landing-hero-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+}
+
+@media (max-width: 880px) {
+  .landing-hero-grid {
+    grid-template-columns: 1fr;
+  }
+  .landing-hero-emblem {
+    justify-self: center;
+  }
+}
+
+.landing-hero-copy {
+  min-width: 0;
+}
+
+.landing-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-alt);
+  color: var(--muted);
+  font-size: calc(var(--font-base) - 2px);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.landing-eyebrow-sep {
+  color: var(--border-strong, var(--border));
+}
+
+.landing-eyebrow-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.landing-eyebrow-dot-defense {
+  background: linear-gradient(135deg, #4caf7c, #2bc88e);
+}
+
+.landing-eyebrow-dot-offense {
+  background: linear-gradient(135deg, #5077e0, #2bc4d8);
+}
+
+.landing-title {
+  margin: 12px 0 8px 0;
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--fg-strong);
+}
+
+.landing-title-accent {
+  background: linear-gradient(135deg, #5af19a 0%, #5da7ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.landing-tagline {
+  margin: 0 0 14px 0;
+  font-size: calc(var(--font-base));
+  line-height: 1.5;
+  color: var(--fg);
+  max-width: 64ch;
+}
+
+.landing-cta-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.landing-cta-primary {
+  width: auto;
+  padding: 8px 18px;
+  font-size: var(--font-base);
+}
+
+.landing-cta-secondary {
+  padding: 8px 16px;
+  font-size: var(--font-base);
+}
+
+.landing-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: calc(var(--font-base) - 2px);
+  color: var(--muted);
+}
+
+.landing-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.landing-meta-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.landing-meta-item code {
+  color: var(--fg);
+}
+
+.landing-hero-emblem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.landing-hero-emblem img {
+  width: 130px;
+  height: 130px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.35));
+}
+
+/* ---- Capability cards ---- */
+
+.landing-section-title {
+  margin: 0 0 8px 0;
+  font-size: calc(var(--font-base) + 2px);
+  font-weight: 600;
+  color: var(--fg-strong);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.landing-section-sub {
+  font-size: calc(var(--font-base) - 2px);
+  font-weight: 400;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.landing-cap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+/* Compact tile — a single row: tag chip · title · arrow. No blurb. */
+.landing-cap {
+  all: unset;
+  cursor: pointer;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid currentColor;
+  border-radius: var(--radius-sm, var(--radius));
+  background: var(--panel);
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.landing-cap-defense {
+  color: #4caf7c;
+}
+
+.landing-cap-offense {
+  color: #5077e0;
+}
+
+.landing-cap:hover {
+  transform: translateX(2px);
+  background: var(--panel-alt);
+}
+
+.landing-cap-tag {
+  font-size: calc(var(--font-base) - 4px);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: currentColor;
+}
+
+.landing-cap-title {
+  font-size: var(--font-base);
+  font-weight: 500;
+  color: var(--fg-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.landing-cap-arrow {
+  font-size: var(--font-base);
+  color: var(--muted);
+  transition: transform 140ms ease, color 140ms ease;
+}
+
+.landing-cap:hover .landing-cap-arrow {
+  transform: translateX(3px);
+  color: currentColor;
+}
+
+/* ---- Disclaimer ---- */
+
+.landing-disclaimer {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(231, 192, 106, 0.5);
+  border-radius: var(--radius-sm, var(--radius));
+  background: rgba(231, 192, 106, 0.08);
+  color: var(--muted);
+  font-size: calc(var(--font-base) - 3px);
+  line-height: 1.45;
+}
+
+.landing-disclaimer-icon {
+  font-size: 14px;
+  color: #d18a3b;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.landing-disclaimer-body strong {
+  color: var(--fg);
+  font-weight: 600;
 }

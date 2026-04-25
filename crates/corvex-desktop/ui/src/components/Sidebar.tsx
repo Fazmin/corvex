@@ -8,6 +8,7 @@ import {
   FuzzingIcon,
   HelpIcon,
   HistoryIcon,
+  HomeIcon,
   NewScanIcon,
   PluginsIcon,
   ProbingIcon,
@@ -18,6 +19,7 @@ import {
 } from "./Icons";
 
 export type View =
+  | "home"
   | "dashboard"
   | "history"
   | "plugins"
@@ -72,6 +74,11 @@ export function Sidebar({
 }: Props) {
   const { running: probeRunning } = useProbeRunning();
   const scanner: NavItem[] = [
+    {
+      view: "home",
+      icon: <HomeIcon size={collapsed ? 22 : 18} />,
+      label: "Home",
+    },
     {
       view: "dashboard",
       icon: <DashboardIcon size={collapsed ? 22 : 18} />,
