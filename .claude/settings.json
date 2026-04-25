@@ -16,7 +16,8 @@
       "Bash(target/debug/corvex.exe --host https://example.com --timeout 15)",
       "Bash(PERL=\"C:/Strawberry/perl/bin/perl.exe\" cargo check --workspace)",
       "Bash(PERL=\"C:/Strawberry/perl/bin/perl.exe\" cargo test --package corvex-core --lib)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(cargo tauri *)"
     ]
   }
 }

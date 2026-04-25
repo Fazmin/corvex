@@ -18,7 +18,7 @@ export function TitleBar() {
       <div className="titlebar-drag" data-tauri-drag-region>
         <span className="titlebar-brand" data-tauri-drag-region>
           <img
-            src="/logo.png"
+            src="/corvex_logo.png"
             className="titlebar-brand-logo"
             alt=""
             aria-hidden

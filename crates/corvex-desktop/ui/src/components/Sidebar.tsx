@@ -142,7 +142,7 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-brand">
-        <img src="/logo.png" className="logo" alt="" aria-hidden />
+        <img src="/corvex_logo.png" className="logo" alt="" aria-hidden />
         <span className="name">corvex-rust</span>
         <span className="version">v0.1.0</span>
       </div>

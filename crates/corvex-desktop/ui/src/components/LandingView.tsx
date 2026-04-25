@@ -90,7 +90,7 @@ export function LandingView({ onNavigate }: Props) {
             </div>
           </div>
           <div className="landing-hero-emblem" aria-hidden>
-            <img src="/logo.png" alt="" />
+            <img src="/logo_text.png" alt="Corvex" />
           </div>
         </div>
       </section>
