@@ -20,6 +20,11 @@ perf.data*
 .env.*
 .envrc
 
+# --- Node / npm -------------------------------------------------------------
+node_modules/
+**/node_modules/
+npm-debug.log*
+
 # --- IDE / editor -----------------------------------------------------------
 .vscode/
 .idea/

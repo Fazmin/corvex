@@ -31,7 +31,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.ico"],
+    "icon": ["icons/icon.png", "icons/icon.ico"],
     "resources": {
       "../../program/databases/nuclei": "program/databases/nuclei",
       "../../program/databases/exploitdb": "program/databases/exploitdb",
