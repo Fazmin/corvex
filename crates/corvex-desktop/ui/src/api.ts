@@ -116,6 +116,9 @@ export interface ScanStats {
   elapsed_secs: number;
   cancelled: boolean;
   urls_crawled: number;
+  /** One-line live status published by long-running plugins
+   *  (currently SCA). Updated ~750ms via the same polling loop. */
+  stage: string | null;
 }
 
 export interface HostPayload {

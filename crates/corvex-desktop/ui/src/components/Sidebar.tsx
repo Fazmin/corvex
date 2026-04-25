@@ -135,7 +135,7 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-brand">
-        <span className="logo">N</span>
+        <img src="/logo.png" className="logo" alt="" aria-hidden />
         <span className="name">corvex-rust</span>
         <span className="version">v0.1.0</span>
       </div>

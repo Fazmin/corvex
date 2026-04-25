@@ -42,19 +42,93 @@ pub fn all_parsers() -> Vec<Box<dyn ManifestParser>> {
     ]
 }
 
+/// Directories the walker always skips. Traversing these on a
+/// typical project would cost minutes and produce tens of thousands
+/// of duplicate components (every installed package ships its own
+/// `package.json`). An npm project's lockfile at the root already
+/// captures the full transitive graph, so descending into
+/// `node_modules/` adds no real signal and enormous cost.
+const SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    ".hg",
+    ".svn",
+    "target",        // Rust build output
+    "dist",
+    "build",
+    "out",
+    ".next",         // Next.js build cache
+    ".nuxt",
+    ".svelte-kit",
+    ".cache",
+    "vendor",        // Go / Composer / Ruby vendored deps
+    "bower_components",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".tox",
+    ".gradle",
+    ".idea",
+    ".vscode",
+];
+
+fn is_skip_dir(name: &str) -> bool {
+    SKIP_DIRS.iter().any(|s| s.eq_ignore_ascii_case(name))
+}
+
 /// Scan a directory for manifest files and extract all components.
+///
+/// Progress is reported through the optional callback — the desktop
+/// wraps this to emit status into `GlobalState::stage` so the UI can
+/// render "parsed 42 components from package-lock.json" instead of a
+/// blank running indicator.
 pub fn scan_directory(dir: &Path) -> Result<Vec<Component>, String> {
+    scan_directory_with_progress(dir, |_| {})
+}
+
+pub fn scan_directory_with_progress<F>(
+    dir: &Path,
+    mut progress: F,
+) -> Result<Vec<Component>, String>
+where
+    F: FnMut(&str),
+{
     let parsers = all_parsers();
     let mut components = Vec::new();
+    let mut files_scanned = 0u64;
+    let mut manifests_parsed = 0u64;
 
-    for entry in walkdir::WalkDir::new(dir)
-        .max_depth(5)
+    progress(&format!("scanning {}", dir.display()));
+
+    let walker = walkdir::WalkDir::new(dir)
+        .max_depth(6)
+        .follow_links(false)
         .into_iter()
-        .filter_map(|e| e.ok())
-    {
+        .filter_entry(|e| {
+            // Keep files, keep the root dir, skip heavy build / vendor
+            // trees. This is the single biggest determinant of scan
+            // time on a real project — without it, node_modules alone
+            // can push a dep scan past 10 minutes.
+            if !e.file_type().is_dir() {
+                return true;
+            }
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !is_skip_dir(&name)
+        });
+
+    for entry in walker.filter_map(|e| e.ok()) {
         let path = entry.path();
         if !path.is_file() {
             continue;
+        }
+        files_scanned += 1;
+        if files_scanned % 200 == 0 {
+            progress(&format!(
+                "walked {files_scanned} files, parsed {manifests_parsed} manifests"
+            ));
         }
         for parser in &parsers {
             if parser.can_parse(path) {
@@ -66,6 +140,17 @@ pub fn scan_directory(dir: &Path) -> Result<Vec<Component>, String> {
                             comps.len(),
                             path.display()
                         );
+                        manifests_parsed += 1;
+                        let display_name = path
+                            .strip_prefix(dir)
+                            .unwrap_or(path)
+                            .display()
+                            .to_string();
+                        progress(&format!(
+                            "parsed {} components from {}",
+                            comps.len(),
+                            display_name
+                        ));
                         components.extend(comps);
                     }
                     Err(e) => {
@@ -75,12 +160,18 @@ pub fn scan_directory(dir: &Path) -> Result<Vec<Component>, String> {
                             path.display(),
                             e
                         );
+                        progress(&format!("parse error on {}: {e}", path.display()));
                     }
                 }
                 break;
             }
         }
     }
+
+    progress(&format!(
+        "done walking — {files_scanned} files, {manifests_parsed} manifests, {} components",
+        components.len()
+    ));
 
     Ok(components)
 }

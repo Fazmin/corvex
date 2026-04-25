@@ -16,13 +16,12 @@ export function ThemeToggle() {
   const { pref, cycle } = useTheme();
   return (
     <button
-      className="theme-toggle"
+      className="theme-toggle theme-toggle-icon-only"
       onClick={cycle}
       title={`Theme: ${LABELS[pref]} (click to cycle)`}
-      aria-label="Toggle theme"
+      aria-label={`Theme: ${LABELS[pref]} (click to cycle)`}
     >
       <span aria-hidden>{ICONS[pref]}</span>
-      <span>{LABELS[pref]}</span>
     </button>
   );
 }

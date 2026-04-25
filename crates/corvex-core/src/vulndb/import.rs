@@ -42,9 +42,10 @@ pub fn import_json(db: &VulnDb, path: &Path) -> Result<u64, String> {
 
         // Insert CPE matches
         for m in &record.cpe_matches {
+            let (vendor, product) = super::parse_cpe_vendor_product(&m.cpe23_uri);
             tx.execute(
-                "INSERT INTO cpe_matches (cve_id, cpe23_uri, vulnerable, version_start_including, version_start_excluding, version_end_including, version_end_excluding)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO cpe_matches (cve_id, cpe23_uri, vulnerable, version_start_including, version_start_excluding, version_end_including, version_end_excluding, vendor, product)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 rusqlite::params![
                     m.cve_id,
                     m.cpe23_uri,
@@ -53,6 +54,8 @@ pub fn import_json(db: &VulnDb, path: &Path) -> Result<u64, String> {
                     m.version_start_excluding,
                     m.version_end_including,
                     m.version_end_excluding,
+                    vendor,
+                    product,
                 ],
             ).map_err(|e| format!("insert cpe_match failed: {e}"))?;
         }

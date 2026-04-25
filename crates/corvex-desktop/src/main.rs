@@ -249,6 +249,56 @@ fn main() {
                 }
             }
 
+            // Warm the vulndb in the background. The schema-v2
+            // migration adds vendor/product columns + a composite
+            // index to `cpe_matches`, which collapses SCA component
+            // lookups from full-table scans (~700 ms each) into
+            // index probes (<1 ms each). On a 1k-component scan
+            // that's the difference between ~10 minutes and a few
+            // seconds. We do it on app launch so the user's first
+            // SCA scan is already fast — but only if the file
+            // already exists, so users who never run SCA don't pay
+            // the seed-from-snapshot cost.
+            tauri::async_runtime::spawn(async move {
+                let res = tauri::async_runtime::spawn_blocking(|| {
+                    let path = match corvex_core::vulndb::default_db_path() {
+                        Ok(p) => p,
+                        Err(e) => {
+                            tracing::debug!(
+                                target: "vulndb",
+                                "no default vulndb path: {e}"
+                            );
+                            return;
+                        }
+                    };
+                    if !path.exists() {
+                        tracing::debug!(
+                            target: "vulndb",
+                            "no vulndb on disk yet — skipping warm-up"
+                        );
+                        return;
+                    }
+                    match corvex_core::vulndb::VulnDb::open(&path) {
+                        Ok(_db) => {
+                            tracing::info!(
+                                target: "vulndb",
+                                "warmed vulndb at startup (schema/index ready for SCA)"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "vulndb",
+                                "vulndb warm-up failed: {e}"
+                            );
+                        }
+                    }
+                })
+                .await;
+                if let Err(e) = res {
+                    tracing::warn!(target: "vulndb", "warm-up task: {e}");
+                }
+            });
+
             // Forward every buffered + future tracing line to the frontend.
             // `setup` is called before Tauri starts its own runtime on this
             // thread, so `tokio::spawn` would panic ("no reactor running").

@@ -17,7 +17,13 @@ export function TitleBar() {
     <div className="titlebar">
       <div className="titlebar-drag" data-tauri-drag-region>
         <span className="titlebar-brand" data-tauri-drag-region>
-          <span className="titlebar-brand-dot" data-tauri-drag-region />
+          <img
+            src="/logo.png"
+            className="titlebar-brand-logo"
+            alt=""
+            aria-hidden
+            data-tauri-drag-region
+          />
           corvex-rust
         </span>
         <span data-tauri-drag-region>· web vulnerability scanner</span>

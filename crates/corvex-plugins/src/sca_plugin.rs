@@ -45,9 +45,16 @@ impl Plugin for ScaPlugin {
 
         let mut components = Vec::new();
 
+        let state = ctx.state.clone();
+        state.set_stage("SCA: starting dependency scan");
+
         // Scan directory for dependency manifests
         if let Some(ref dir) = ctx.cli.scan_dir {
-            match parsers::scan_directory(dir) {
+            let stage_state = state.clone();
+            let result = parsers::scan_directory_with_progress(dir, move |msg| {
+                stage_state.set_stage(format!("SCA: {msg}"));
+            });
+            match result {
                 Ok(comps) => {
                     tracing::info!(
                         target: "sca",
@@ -59,12 +66,14 @@ impl Plugin for ScaPlugin {
                 }
                 Err(e) => {
                     tracing::warn!(target: "sca", "directory scan failed: {}", e);
+                    state.set_stage(format!("SCA: directory scan failed: {e}"));
                 }
             }
         }
 
         // Parse SBOM input
         if let Some(ref sbom_path) = ctx.cli.sbom_input {
+            state.set_stage(format!("SCA: parsing SBOM {}", sbom_path.display()));
             match sbom::parse_sbom(sbom_path) {
                 Ok(comps) => {
                     tracing::info!(
@@ -77,13 +86,24 @@ impl Plugin for ScaPlugin {
                 }
                 Err(e) => {
                     tracing::warn!(target: "sca", "SBOM parse failed: {}", e);
+                    state.set_stage(format!("SCA: SBOM parse failed: {e}"));
                 }
             }
         }
 
         if components.is_empty() {
+            state.set_stage(
+                "SCA: no dependency manifests found (looked for Cargo.lock, \
+                 package-lock.json, yarn.lock, package.json, requirements.txt, \
+                 pom.xml, go.mod, Gemfile.lock, composer.lock)",
+            );
             return Ok(());
         }
+
+        state.set_stage(format!(
+            "SCA: looking up {} components against vulndb (0%)",
+            components.len()
+        ));
 
         // Generate output SBOM if requested
         if let Some(ref output_path) = ctx.cli.sbom_output {
@@ -94,12 +114,26 @@ impl Plugin for ScaPlugin {
             }
         }
 
-        // Look up vulnerabilities
-        let findings = lookup::lookup_components(
+        // Look up vulnerabilities. The lookup is per-component CPE
+        // matching against the local vulndb — on a 1k-component
+        // project this can take minutes, so we publish a percentage
+        // every ~50 components.
+        let lookup_state = state.clone();
+        let findings = lookup::lookup_components_with_progress(
             vulndb,
             &components,
             ctx.cli.epss_threshold,
             ctx.cli.epss_percentile,
+            move |done, total| {
+                let pct = if total == 0 {
+                    100
+                } else {
+                    (done * 100) / total
+                };
+                lookup_state.set_stage(format!(
+                    "SCA: looking up CVEs for {done}/{total} components ({pct}%)"
+                ));
+            },
         );
 
         if findings.is_empty() {
@@ -108,6 +142,10 @@ impl Plugin for ScaPlugin {
                 "no known vulnerabilities found in {} components",
                 components.len()
             );
+            state.set_stage(format!(
+                "SCA: no known CVEs in {} components",
+                components.len()
+            ));
             return Ok(());
         }
 
@@ -117,6 +155,11 @@ impl Plugin for ScaPlugin {
             findings.len(),
             components.len()
         );
+        state.set_stage(format!(
+            "SCA: found {} CVEs across {} components — emitting findings",
+            findings.len(),
+            components.len()
+        ));
 
         // Emit findings as ReportItems
         let items: Vec<ReportItem> = findings

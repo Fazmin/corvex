@@ -1,6 +1,7 @@
 //! Global runtime counters & state (= Perl %COUNTERS + %VARIABLES).
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Default)]
@@ -15,6 +16,11 @@ pub struct GlobalState {
     pub urls_crawled: AtomicU64,
     pub ports_scanned: AtomicU64,
     pub open_ports_found: AtomicU64,
+    /// Human-readable one-line status set by long-running plugins
+    /// (currently SCA) so the UI can show what's happening during
+    /// the inevitable "scanning node_modules / looking up CVEs"
+    /// wait. Read by `scan_stats` which is polled every ~750ms.
+    pub stage: Mutex<Option<String>>,
 }
 
 impl GlobalState {
@@ -56,5 +62,23 @@ impl GlobalState {
         self.scan_end
             .load(Ordering::Relaxed)
             .saturating_sub(self.scan_start.load(Ordering::Relaxed))
+    }
+
+    /// Publish a human-readable status line. Overwrites any previous
+    /// stage. Safe to call from plugin code on any thread.
+    pub fn set_stage(&self, s: impl Into<String>) {
+        if let Ok(mut guard) = self.stage.lock() {
+            *guard = Some(s.into());
+        }
+    }
+
+    pub fn clear_stage(&self) {
+        if let Ok(mut guard) = self.stage.lock() {
+            *guard = None;
+        }
+    }
+
+    pub fn get_stage(&self) -> Option<String> {
+        self.stage.lock().ok().and_then(|g| g.clone())
     }
 }

@@ -32,6 +32,10 @@ pub struct ScanStats {
     pub elapsed_secs: u64,
     pub cancelled: bool,
     pub urls_crawled: u64,
+    /// One-line human-readable status set by long-running plugins
+    /// (currently SCA) — "scanning manifests", "parsed N from X",
+    /// "looking up N components against vulndb", etc.
+    pub stage: Option<String>,
 }
 
 impl ScanRegistry {
@@ -65,6 +69,7 @@ impl ScanRegistry {
             elapsed_secs: scan.state.elapsed_secs(),
             cancelled: scan.cancel.is_cancelled(),
             urls_crawled: scan.state.urls_crawled.load(Ordering::Relaxed),
+            stage: scan.state.get_stage(),
         })
     }
 }

@@ -58,6 +58,17 @@ code {
   background: var(--accent-gradient);
 }
 
+/* PNG logo in the titlebar. Kept small so it doesn't dominate the
+   drag region on narrow windows. */
+.titlebar-brand-logo {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  display: inline-block;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
 .titlebar-tools {
   display: flex;
   align-items: center;
@@ -162,14 +173,9 @@ code {
 .sidebar-brand .logo {
   width: 28px;
   height: 28px;
-  border-radius: 999px;
-  background: var(--accent-gradient);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-weight: 700;
-  font-size: calc(var(--font-base) - 1px);
+  object-fit: contain;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
 .sidebar-brand .name {
@@ -1804,6 +1810,18 @@ button[disabled] {
 
 .theme-toggle:hover {
   border-color: var(--border-strong);
+}
+
+/* Icon-only variant used in the titlebar — drops the label and
+   squares up the button so it sits neatly next to the window
+   controls. */
+.theme-toggle.theme-toggle-icon-only {
+  gap: 0;
+  padding: 0;
+  width: 28px;
+  justify-content: center;
+  font-size: calc(var(--font-base) - 1px);
+  line-height: 1;
 }
 
 /* ---------- Empty state ---------- */
@@ -3577,4 +3595,29 @@ button[disabled] {
   font-size: calc(var(--font-base) - 2px);
   line-height: 1.45;
   white-space: pre;
+}
+
+/* SCA progress spinner. Inline with the status text inside the
+   Results stats row, or scaled up for the empty-state hero. */
+.sca-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent, var(--fg));
+  border-radius: 50%;
+  animation: sca-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.sca-spinner-lg {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+}
+
+@keyframes sca-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

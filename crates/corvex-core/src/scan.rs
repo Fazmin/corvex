@@ -351,6 +351,16 @@ async fn scan_one(ctx: Arc<ScanCtx>, mark: Arc<Mutex<Mark>>) -> Result<()> {
         }
     }
 
+    // Dependency / SBOM / binary-analysis runs don't need an HTTP
+    // baseline — they work against the filesystem. A failed initial
+    // fetch on those runs should not kill the scan (otherwise the
+    // SCA plugin's on_start hook never fires and the user sees an
+    // empty Results pane). Web-scan runs keep the old strict
+    // behaviour.
+    let dep_only_mode = ctx.cli.scan_dir.is_some()
+        || ctx.cli.sbom_input.is_some()
+        || ctx.cli.binary_scan.is_some();
+
     // Initial fetch: GET /
     let mut req = {
         let m = mark.lock().await;
@@ -358,25 +368,35 @@ async fn scan_one(ctx: Arc<ScanCtx>, mark: Arc<Mutex<Mark>>) -> Result<()> {
     };
     let init = ctx.http.send(&mut req).await;
     let init = match init {
-        Ok(r) => r,
+        Ok(r) => Some(r),
         Err(e) => {
-            let mut m = mark.lock().await;
-            tracing::error!(
-                target: "scan",
-                "initial fetch failed for {}: {}",
-                m.ident,
-                e
-            );
-            m.errmsg = Some(e.to_string());
-            m.test_ok = false;
-            return Ok(());
+            if dep_only_mode {
+                tracing::info!(
+                    target: "scan",
+                    "no HTTP baseline for dep-only scan ({}); proceeding to plugins",
+                    e
+                );
+                None
+            } else {
+                let mut m = mark.lock().await;
+                tracing::error!(
+                    target: "scan",
+                    "initial fetch failed for {}: {}",
+                    m.ident,
+                    e
+                );
+                m.errmsg = Some(e.to_string());
+                m.test_ok = false;
+                return Ok(());
+            }
         }
     };
 
-    // Populate platform/banner/ssl_info/404 baseline
-    {
+    // Populate platform/banner/ssl_info/404 baseline (only when we
+    // actually fetched a baseline response).
+    if let Some(ref init) = init {
         let mut m = mark.lock().await;
-        m.platform = profile::platform_profile(&init);
+        m.platform = profile::platform_profile(init);
         if m.banner.is_none() {
             if let Some(s) = init.header("server") {
                 m.banner = Some(s.to_string());
@@ -388,7 +408,9 @@ async fn scan_one(ctx: Arc<ScanCtx>, mark: Arc<Mutex<Mark>>) -> Result<()> {
             }
         }
         m.start_time = SystemTime::now();
-        // Seed 404 baseline from a random-path fetch later; for now use /.
+    } else {
+        let mut m = mark.lock().await;
+        m.start_time = SystemTime::now();
     }
 
     // Report host start
@@ -403,7 +425,19 @@ async fn scan_one(ctx: Arc<ScanCtx>, mark: Arc<Mutex<Mark>>) -> Result<()> {
 
     // Run start → recon → scan hooks. Cancellation is checked at two
     // granularities: between hook kinds and between individual plugins.
-    'hooks: for kind in [HookKind::Start, HookKind::Recon, HookKind::Scan] {
+    //
+    // In dependency-only mode (no HTTP baseline available) we run
+    // only the Start hook — that's where SCA / SBOM / binary plugins
+    // live. Skipping Recon and Scan keeps the run from issuing
+    // thousands of useless web probes against a target that isn't
+    // listening (the previous behaviour ran 7236 web tests against
+    // 127.0.0.1:80, all of which failed, eating ~30+ minutes).
+    let hook_chain: &[HookKind] = if dep_only_mode && init.is_none() {
+        &[HookKind::Start]
+    } else {
+        &[HookKind::Start, HookKind::Recon, HookKind::Scan]
+    };
+    'hooks: for &kind in hook_chain {
         if ctx.is_cancelled() {
             break 'hooks;
         }

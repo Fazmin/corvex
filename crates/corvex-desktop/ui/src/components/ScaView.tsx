@@ -86,7 +86,13 @@ export function ScaView() {
     setRunning(true);
     setTab("results");
     try {
-      const id = await startScan({ host: "sca://local", ...params } as any);
+      // SCA / Binary analysis doesn't actually touch the network — we
+      // still ride the scan engine so we get the event sink, finding
+      // stream, and history row. Use 127.0.0.1 as a synthetic host so
+      // the engine doesn't try to DNS-resolve a bare "local" (strict
+      // on Windows, error 11001) and skip the mark before the SCA
+      // plugin's on_start ever runs.
+      const id = await startScan({ host: "127.0.0.1", ...params } as any);
       setScanId(id);
       const batcher = createRafBatcher<FindingPayload>((batch) => {
         setFindings((prev) => [...prev, ...batch]);
@@ -431,17 +437,70 @@ export function ScaView() {
                   <div className="value">{findings.length}</div>
                 </div>
                 <div className="info-cell" style={{ flex: 1 }}>
-                  <div className="label">Status</div>
+                  <div className="label">Elapsed</div>
                   <div className="value" style={{ fontSize: 14 }}>
-                    {running ? "Scanning..." : "Complete"}
+                    {stats.elapsed_secs}s
                   </div>
+                </div>
+                <div className="info-cell" style={{ flex: 2 }}>
+                  <div className="label">Status</div>
+                  <div
+                    className="value"
+                    style={{
+                      fontSize: 13,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    {running && <span className="sca-spinner" aria-hidden="true" />}
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={stats.stage ?? undefined}
+                    >
+                      {running
+                        ? stats.stage ?? "Scanning…"
+                        : "Complete"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {running && findings.length === 0 && (
+              <div
+                className="empty"
+                style={{
+                  padding: 24,
+                  textAlign: "center",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  alignItems: "center",
+                }}
+              >
+                <span
+                  className="sca-spinner sca-spinner-lg"
+                  aria-hidden="true"
+                />
+                <div style={{ fontWeight: 500 }}>
+                  {stats?.stage ?? "Preparing scan…"}
+                </div>
+                <div className="sub">
+                  Large projects walk faster now — <code>node_modules</code>,{" "}
+                  <code>.git</code>, build caches and friends are skipped
+                  automatically.
                 </div>
               </div>
             )}
 
             {findings.length === 0 && !running && (
               <div className="empty" style={{ padding: 32, textAlign: "center" }}>
-                No findings yet. Run a dependency or binary analysis scan.
+                {stats?.stage ?? "No findings yet. Run a dependency or binary analysis scan."}
               </div>
             )}
 

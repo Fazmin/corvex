@@ -24,9 +24,36 @@ pub fn lookup_components(
     epss_threshold: Option<f32>,
     epss_percentile_min: Option<f32>,
 ) -> Vec<ScaFinding> {
-    let mut findings = Vec::new();
+    lookup_components_with_progress(
+        db,
+        components,
+        epss_threshold,
+        epss_percentile_min,
+        |_, _| {},
+    )
+}
 
-    for component in components {
+/// Same as [`lookup_components`] but invokes `progress(done, total)`
+/// every ~50 components so a long lookup can publish a live status
+/// to the UI instead of looking hung. The callback is called from
+/// the same thread as the lookup and must be cheap.
+pub fn lookup_components_with_progress<F>(
+    db: &VulnDb,
+    components: &[Component],
+    epss_threshold: Option<f32>,
+    epss_percentile_min: Option<f32>,
+    mut progress: F,
+) -> Vec<ScaFinding>
+where
+    F: FnMut(usize, usize),
+{
+    let mut findings = Vec::new();
+    let total = components.len();
+
+    for (i, component) in components.iter().enumerate() {
+        if i % 50 == 0 {
+            progress(i, total);
+        }
         // Determine CPE vendor:product
         let (vendor, product) = if let Some(mapping) =
             cpe_map::lookup_cpe(component.ecosystem, &component.name)
@@ -85,6 +112,8 @@ pub fn lookup_components(
             }
         }
     }
+
+    progress(total, total);
 
     // Sort by CVSS score (highest first)
     findings.sort_by(|a, b| {

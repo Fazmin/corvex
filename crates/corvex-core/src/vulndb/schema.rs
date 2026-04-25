@@ -3,10 +3,28 @@
 use rusqlite::Connection;
 
 /// Current schema version.
-pub const SCHEMA_VERSION: u32 = 1;
+///
+/// v2 adds materialised `vendor` / `product` columns + index on
+/// `cpe_matches`. Without these, `lookup_component` had to do a
+/// full-table scan + parse-the-CPE-URI-in-Rust per component, which
+/// on a 1k-component SCA run took ~10 minutes. With the index it's
+/// a few seconds.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Create all tables if they don't exist, and run migrations.
+///
+/// Order matters here: on an existing v1 database the `cpe_matches`
+/// table already exists *without* the `vendor` / `product` columns,
+/// and `CREATE TABLE IF NOT EXISTS` is a no-op. So we must:
+///   1. create tables / non-vendor indices first,
+///   2. ALTER TABLE to add the new columns if they're missing,
+///   3. *then* create the (vendor, product) partial index.
+/// Doing #3 inside the same `execute_batch` as the CREATE TABLE was
+/// the bug — SQLite parses the whole batch up front and rejects
+/// statements that reference columns the running schema doesn't yet
+/// have, even with IF NOT EXISTS.
 pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
+    // 1. Tables + version-stable indices.
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS db_meta (
@@ -34,6 +52,8 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             version_start_excluding  TEXT,
             version_end_including    TEXT,
             version_end_excluding    TEXT,
+            vendor                   TEXT,
+            product                  TEXT,
             FOREIGN KEY (cve_id) REFERENCES cves(cve_id)
         );
 
@@ -75,9 +95,40 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         ",
     )?;
 
-    // Set schema version if not present.
+    // 2. Add vendor/product columns to pre-existing v1 tables. SQLite
+    //    has no "ADD COLUMN IF NOT EXISTS" — probe pragma first.
+    let has_vendor: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cpe_matches') WHERE name = 'vendor'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if !has_vendor {
+        conn.execute("ALTER TABLE cpe_matches ADD COLUMN vendor TEXT", [])?;
+    }
+    let has_product: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('cpe_matches') WHERE name = 'product'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if !has_product {
+        conn.execute("ALTER TABLE cpe_matches ADD COLUMN product TEXT", [])?;
+    }
+
+    // 3. Now (with the columns guaranteed to exist) create the
+    //    composite partial index.
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_cpe_matches_vp \
+             ON cpe_matches(vendor, product) WHERE vulnerable = 1;",
+    )?;
+
+    // Set schema version (overwrite — older DBs may have version=1).
     conn.execute(
-        "INSERT OR IGNORE INTO db_meta (key, value) VALUES ('schema_version', ?1)",
+        "INSERT INTO db_meta (key, value) VALUES ('schema_version', ?1) \
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         rusqlite::params![SCHEMA_VERSION.to_string()],
     )?;
 
