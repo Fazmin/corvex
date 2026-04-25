@@ -26,6 +26,7 @@ use crate::event_sink::TauriEventSink;
 use crate::history::{HistoryDb, HistoryEntry};
 use crate::params::ScanParams;
 use crate::probe_state::{ProbeRegistry, RunningProbe};
+use crate::probe_store::{PendingOpenPort, ProbeStore};
 use crate::scan_state::{RunningScan, ScanRegistry, ScanStats};
 
 #[derive(Debug, Clone, Serialize)]
@@ -691,10 +692,36 @@ pub async fn probe_start(
     let registry_handle: tauri::State<'_, ProbeRegistry> = registry;
     let _ = registry_handle;
 
+    // Persist a probe_runs row up-front so the asset view can correlate
+    // open-port observations even when the probe is still running. We
+    // pull the store from app state if present — the asset feature is
+    // the only consumer, and persistence is non-fatal: if the store
+    // isn't managed (DB open failure at startup) probes still run.
+    let probe_store = app.try_state::<Arc<ProbeStore>>().map(|s| s.inner().clone());
+    if let Some(store) = probe_store.as_ref() {
+        if let Err(e) = store.insert_run(&probe_id, &params.targets) {
+            tracing::warn!(target: "probe", "probe_runs insert failed: {e}");
+        }
+    }
+
     let app_cloned = app.clone();
+    let probe_store_for_task = probe_store.clone();
     tauri::async_runtime::spawn(async move {
         let start = std::time::Instant::now();
-        run_probe(app_cloned.clone(), probe_id, params, cancel, start).await;
+        run_probe(
+            app_cloned.clone(),
+            probe_id,
+            params,
+            cancel,
+            start,
+            probe_store_for_task.clone(),
+        )
+        .await;
+        if let Some(store) = probe_store_for_task.as_ref() {
+            if let Err(e) = store.finish_run(&probe_id, "complete") {
+                tracing::warn!(target: "probe", "probe_runs finish failed: {e}");
+            }
+        }
         // Registry clean-up on completion.
         if let Some(registry) = app_cloned.try_state::<ProbeRegistry>() {
             registry.remove(probe_id).await;
@@ -719,6 +746,7 @@ async fn run_probe(
     params: ProbeParams,
     cancel: CancellationToken,
     start: std::time::Instant,
+    probe_store: Option<Arc<ProbeStore>>,
 ) {
     let id_str = probe_id.to_string();
 
@@ -789,6 +817,8 @@ async fn run_probe(
         let open_ports_total = open_ports_total.clone();
         let port_list = port_list.clone();
         let opts = opts.clone();
+        let probe_store = probe_store.clone();
+        let probe_uuid = probe_id;
 
         tasks.push(tauri::async_runtime::spawn(async move {
             if cancel.is_cancelled() {
@@ -856,6 +886,34 @@ async fn run_probe(
                 });
             }
             let open_count = host_ports.len();
+            // Persist before emitting so the SQL row is committed by the
+            // time the UI re-queries via `asset_services`. Failure logs
+            // and is swallowed — the live event is still useful even if
+            // persistence is unavailable.
+            if let Some(store) = probe_store.as_ref() {
+                let pending: Vec<PendingOpenPort> = host_ports
+                    .iter()
+                    .map(|p| PendingOpenPort {
+                        host: crate::asset_identity::normalize_host(&p.hostname),
+                        ip: Some(p.ip.clone()).filter(|s| !s.is_empty()),
+                        port: p.port,
+                        over_tls: p.over_tls,
+                        service: p.service.clone(),
+                        product: p.product.clone(),
+                        vendor: p.vendor.clone(),
+                        version: p.version.clone(),
+                        info: p.info.clone(),
+                        cpe: p.cpe.clone(),
+                        jarm: p.jarm.clone(),
+                        banner: p.banner.clone(),
+                    })
+                    .collect();
+                if !pending.is_empty() {
+                    if let Err(e) = store.insert_open_ports(&probe_uuid, &pending) {
+                        tracing::warn!(target: "probe", "probe_open_ports insert failed: {e}");
+                    }
+                }
+            }
             if !host_ports.is_empty() {
                 let _ = app.emit(&ev(&id_str, "open-port"), host_ports);
             }

@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { AssetNavProvider } from "./asset_nav";
 import { ThemeProvider } from "./theme";
 import { SettingsProvider } from "./settings";
 import { ProbeRunningProvider } from "./probe_running";
@@ -12,7 +13,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <ThemeProvider>
       <SettingsProvider>
         <ProbeRunningProvider>
-          <App />
+          <AssetNavProvider>
+            <App />
+          </AssetNavProvider>
         </ProbeRunningProvider>
       </SettingsProvider>
     </ThemeProvider>

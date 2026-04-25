@@ -123,21 +123,8 @@ code {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 10px 12px 12px 12px;
+  padding: 8px 12px 12px 12px;
   overflow: hidden;
-}
-
-/* Toggle is its own flow row at the very top of the rail so it never
-   overlaps the brand / logo, regardless of collapsed state. */
-.sidebar-toggle-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 6px;
-  flex: none;
-}
-
-.sidebar.collapsed .sidebar-toggle-row {
-  justify-content: center;
 }
 
 .sidebar-toggle {
@@ -165,9 +152,23 @@ code {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 6px 16px 6px;
+  padding: 2px 4px 10px 6px;
   border-bottom: 1px solid var(--border-soft);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+}
+
+.sidebar.collapsed .sidebar-brand {
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 8px 0;
+}
+
+.sidebar-brand .sidebar-toggle {
+  margin-left: auto;
+}
+
+.sidebar.collapsed .sidebar-brand .sidebar-toggle {
+  margin-left: 0;
 }
 
 .sidebar-brand .logo {
@@ -188,6 +189,7 @@ code {
   color: var(--muted);
   font-size: calc(var(--font-base) - 3px);
   margin-left: auto;
+  margin-right: 4px;
 }
 
 .sidebar-section {

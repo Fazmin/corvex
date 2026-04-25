@@ -12,6 +12,7 @@ interface Section {
 const SECTIONS: Section[] = [
   { id: "getting-started", title: "Getting started" },
   { id: "views", title: "Views" },
+  { id: "asset-view", title: "Asset ecosystem view" },
   { id: "proxy", title: "Proxy, Intercept, Replay & Checks" },
   { id: "service-probing", title: "Service probing" },
   { id: "recon", title: "Recon" },
@@ -430,6 +431,102 @@ export function HelpView() {
 
           <h4>Help</h4>
           <p>You're reading it.</p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        <section id="asset-view">
+          <h3>Asset ecosystem view</h3>
+          <p>
+            An <strong>asset</strong> is one host the app has seen — a
+            hostname, an IP, or a web app behind one of those. Industry
+            term, same usage as Censys / Shodan / ASM platforms. The
+            Asset view is a single page that joins everything you know
+            about one asset across recon, probing, the proxy, and scan
+            history.
+          </p>
+
+          <h4>How to reach it</h4>
+          <ul>
+            <li>
+              <strong>Sidebar → Assets</strong> opens a searchable list
+              of every host the app has data on, sorted by most-recent
+              activity. Click a row to drill in.
+            </li>
+            <li>
+              Every row in <strong>Findings</strong>,{" "}
+              <strong>Proxy → Traffic</strong>, <strong>Recon</strong>,{" "}
+              <strong>Probing</strong>, and <strong>History</strong> has
+              a small crosshair icon next to the host. Click it to drop
+              straight into the asset view centered on that host.
+            </li>
+            <li>
+              Inside the asset view, every related-host chip and every
+              breadcrumb is a link — click to re-center on the new host
+              with a back-button to walk the path.
+            </li>
+          </ul>
+
+          <h4>What the panels show</h4>
+          <ul>
+            <li>
+              <strong>Identity</strong> — IPs, DNS records, networks,
+              first/last seen. ASN is a placeholder until the offline
+              ASN lookup ships.
+            </li>
+            <li>
+              <strong>Services</strong> — open ports recorded by the
+              probe pipeline, with product, version, CPE chips, and the
+              JARM hash chip (click for the same decomposition popover
+              the Probing view uses).
+            </li>
+            <li>
+              <strong>Stack</strong> — Wappalyzer-style technologies
+              detected from any captured response. Hover a chip for the
+              category and the paths it was seen on.
+            </li>
+            <li>
+              <strong>Related assets</strong> — three groups: same JARM
+              (same TLS stack), same root domain (recon-discovered
+              siblings), and same /24 network (coarse infrastructure
+              neighbor).
+            </li>
+            <li>
+              <strong>Endpoints</strong> — paths grouped from proxy
+              exchanges, with exchange + finding counts per endpoint.
+            </li>
+            <li>
+              <strong>Findings</strong> — deduped across engines (passive
+              checks, active checks, SCA, banner-CVE), severity-sorted,
+              with the chip filter strip from the dashboard.
+            </li>
+            <li>
+              <strong>Timeline</strong> — interleaved probe / exchange /
+              finding / recon / scan events for the asset, newest first.
+            </li>
+          </ul>
+
+          <h4>Panels vs Graph mode</h4>
+          <p>
+            The header has a <strong>Panels</strong> /{" "}
+            <strong>Graph</strong> pill toggle. Panels is the default
+            and answers "what do I know about this host." Graph renders
+            the same data as a node-link diagram with the asset in the
+            center and entities radiating out — useful for spotting
+            infrastructure clusters and shared-cert relationships
+            visually. Both modes use the same query results; the toggle
+            only swaps the renderer.
+          </p>
+
+          <h4>Worked example</h4>
+          <p>
+            From Findings, click the crosshair next to a CRITICAL row →
+            you land in the asset view centered on that host. Open the
+            Endpoints panel, find the path with the most findings, click
+            its row → opens the proxy exchange that produced the
+            finding. From the proxy detail, you can replay the request
+            after editing it. Walk back via the breadcrumb to compare
+            with a sibling asset surfaced under "same JARM."
+          </p>
         </section>
 
         {/* ------------------------------------------------------------------ */}

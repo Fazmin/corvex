@@ -14,6 +14,7 @@ import {
 } from "../api";
 import type { FuzzerSeed } from "../App";
 import { InfoTip } from "./InfoTip";
+import { AssetLink } from "./asset/AssetLink";
 
 /** Source list the backend knows about. Keep in sync with
  *  corvex_core::recon::passive_source_by_name. */
@@ -598,7 +599,12 @@ export function ReconView({
                   <tbody>
                     {subdomainRows.map((row) => (
                       <tr key={row.host}>
-                        <td className="mono">{row.host}</td>
+                        <td className="mono">
+                          {row.host}
+                          <span style={{ marginLeft: 6, verticalAlign: "middle" }}>
+                            <AssetLink host={row.host} />
+                          </span>
+                        </td>
                         <td>
                           {row.sources.map((s) => (
                             <span

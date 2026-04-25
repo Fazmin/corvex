@@ -1,6 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { FindingPayload, SeverityLevel } from "../api";
 import { ExploitHits } from "./ExploitHits";
+import { AssetLink } from "./asset/AssetLink";
 
 type FilterMode = "all" | "signature" | "active" | "fingerprint";
 type SeverityFilter = "all" | SeverityLevel;
@@ -494,6 +495,11 @@ function FindingRow({ finding, isOpen, onToggle }: RowProps) {
         <td className="cell-method">{finding.method}</td>
         <td className="cell-uri">
           <code>{finding.uri}</code>
+          {finding.host && (
+            <span style={{ marginLeft: 6, verticalAlign: "middle" }}>
+              <AssetLink host={finding.host} port={finding.port} />
+            </span>
+          )}
         </td>
         <td className="cell-message">{finding.message}</td>
         <td className="cell-plugin">

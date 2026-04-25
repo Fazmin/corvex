@@ -159,6 +159,20 @@ export function ReconIcon({ size = 18 }: IconProps) {
   );
 }
 
+export function AssetsIcon({ size = 18 }: IconProps) {
+  // Crosshair over a host node — evokes "centered on one asset".
+  return (
+    <svg {...stroke(size)} aria-hidden>
+      <circle cx="12" cy="12" r="3" />
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="1" x2="12" y2="5" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="1" y1="12" x2="5" y2="12" />
+      <line x1="19" y1="12" x2="23" y2="12" />
+    </svg>
+  );
+}
+
 export function HelpIcon({ size = 18 }: IconProps) {
   return (
     <svg {...stroke(size)} aria-hidden>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRafBatcher } from "../util/rafBatch";
+import { AssetLink } from "./asset/AssetLink";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   checksList,
@@ -495,6 +496,9 @@ function ProxyTrafficTab({
                   <span className="muted">{ex.scheme}://{ex.host}</span>
                   {ex.path}
                   {ex.query ? `?${ex.query}` : ""}
+                  <span style={{ marginLeft: 6, verticalAlign: "middle" }}>
+                    <AssetLink host={ex.host} port={ex.port} />
+                  </span>
                 </td>
                 <td className="muted">{humanSize(ex.size_response)}</td>
                 <td className="muted">{ex.duration_ms ?? "-"} ms</td>

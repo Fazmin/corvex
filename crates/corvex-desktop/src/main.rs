@@ -5,6 +5,9 @@
 //! streams findings + engine log lines back to the web frontend
 //! through Tauri events.
 
+mod asset_cmd;
+mod asset_db;
+mod asset_identity;
 mod check_bridge;
 mod commands;
 mod error;
@@ -14,6 +17,7 @@ mod history;
 mod log_bridge;
 mod params;
 mod probe_state;
+mod probe_store;
 mod proxy_cmd;
 mod recon_cmd;
 mod recon_state;
@@ -22,10 +26,12 @@ mod scan_state;
 
 use std::sync::Arc;
 
+use asset_db::AssetDb;
 use corvex_proxy::{Authority, CaConfig, ProxyDb, ProxyState};
 use exploitdb::ExploitDb;
 use history::HistoryDb;
 use probe_state::ProbeRegistry;
+use probe_store::ProbeStore;
 use recon_state::ReconRegistry;
 use recon_store::ReconDb;
 use scan_state::ScanRegistry;
@@ -95,6 +101,34 @@ fn main() {
                 }
                 Err(e) => {
                     tracing::error!(target: "history", "failed to open history db: {e}");
+                }
+            }
+
+            // Probe persistence — sibling connection to history.sqlite,
+            // same WAL story as recon. Asset view depends on this for
+            // services + JARM clustering. Failure is non-fatal: the
+            // asset Services panel will simply show zero rows.
+            match open_probe_store(app) {
+                Ok(db) => {
+                    app.manage(Arc::new(db));
+                    tracing::info!(target: "probe", "probe store ready");
+                }
+                Err(e) => {
+                    tracing::error!(target: "probe", "failed to open probe store: {e}");
+                }
+            }
+
+            // Asset DB — read-only cross-table aggregator that joins
+            // proxy / probe / recon / history. Opens its own connection
+            // so we keep the pattern of one PRAGMA-tuned handle per
+            // feature.
+            match open_asset_db(app) {
+                Ok(db) => {
+                    app.manage(Arc::new(db));
+                    tracing::info!(target: "asset", "asset db ready");
+                }
+                Err(e) => {
+                    tracing::error!(target: "asset", "failed to open asset db: {e}");
                 }
             }
 
@@ -335,6 +369,14 @@ fn main() {
             commands::jarm_lookup,
             commands::probe_start,
             commands::probe_cancel,
+            asset_cmd::asset_list,
+            asset_cmd::asset_overview,
+            asset_cmd::asset_services,
+            asset_cmd::asset_stack,
+            asset_cmd::asset_endpoints,
+            asset_cmd::asset_findings,
+            asset_cmd::asset_related,
+            asset_cmd::asset_timeline,
             proxy_cmd::proxy_status,
             proxy_cmd::proxy_start,
             proxy_cmd::proxy_stop,
@@ -446,6 +488,28 @@ fn open_exploitdb(app: &tauri::App) -> anyhow::Result<ExploitDb> {
         user_path.display()
     );
     ExploitDb::open(&user_path).map_err(|e| anyhow::anyhow!("sqlite: {e}"))
+}
+
+fn open_probe_store(app: &tauri::App) -> anyhow::Result<ProbeStore> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| anyhow::anyhow!("app_data_dir: {e}"))?;
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("history.sqlite");
+    tracing::info!(target: "probe", "opening probe store at {}", path.display());
+    ProbeStore::open(&path).map_err(|e| anyhow::anyhow!("sqlite: {e}"))
+}
+
+fn open_asset_db(app: &tauri::App) -> anyhow::Result<AssetDb> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| anyhow::anyhow!("app_data_dir: {e}"))?;
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("history.sqlite");
+    tracing::info!(target: "asset", "opening asset db at {}", path.display());
+    AssetDb::open(&path).map_err(|e| anyhow::anyhow!("sqlite: {e}"))
 }
 
 fn open_recon(app: &tauri::App) -> anyhow::Result<ReconDb> {

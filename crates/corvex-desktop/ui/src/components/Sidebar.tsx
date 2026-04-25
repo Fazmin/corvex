@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useProbeRunning } from "../probe_running";
 import {
+  AssetsIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DashboardIcon,
@@ -29,6 +30,8 @@ export type View =
   | "proxy"
   | "recon"
   | "sca"
+  | "assets"
+  | "asset-detail"
   | "settings"
   | "help";
 
@@ -88,6 +91,11 @@ export function Sidebar({
   ];
   const engine: NavItem[] = [
     {
+      view: "assets",
+      icon: <AssetsIcon size={collapsed ? 22 : 18} />,
+      label: "Assets",
+    },
+    {
       view: "plugins",
       icon: <PluginsIcon size={collapsed ? 22 : 18} />,
       label: "Plugins",
@@ -129,7 +137,10 @@ export function Sidebar({
 
   return (
     <aside className={`sidebar${collapsed ? " collapsed" : ""}`}>
-      <div className="sidebar-toggle-row">
+      <div className="sidebar-brand">
+        <img src="/corvex_logo.png" className="logo" alt="" aria-hidden />
+        {!collapsed && <span className="name">corvex-rust</span>}
+        {!collapsed && <span className="version">v0.1.0</span>}
         <button
           type="button"
           className="sidebar-toggle"
@@ -139,12 +150,6 @@ export function Sidebar({
         >
           {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
         </button>
-      </div>
-
-      <div className="sidebar-brand">
-        <img src="/corvex_logo.png" className="logo" alt="" aria-hidden />
-        <span className="name">corvex-rust</span>
-        <span className="version">v0.1.0</span>
       </div>
 
       <div className="sidebar-section">

@@ -1054,3 +1054,164 @@ export function exploitdbUpdate(): Promise<ExploitDbSummary> {
 export function exploitdbFetchSource(edbId: number): Promise<ExploitSource> {
   return invoke<ExploitSource>("exploitdb_fetch_source", { edbId });
 }
+
+// ---- Assets (target-centered ecosystem view) -------------------------------
+//
+// One host = one asset. The asset_* commands aggregate across the proxy,
+// probe, recon and history stores so the UI can render a single page
+// covering identity, services, stack, endpoints, findings, related hosts,
+// and a per-host timeline.
+
+export interface AssetSummary {
+  host: string;
+  finding_count: number;
+  exchange_count: number;
+  probe_port_count: number;
+  recon_hit_count: number;
+  last_seen_unix: number;
+}
+
+export interface DnsRecord {
+  kind: string;
+  value: string;
+  sources: string[];
+}
+
+export interface AssetOverview {
+  host: string;
+  ips: string[];
+  dns_records: DnsRecord[];
+  probe_port_count: number;
+  exchange_count: number;
+  finding_count: number;
+  recon_hit_count: number;
+  first_seen_unix: number | null;
+  last_seen_unix: number | null;
+  asn_placeholder: string | null;
+  cidr_24s: string[];
+  scanned_count: number;
+}
+
+export interface AssetService {
+  host: string;
+  ip: string | null;
+  port: number;
+  over_tls: boolean;
+  service: string | null;
+  product: string | null;
+  vendor: string | null;
+  version: string | null;
+  info: string | null;
+  cpe: string[];
+  jarm: string | null;
+  banner: string;
+  first_seen_unix: number;
+  last_seen_unix: number;
+  observation_count: number;
+}
+
+export interface AssetTech {
+  name: string;
+  version: string | null;
+  categories: string[];
+  observed_on_paths: string[];
+  last_seen_unix: number;
+}
+
+export interface AssetEndpoint {
+  host: string;
+  port: number;
+  scheme: string;
+  method: string;
+  path: string;
+  last_status: number | null;
+  exchange_count: number;
+  finding_count: number;
+  last_seen_unix: number;
+  last_exchange_id: string;
+}
+
+export interface AssetFinding {
+  check_id: string;
+  severity: string;
+  title: string;
+  description: string | null;
+  host: string;
+  port: number;
+  example_path: string;
+  example_exchange_id: string;
+  occurrence_count: number;
+  last_seen_unix: number;
+}
+
+export interface RelatedHost {
+  host: string;
+  jarm: string | null;
+}
+
+export interface AssetRelated {
+  same_jarm: RelatedHost[];
+  same_root_domain: string[];
+  same_cidr_24: string[];
+}
+
+export interface AssetTimelineEvent {
+  kind: "probe" | "exchange" | "finding" | "recon" | "scan";
+  ts_unix: number;
+  summary: string;
+  deep_link: string | null;
+}
+
+export function assetList(query = "", limit = 200): Promise<AssetSummary[]> {
+  return invoke<AssetSummary[]>("asset_list", { query, limit });
+}
+
+export function assetOverview(host: string): Promise<AssetOverview> {
+  return invoke<AssetOverview>("asset_overview", { host });
+}
+
+export function assetServices(host: string): Promise<AssetService[]> {
+  return invoke<AssetService[]>("asset_services", { host });
+}
+
+export function assetStack(
+  host: string,
+  port?: number,
+): Promise<AssetTech[]> {
+  return invoke<AssetTech[]>("asset_stack", { host, port: port ?? null });
+}
+
+export function assetEndpoints(
+  host: string,
+  port?: number,
+  limit = 200,
+): Promise<AssetEndpoint[]> {
+  return invoke<AssetEndpoint[]>("asset_endpoints", {
+    host,
+    port: port ?? null,
+    limit,
+  });
+}
+
+export function assetFindings(
+  host: string,
+  port?: number,
+  limit = 500,
+): Promise<AssetFinding[]> {
+  return invoke<AssetFinding[]>("asset_findings", {
+    host,
+    port: port ?? null,
+    limit,
+  });
+}
+
+export function assetRelated(host: string): Promise<AssetRelated> {
+  return invoke<AssetRelated>("asset_related", { host });
+}
+
+export function assetTimeline(
+  host: string,
+  limit = 200,
+): Promise<AssetTimelineEvent[]> {
+  return invoke<AssetTimelineEvent[]>("asset_timeline", { host, limit });
+}

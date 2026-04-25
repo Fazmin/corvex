@@ -13,6 +13,7 @@ import { useProbeRun, type HostStatus } from "../probe_running";
 import { InfoTip } from "./InfoTip";
 import { JarmInfo } from "./JarmInfo";
 import { ScanIndicator, type MetricChip } from "./ScanIndicator";
+import { AssetLink } from "./asset/AssetLink";
 
 // Comma-separated ports or ranges, same grammar as ScanForm.
 const PORT_LIST_REGEX =
@@ -445,6 +446,9 @@ function HostTable({ hosts }: { hosts: Record<string, HostStatus> }) {
               }}
             >
               {h.display}
+              <span style={{ marginLeft: 6, verticalAlign: "middle" }}>
+                <AssetLink host={h.display} />
+              </span>
             </td>
             <td
               style={{ padding: "4px 10px", fontFamily: "monospace", color: "var(--muted)" }}

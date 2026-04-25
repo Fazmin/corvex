@@ -39,6 +39,9 @@ import { ScaView } from "./components/ScaView";
 import { SettingsView } from "./components/SettingsView";
 import { HelpView } from "./components/HelpView";
 import { LandingView } from "./components/LandingView";
+import { AssetsView } from "./components/AssetsView";
+import { AssetDetailView } from "./components/AssetDetailView";
+import { useAssetNav } from "./asset_nav";
 import { ToastContainer, type Toast, type ToastKind } from "./components/Toast";
 import {
   SeverityBreakdown,
@@ -56,6 +59,19 @@ export interface FuzzerSeed {
 
 export default function App() {
   const [view, setView] = useState<View>("home");
+  const assetNav = useAssetNav();
+  // Selecting an asset (from any source — sidebar Assets row, an
+  // AssetLink in another view, a related-asset chip) flips the main
+  // view into the detail mode. Clearing the selection or navigating
+  // back to the assets list nukes detail mode automatically.
+  useEffect(() => {
+    if (assetNav.selected) {
+      setView("asset-detail");
+    } else if (view === "asset-detail") {
+      setView("assets");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetNav.selected]);
   const [fuzzerSeed, setFuzzerSeed] = useState<FuzzerSeed | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try {
@@ -405,6 +421,8 @@ export default function App() {
     recon: "Recon",
     databases: "Databases",
     sca: "Software Composition Analysis",
+    assets: "Assets",
+    "asset-detail": "Asset detail",
     settings: "Settings",
     help: "Help",
   };
@@ -415,7 +433,14 @@ export default function App() {
       <div className={`shell${sidebarCollapsed ? " collapsed" : ""}`}>
         <Sidebar
           view={view}
-          onSelect={setView}
+          onSelect={(v) => {
+            // Reset asset selection when the user clicks the Assets
+            // sidebar entry, so they always land on the browseable
+            // list rather than staying inside the previously open
+            // detail page.
+            if (v === "assets") assetNav.reset();
+            setView(v);
+          }}
           onNewScan={handleNewScan}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={toggleSidebar}
@@ -585,6 +610,16 @@ export default function App() {
                   await proxySeedHost({ host, source: "recon" });
                 }}
               />
+            </div>
+          )}
+          {view === "assets" && (
+            <div className="dashboard single-pane">
+              <AssetsView />
+            </div>
+          )}
+          {view === "asset-detail" && (
+            <div className="dashboard single-pane">
+              <AssetDetailView />
             </div>
           )}
           {view === "settings" && (

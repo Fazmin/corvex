@@ -1,0 +1,158 @@
+import { useState } from "react";
+import type { AssetFinding } from "../../api";
+import {
+  emptyStateStyle,
+  fmtRelative,
+  panelHeaderStyle,
+  panelStyle,
+  panelTitleStyle,
+  severityColor,
+  tableCell,
+  tableHeadCell,
+  tableStyle,
+} from "./panelStyles";
+
+interface Props {
+  findings: AssetFinding[];
+}
+
+const SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] as const;
+type SevFilter = "all" | (typeof SEVERITIES)[number];
+
+export function FindingsPanel({ findings }: Props) {
+  const [sev, setSev] = useState<SevFilter>("all");
+  const counts = SEVERITIES.reduce<Record<string, number>>((acc, s) => {
+    acc[s] = findings.filter((f) => f.severity.toUpperCase() === s).length;
+    return acc;
+  }, {});
+  const visible =
+    sev === "all"
+      ? findings
+      : findings.filter((f) => f.severity.toUpperCase() === sev);
+
+  return (
+    <section style={panelStyle}>
+      <header style={panelHeaderStyle}>
+        <h3 style={panelTitleStyle}>Findings</h3>
+        <span style={{ color: "var(--muted)", fontSize: "0.82em" }}>
+          {findings.length} unique
+        </span>
+      </header>
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <FilterChip
+          label={`All ${findings.length}`}
+          active={sev === "all"}
+          color="var(--accent)"
+          onClick={() => setSev("all")}
+        />
+        {SEVERITIES.map((s) => (
+          <FilterChip
+            key={s}
+            label={`${s} ${counts[s] ?? 0}`}
+            active={sev === s}
+            color={severityColor(s)}
+            onClick={() => setSev(s)}
+          />
+        ))}
+      </div>
+
+      {visible.length === 0 ? (
+        <div style={emptyStateStyle}>
+          {findings.length === 0
+            ? "No findings yet. Run passive checks (auto on every exchange) or active checks from Proxy → Checks."
+            : "No findings at this severity."}
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={tableHeadCell}>Severity</th>
+                <th style={tableHeadCell}>Title</th>
+                <th style={tableHeadCell}>Path</th>
+                <th style={{ ...tableHeadCell, textAlign: "right" }}>Count</th>
+                <th style={tableHeadCell}>Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.slice(0, 300).map((f) => (
+                <tr key={`${f.check_id}-${f.example_path}-${f.port}`}>
+                  <td style={tableCell}>
+                    <span
+                      style={{
+                        color: severityColor(f.severity),
+                        fontWeight: 600,
+                      }}
+                    >
+                      {f.severity.toUpperCase()}
+                    </span>
+                  </td>
+                  <td style={{ ...tableCell, fontFamily: "var(--sans)" }}>
+                    {f.title}
+                    <div
+                      style={{
+                        color: "var(--muted)",
+                        fontSize: "0.78em",
+                        marginTop: 2,
+                      }}
+                    >
+                      {f.check_id}
+                    </div>
+                  </td>
+                  <td style={{ ...tableCell, wordBreak: "break-all" }}>
+                    <span style={{ color: "var(--muted)" }}>:{f.port}</span>
+                    {f.example_path}
+                  </td>
+                  <td
+                    style={{
+                      ...tableCell,
+                      textAlign: "right",
+                      color: "var(--fg-strong)",
+                    }}
+                  >
+                    {f.occurrence_count}
+                  </td>
+                  <td style={{ ...tableCell, color: "var(--muted)" }}>
+                    {fmtRelative(f.last_seen_unix)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  color,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  color: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "3px 10px",
+        borderRadius: 999,
+        border: `1px solid ${active ? color : "var(--border)"}`,
+        background: active ? "var(--accent-soft)" : "transparent",
+        color: active ? color : "var(--muted)",
+        fontSize: "0.8em",
+        cursor: "pointer",
+        fontFamily: "var(--mono)",
+      }}
+    >
+      {label}
+    </button>
+  );
+}

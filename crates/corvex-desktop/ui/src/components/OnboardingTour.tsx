@@ -100,6 +100,23 @@ const STEPS: Step[] = [
       </>
     ),
   },
+  {
+    title: "Pivot through the Asset view",
+    body: (
+      <>
+        <p>
+          The <strong>Assets</strong> view is one host = one page. It joins
+          recon, probing, the proxy, and findings into a single asset-centered
+          page with related-host clustering and a Panels / Graph toggle.
+        </p>
+        <p>
+          Every row in Findings, Proxy → Traffic, Recon, Probing, and History
+          has a small crosshair icon — click it to drop into the asset view
+          centered on that host. Breadcrumbs let you walk back.
+        </p>
+      </>
+    ),
+  },
 ];
 
 interface Props {

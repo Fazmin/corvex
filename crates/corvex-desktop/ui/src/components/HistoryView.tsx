@@ -6,6 +6,7 @@ import {
   type HistoryEntry,
   type ScanParams,
 } from "../api";
+import { AssetLink } from "./asset/AssetLink";
 
 interface Props {
   /** Bumped after each scan completion so the view re-fetches. */
@@ -180,7 +181,12 @@ export function HistoryView({ refreshKey, onRerun, running }: Props) {
               const canRerun = !running && e.status !== "running";
               return (
                 <tr key={e.id}>
-                  <td><code>{e.host}</code></td>
+                  <td>
+                    <code>{e.host}</code>
+                    <span style={{ marginLeft: 6, verticalAlign: "middle" }}>
+                      <AssetLink host={e.host} />
+                    </span>
+                  </td>
                   <td>{fmtTime(e.started_at)}</td>
                   <td>{fmtDuration(e.started_at, e.ended_at)}</td>
                   <td>{e.total_requests.toLocaleString()}</td>
