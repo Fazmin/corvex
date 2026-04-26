@@ -202,7 +202,63 @@ export function ActiveFuzzRunner({
           </button>
         </div>
       )}
-      <form className="panel" onSubmit={submit} style={{ marginBottom: 12 }}>
+
+      {/* Live progress while a fuzz is in flight. Pulled above the
+          form/findings grid so it spans the full width — same shape as
+          the Web scan dashboard's <ScanIndicator>. */}
+      {running && (() => {
+        const urls = stats?.urls_crawled ?? 0;
+        const cap = maxUrls > 0 ? maxUrls : 0;
+        const inCrawlPhase = cap > 0 && urls < cap;
+        const chips: MetricChip[] = [
+          { label: "requests", value: (stats?.total_requests ?? 0).toLocaleString() },
+          { label: "findings", value: findings.length.toLocaleString() },
+          { label: "URLs", value: cap > 0 ? `${urls}/${cap}` : `${urls}` },
+          {
+            label: "rate",
+            value:
+              requestRate != null && requestRate >= 0
+                ? `${Math.round(requestRate)}/s`
+                : "—",
+          },
+          { label: "elapsed", value: `${stats?.elapsed_secs ?? 0}s` },
+        ];
+        const target = currentHost ?? host;
+        const stageText = stats?.stage?.trim();
+        const phase = inCrawlPhase
+          ? `Crawling ${target}`
+          : stageText
+            ? `${stageText} · ${target}`
+            : `Fuzzing ${target}`;
+        return (
+          <div style={{ marginBottom: 12 }}>
+            <ScanIndicator
+              label={phase}
+              progress={inCrawlPhase ? { current: urls, total: cap } : undefined}
+              chips={chips}
+              onCancel={onCancel}
+              cancelLabel="Cancel"
+            />
+          </div>
+        );
+      })()}
+
+      {/* Two-column body: form on the left (fixed width like the Web
+          scan dashboard), findings on the right (flex). On narrow
+          windows the columns collapse vertically via `auto-fit`. */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 380px) minmax(0, 1fr)",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        <form
+          className="panel"
+          onSubmit={submit}
+          style={{ marginBottom: 0, minWidth: 0 }}
+        >
         <div className="panel-body">
           <div className="field">
             <div className="label-row">
@@ -672,94 +728,66 @@ export function ActiveFuzzRunner({
             </button>
           )}
         </div>
-      </form>
+        </form>
 
-      {/* Live progress while a fuzz is in flight. The crawler runs
-          first (URLs/maxUrls is a determinate progress bar), then the
-          active modules iterate over each captured URL. We surface the
-          stage + current host so the user sees what's actually being
-          fuzzed right now, plus the standard request / finding /
-          rate counters. */}
-      {running && (() => {
-        const urls = stats?.urls_crawled ?? 0;
-        const cap = maxUrls > 0 ? maxUrls : 0;
-        const inCrawlPhase = cap > 0 && urls < cap;
-        const chips: MetricChip[] = [
-          { label: "requests", value: (stats?.total_requests ?? 0).toLocaleString() },
-          { label: "findings", value: findings.length.toLocaleString() },
-          { label: "URLs", value: cap > 0 ? `${urls}/${cap}` : `${urls}` },
-          {
-            label: "rate",
-            value:
-              requestRate != null && requestRate >= 0
-                ? `${Math.round(requestRate)}/s`
-                : "—",
-          },
-          { label: "elapsed", value: `${stats?.elapsed_secs ?? 0}s` },
-        ];
-        const target = currentHost ?? host;
-        const stageText = stats?.stage?.trim();
-        const phase = inCrawlPhase
-          ? `Crawling ${target}`
-          : stageText
-            ? `${stageText} · ${target}`
-            : `Fuzzing ${target}`;
-        return (
-          <div style={{ marginBottom: 12 }}>
-            <ScanIndicator
-              label={phase}
-              progress={
-                inCrawlPhase ? { current: urls, total: cap } : undefined
-              }
-              chips={chips}
-              onCancel={onCancel}
-              cancelLabel="Cancel"
-            />
-          </div>
-        );
-      })()}
-
-      {!running && scanId && (
+        {/* Right column: post-run recap (when idle with results) plus
+            the findings table. The table fills the remaining height of
+            the column so it scrolls in place rather than pushing the
+            page below. */}
         <div
-          className="panel"
-          style={{ marginBottom: 12, padding: "10px 14px" }}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            minWidth: 0,
+            minHeight: 0,
+          }}
         >
-          <div
-            style={{
-              display: "flex",
-              gap: 24,
-              fontSize: "calc(var(--font-base) - 1px)",
-              color: "var(--muted)",
-            }}
-          >
-            <span>
-              <strong style={{ color: "var(--fg)" }}>
-                {stats?.total_requests ?? 0}
-              </strong>{" "}
-              requests
-            </span>
-            <span>
-              <strong style={{ color: "var(--fg)" }}>{findings.length}</strong>{" "}
-              findings
-            </span>
-            <span>
-              <strong style={{ color: "var(--fg)" }}>
-                {stats?.urls_crawled ?? 0}
-              </strong>{" "}
-              URLs crawled
-            </span>
-            <span>
-              <strong style={{ color: "var(--fg)" }}>
-                {stats?.elapsed_secs ?? 0}s
-              </strong>{" "}
-              elapsed
-            </span>
-            <span style={{ color: "var(--success)" }}>● complete</span>
-          </div>
+          {!running && scanId && (
+            <div
+              className="panel"
+              style={{ padding: "10px 14px" }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  gap: 24,
+                  flexWrap: "wrap",
+                  fontSize: "calc(var(--font-base) - 1px)",
+                  color: "var(--muted)",
+                }}
+              >
+                <span>
+                  <strong style={{ color: "var(--fg)" }}>
+                    {stats?.total_requests ?? 0}
+                  </strong>{" "}
+                  requests
+                </span>
+                <span>
+                  <strong style={{ color: "var(--fg)" }}>
+                    {findings.length}
+                  </strong>{" "}
+                  findings
+                </span>
+                <span>
+                  <strong style={{ color: "var(--fg)" }}>
+                    {stats?.urls_crawled ?? 0}
+                  </strong>{" "}
+                  URLs crawled
+                </span>
+                <span>
+                  <strong style={{ color: "var(--fg)" }}>
+                    {stats?.elapsed_secs ?? 0}s
+                  </strong>{" "}
+                  elapsed
+                </span>
+                <span style={{ color: "var(--success)" }}>● complete</span>
+              </div>
+            </div>
+          )}
+          <FindingsTable findings={findings} storageNamespace="fuzz" />
         </div>
-      )}
-
-      <FindingsTable findings={findings} storageNamespace="fuzz" />
+      </div>
     </div>
   );
 }

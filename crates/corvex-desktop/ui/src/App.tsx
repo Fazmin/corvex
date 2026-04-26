@@ -295,11 +295,15 @@ export default function App() {
       setActiveMode(params.active ?? false);
       setScanMaxUrls(params.max_urls ?? 500);
       setScanCrawlDepth(params.crawl_depth ?? 3);
-      // A pure Fuzzing run sets `plugins: "@@NONE"` so the signature
-      // plugin set is suppressed — that's the marker for "this came
-      // from the Fuzzing view." Anything else is a Web scan.
+      // A pure Fuzzing run sets `plugins: "@@ACTIVE"` so the engine
+      // keeps only the active modules and drops the signature set —
+      // that's the marker for "this came from the Fuzzing view."
+      // (`@@NONE` is treated the same way for forward compatibility.)
+      // Anything else is a Web scan.
+      const fuzzMarker =
+        params.plugins === "@@ACTIVE" || params.plugins === "@@NONE";
       const source: "web" | "fuzz" =
-        params.plugins === "@@NONE" && params.active ? "fuzz" : "web";
+        fuzzMarker && params.active ? "fuzz" : "web";
       setScanSource(source);
       appendLog(
         `→ starting ${source === "fuzz" ? "fuzz" : "scan"} against ${params.host}${params.active ? " [active]" : ""}`,

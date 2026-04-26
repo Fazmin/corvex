@@ -366,7 +366,18 @@ export function FindingsTable({
       <div className="filter-chips filter-chips-combined">
         <button
           className={`chip${filter === "all" ? " active" : ""}`}
-          onClick={() => setFilter("all")}
+          // Clicking "All" resets every active filter — classification,
+          // source, the search box, AND the externally-controlled
+          // severity filter. Without this the dashboard's hidden
+          // `dashSevFilter` (e.g. set to INFO from a previous run)
+          // silently strips rows even though the chip row above shows
+          // "All (N)" highlighted.
+          onClick={() => {
+            setFilter("all");
+            setSourceFilter("all");
+            setSevFilter("all");
+            setQuery("");
+          }}
         >
           All ({findings.length})
         </button>
@@ -388,6 +399,30 @@ export function FindingsTable({
         >
           Fingerprint ({counts.fp})
         </button>
+
+        {/* When the severity filter is controlled externally
+            (`hideSeverityChips` is true on the dashboard) and a
+            non-"all" value is hiding rows, surface it here as a clear
+            chip — otherwise a stale "INFO only" filter set elsewhere
+            looks like a broken table. */}
+        {hideSeverityChips && sevFilter !== "all" && (
+          <>
+            <span className="filter-chip-divider" aria-hidden />
+            <button
+              className="chip active"
+              style={{
+                borderColor: SEVERITY_COLORS[sevFilter as SeverityLevel],
+                backgroundColor:
+                  SEVERITY_COLORS[sevFilter as SeverityLevel],
+                color: sevFilter === "MEDIUM" ? "#333" : "#fff",
+              }}
+              onClick={() => setSevFilter("all")}
+              title="Clear severity filter"
+            >
+              {sevFilter} ✕
+            </button>
+          </>
+        )}
 
         <span className="filter-chip-divider" aria-hidden />
 
