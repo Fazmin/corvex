@@ -49,11 +49,11 @@ const STEPS: Step[] = [
     ),
   },
   {
-    title: "Start a scan from the Dashboard",
+    title: "Start a scan from Web scan",
     body: (
       <>
         <p>
-          The <strong>Dashboard</strong> is the main scan form. Enter a target URL,
+          The <strong>Web scan</strong> view is the main scan form. Enter a target URL,
           pick plugins and tuning categories, and press <strong>Start scan</strong>.
           Findings stream in live, and a CSV/JSON export button appears above the
           table once findings arrive.
@@ -71,7 +71,7 @@ const STEPS: Step[] = [
       <>
         <p>
           The <strong>Active Fuzzing</strong> view lets you run crawl-based active
-          scans (including SQL injection) without touching the Dashboard form.
+          scans (including SQL injection) without touching the Web scan form.
           The same view also documents every injection module, tamper script, and
           supported DBMS.
         </p>

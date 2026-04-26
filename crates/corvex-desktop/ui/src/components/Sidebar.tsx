@@ -8,7 +8,6 @@ import {
   HelpIcon,
   HistoryIcon,
   HomeIcon,
-  NewScanIcon,
   PluginsIcon,
   ProbingIcon,
   ProxyIcon,
@@ -36,7 +35,6 @@ export type View =
 interface Props {
   view: View;
   onSelect: (view: View) => void;
-  onNewScan: () => void;
   collapsed: boolean;
   /** True while a web-scan (dashboard) run is in flight. */
   webScanRunning?: boolean;
@@ -67,34 +65,23 @@ interface NavItem {
 export function Sidebar({
   view,
   onSelect,
-  onNewScan,
   collapsed,
   webScanRunning = false,
 }: Props) {
   const { running: probeRunning } = useProbeRunning();
-  const scanner: NavItem[] = [
+  const workspace: NavItem[] = [
     {
       view: "home",
       icon: <HomeIcon size={collapsed ? 22 : 18} />,
       label: "Home",
     },
-    {
-      view: "dashboard",
-      icon: <DashboardIcon size={collapsed ? 22 : 18} />,
-      label: "Dashboard",
-      active: webScanRunning,
-    },
   ];
   const engine: NavItem[] = [
     {
-      view: "assets",
-      icon: <AssetsIcon size={collapsed ? 22 : 18} />,
-      label: "Assets",
-    },
-    {
-      view: "plugins",
-      icon: <PluginsIcon size={collapsed ? 22 : 18} />,
-      label: "Plugins",
+      view: "dashboard",
+      icon: <DashboardIcon size={collapsed ? 22 : 18} />,
+      label: "Web scan",
+      active: webScanRunning,
     },
     {
       view: "probing",
@@ -118,14 +105,21 @@ export function Sidebar({
       label: "Intercept",
     },
     {
-      view: "databases",
-      icon: <DatabasesIcon size={collapsed ? 22 : 18} />,
-      label: "Databases",
-    },
-    {
       view: "sca",
       icon: <ScaIcon size={collapsed ? 22 : 18} />,
       label: "SCA",
+    },
+  ];
+  const resources: NavItem[] = [
+    {
+      view: "plugins",
+      icon: <PluginsIcon size={collapsed ? 22 : 18} />,
+      label: "Plugins",
+    },
+    {
+      view: "databases",
+      icon: <DatabasesIcon size={collapsed ? 22 : 18} />,
+      label: "Databases",
     },
   ];
 
@@ -140,36 +134,29 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-section">
-        {!collapsed && <div className="sidebar-section-label">Scanner</div>}
-        {scanner.map((item) => (
+        {!collapsed && <div className="sidebar-section-label">Workspace</div>}
+        {workspace.map((item) => (
           <button
             type="button"
             key={item.view}
             className={`sidebar-item${view === item.view ? " active" : ""}`}
             onClick={() => onSelect(item.view)}
-            title={
-              collapsed
-                ? item.active
-                  ? `${item.label} — scan running`
-                  : item.label
-                : undefined
-            }
+            title={collapsed ? item.label : undefined}
           >
             <span className="ico">{item.icon}</span>
             <span>{item.label}</span>
-            {item.active && <span className="nav-pulse" aria-label="scan running" />}
           </button>
         ))}
         <button
           type="button"
-          className="sidebar-item"
-          onClick={onNewScan}
-          title={collapsed ? "New scan" : undefined}
+          className={`sidebar-item${view === "assets" ? " active" : ""}`}
+          onClick={() => onSelect("assets")}
+          title={collapsed ? "Assets" : undefined}
         >
           <span className="ico">
-            <NewScanIcon size={iconSize} />
+            <AssetsIcon size={iconSize} />
           </span>
-          <span>New scan</span>
+          <span>Assets</span>
         </button>
         <button
           type="button"
@@ -203,6 +190,22 @@ export function Sidebar({
             <span className="ico">{item.icon}</span>
             <span>{item.label}</span>
             {item.active && <span className="nav-pulse" aria-label="running" />}
+          </button>
+        ))}
+      </div>
+
+      <div className="sidebar-section">
+        {!collapsed && <div className="sidebar-section-label">Resources</div>}
+        {resources.map((item) => (
+          <button
+            type="button"
+            key={item.view}
+            className={`sidebar-item${view === item.view ? " active" : ""}`}
+            onClick={() => onSelect(item.view)}
+            title={collapsed ? item.label : undefined}
+          >
+            <span className="ico">{item.icon}</span>
+            <span>{item.label}</span>
           </button>
         ))}
       </div>

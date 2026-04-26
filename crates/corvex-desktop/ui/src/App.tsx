@@ -412,7 +412,7 @@ export default function App() {
 
   const titleByView: Record<View, string> = {
     home: "corvex-rust",
-    dashboard: "Dashboard",
+    dashboard: "Web scan",
     history: "Scan history",
     plugins: "Plugins",
     probing: "Service Probing",
@@ -444,7 +444,6 @@ export default function App() {
             if (v === "assets") assetNav.reset();
             setView(v);
           }}
-          onNewScan={handleNewScan}
           collapsed={sidebarCollapsed}
           webScanRunning={running}
         />
@@ -475,6 +474,18 @@ export default function App() {
             <div className="dashboard">
               {running && (
                 <ScanIndicator label="Scanning" onCancel={handleCancel} />
+              )}
+              {!running && (findings.length > 0 || stats !== null || log.length > 0) && (
+                <div className="dashboard-actions">
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={handleNewScan}
+                    title="Clear previous results and start fresh"
+                  >
+                    New scan
+                  </button>
+                </div>
               )}
               <StatsBar
                 stats={stats}
