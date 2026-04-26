@@ -15,12 +15,14 @@ import {
 
 interface Props {
   findings: AssetFinding[];
+  /** Span two grid columns when the parent uses an auto-fit panel grid. */
+  wide?: boolean;
 }
 
 const SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] as const;
 type SevFilter = "all" | (typeof SEVERITIES)[number];
 
-export function FindingsPanel({ findings }: Props) {
+export function FindingsPanel({ findings, wide = false }: Props) {
   const [sev, setSev] = useState<SevFilter>("all");
   const counts = SEVERITIES.reduce<Record<string, number>>((acc, s) => {
     acc[s] = findings.filter((f) => f.severity.toUpperCase() === s).length;
@@ -32,7 +34,7 @@ export function FindingsPanel({ findings }: Props) {
       : findings.filter((f) => f.severity.toUpperCase() === sev);
 
   return (
-    <section style={panelStyle}>
+    <section style={{ ...panelStyle, ...(wide ? { gridColumn: "span 2" } : null) }}>
       <header style={panelHeaderStyle}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <h3 style={panelTitleStyle}>Findings</h3>
@@ -84,9 +86,16 @@ export function FindingsPanel({ findings }: Props) {
             : "No findings at this severity."}
         </div>
       ) : (
-        <div style={{ overflowX: "auto" }}>
+        <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: 360 }}>
           <table style={tableStyle}>
-            <thead>
+            <thead
+              style={{
+                position: "sticky",
+                top: 0,
+                background: "var(--panel)",
+                zIndex: 1,
+              }}
+            >
               <tr>
                 <th style={tableHeadCell}>Severity</th>
                 <th style={tableHeadCell}>Title</th>

@@ -32,7 +32,12 @@ interface Props {
 // Maximum nodes per ring — anything above gets folded into a "+ N more"
 // node that links to the corresponding panel. Keeps the graph readable
 // on a 1280-wide window without horizontal scroll on the default zoom.
-const NODE_CAP_PER_RING = 12;
+const NODE_CAP_PER_RING = 8;
+
+// Target arc-length between adjacent nodes on the same ring. Each ring's
+// radius is grown to honor this spacing so nodes don't overlap when
+// many items share a narrow arc.
+const ARC_SPACING_PX = 220;
 
 // Radial layout for the ecosystem. Center node = the asset; rings
 // radiate outward by entity kind. Coordinates are deterministic — no
@@ -228,7 +233,8 @@ export function AssetGraph({
     return (
       <div
         style={{
-          height: 520,
+          flex: 1,
+          minHeight: 320,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -246,7 +252,8 @@ export function AssetGraph({
   return (
     <div
       style={{
-        height: 560,
+        flex: 1,
+        minHeight: 400,
         background: "var(--panel)",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius)",
@@ -262,8 +269,34 @@ export function AssetGraph({
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={20} color="var(--border)" />
-        <MiniMap pannable zoomable nodeColor={() => "var(--accent)"} />
-        <Controls showInteractive={false} />
+        <MiniMap
+          pannable
+          zoomable
+          nodeColor={() => "var(--accent)"}
+          nodeStrokeColor="var(--border-strong)"
+          maskColor="rgba(0, 0, 0, 0.55)"
+          style={{
+            background: "var(--panel-alt)",
+            border: "1px solid var(--border)",
+          }}
+        />
+        <Controls
+          showInteractive={false}
+          style={
+            {
+              background: "var(--panel-alt)",
+              border: "1px solid var(--border)",
+              color: "var(--fg)",
+              ["--xy-controls-button-background-color" as string]:
+                "var(--panel-alt)",
+              ["--xy-controls-button-background-color-hover" as string]:
+                "var(--panel)",
+              ["--xy-controls-button-color" as string]: "var(--fg)",
+              ["--xy-controls-button-color-hover" as string]: "var(--fg-strong)",
+              ["--xy-controls-button-border-color" as string]: "var(--border)",
+            } as React.CSSProperties
+          }
+        />
       </ReactFlow>
     </div>
   );
@@ -298,12 +331,19 @@ function placeRing<T>({
 }: RingArgs<T>) {
   if (items.length === 0 && overflow === 0) return;
   const span = angleEnd - angleStart;
+  // Grow the ring radius if needed so adjacent nodes sit at least
+  // ARC_SPACING_PX apart along the arc — prevents overlap when many
+  // items share a narrow arc.
+  const slotCount = items.length + (overflow > 0 ? 1 : 0);
+  const minRadius =
+    slotCount > 1 ? ((slotCount - 1) * ARC_SPACING_PX) / span : 0;
+  const r = Math.max(ring, minRadius);
   const step = items.length > 1 ? span / (items.length - 1) : 0;
   items.forEach((item, i) => {
     const angle =
       items.length === 1 ? (angleStart + angleEnd) / 2 : angleStart + step * i;
-    const x = Math.cos(angle) * ring;
-    const y = Math.sin(angle) * ring;
+    const x = Math.cos(angle) * r;
+    const y = Math.sin(angle) * r;
     const id = idFor(item);
     const n = nodeFor(item);
     nodes.push({
@@ -354,8 +394,8 @@ function placeRing<T>({
   });
   if (overflow > 0) {
     const angle = (angleStart + angleEnd) / 2;
-    const x = Math.cos(angle) * (ring + 60);
-    const y = Math.sin(angle) * (ring + 60);
+    const x = Math.cos(angle) * (r + 80);
+    const y = Math.sin(angle) * (r + 80);
     const id = `more:${label}`;
     nodes.push({
       id,

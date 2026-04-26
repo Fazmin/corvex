@@ -260,7 +260,7 @@ export function AssetDetailView() {
           <StackPanel techs={techs} />
           <RelatedAssetsPanel related={related} />
           <EndpointsPanel endpoints={endpoints} />
-          <FindingsPanel findings={findings} />
+          <FindingsPanel findings={findings} wide />
           <TimelinePanel events={timeline} />
         </div>
       )}
