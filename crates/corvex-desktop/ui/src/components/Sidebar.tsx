@@ -38,6 +38,8 @@ interface Props {
   collapsed: boolean;
   /** True while a web-scan (dashboard) run is in flight. */
   webScanRunning?: boolean;
+  /** True while a Fuzzing-view run is in flight. */
+  fuzzRunning?: boolean;
 }
 
 interface NavItem {
@@ -67,6 +69,7 @@ export function Sidebar({
   onSelect,
   collapsed,
   webScanRunning = false,
+  fuzzRunning = false,
 }: Props) {
   const { running: probeRunning } = useProbeRunning();
   const workspace: NavItem[] = [
@@ -98,6 +101,7 @@ export function Sidebar({
       view: "fuzzing",
       icon: <FuzzingIcon size={collapsed ? 22 : 18} />,
       label: "Fuzzing",
+      active: fuzzRunning,
     },
     {
       view: "proxy",

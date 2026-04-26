@@ -108,17 +108,30 @@ impl PluginRegistry {
     }
 
     /// Apply a `-Plugins` selector string to filter the registry in place.
-    /// Supports: `@@ALL`, `@@NONE`, `@@DEFAULT`, `@@EXTRAS`, comma-separated names, `-name` to exclude.
+    /// Supports:
+    /// * `@@ALL`     — keep every plugin
+    /// * `@@NONE`    — drop every plugin (used when only the active
+    ///                 fuzzer + crawler should run, with no signature
+    ///                 findings; combine with `--active`)
+    /// * `@@ACTIVE`  — keep only plugins exposing `HookKind::Active`
+    ///                 (xss / sqli / lfi / cmd_injection / open_redirect
+    ///                 / crlf / xxe / ssti / spring4shell / nuclei) so a
+    ///                 Fuzzing-view run gets its fuzzers without the
+    ///                 signature plugin set
+    /// * `@@DEFAULT` / `@@EXTRAS` — expand to the configured plugin sets
+    /// * comma/semicolon-separated names; prefix with `-` to exclude
+    ///
+    /// Empty / whitespace-only selectors are a no-op (keep current set).
     pub fn apply_selector(
         &mut self,
         selector: &str,
         default_set: &str,
         extras_set: &str,
     ) {
-        let expanded = expand_macros(selector, default_set, extras_set);
-        if expanded.is_empty() {
+        if selector.trim().is_empty() {
             return;
         }
+        let expanded = expand_macros(selector, default_set, extras_set);
 
         let mut include: Vec<String> = Vec::new();
         let mut exclude: Vec<String> = Vec::new();
@@ -138,12 +151,16 @@ impl PluginRegistry {
         }
 
         let all = include.iter().any(|n| n == "@@ALL");
+        let active_only = include.iter().any(|n| n == "@@ACTIVE");
         self.plugins.retain(|p| {
             let name = p.info().name;
             if exclude.iter().any(|n| n == name) {
                 return false;
             }
             if all {
+                return true;
+            }
+            if active_only && p.info().hooks.contains(&HookKind::Active) {
                 return true;
             }
             include.iter().any(|n| n == name)
@@ -165,3 +182,4 @@ fn expand_macros(selector: &str, default_set: &str, extras_set: &str) -> String 
     }
     s
 }
+

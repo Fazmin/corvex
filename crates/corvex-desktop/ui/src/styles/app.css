@@ -3844,23 +3844,20 @@ button[disabled] {
 
 .landing-hero-grid {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 24px;
-  align-items: center;
-}
-
-@media (max-width: 880px) {
-  .landing-hero-grid {
-    grid-template-columns: 1fr;
-  }
-  .landing-hero-emblem {
-    justify-self: center;
-  }
+  display: block;
 }
 
 .landing-hero-copy {
   min-width: 0;
+  /* Reserve room on the right so long lines don't run under the
+     emblem now perched in the top-right corner. */
+  padding-right: 200px;
+}
+
+@media (max-width: 720px) {
+  .landing-hero-copy {
+    padding-right: 0;
+  }
 }
 
 .landing-eyebrow {
@@ -3966,18 +3963,32 @@ button[disabled] {
   color: var(--fg);
 }
 
+/* Pinned to the top-right corner of the hero. The hero already has
+   `position: relative` so absolute positioning anchors here. */
 .landing-hero-emblem {
+  position: absolute;
+  top: 0;
+  right: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-end;
+  pointer-events: none;
 }
 
 .landing-hero-emblem img {
-  width: 220px;
+  width: 170px;
   height: auto;
-  max-height: 120px;
+  max-height: 60px;
   object-fit: contain;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.30));
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.28));
+}
+
+@media (max-width: 720px) {
+  .landing-hero-emblem {
+    position: static;
+    margin-bottom: 12px;
+    justify-content: flex-start;
+  }
 }
 
 /* ---- Capability cards ---- */

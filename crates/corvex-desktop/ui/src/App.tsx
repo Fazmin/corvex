@@ -93,6 +93,11 @@ export default function App() {
   }, []);
   const [scanId, setScanId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  // Distinguishes a Web-scan run from a pure Fuzzing run so the
+  // dashboard, sidebar pulse and history "kind" labels reflect what
+  // the user actually launched. Both flows hit the same backend
+  // engine; this tag lives only in the UI.
+  const [scanSource, setScanSource] = useState<"web" | "fuzz" | null>(null);
   const [findings, setFindings] = useState<FindingPayload[]>([]);
   const [stats, setStats] = useState<ScanStats | null>(null);
   const [log, setLog] = useState<string[]>([]);
@@ -290,7 +295,15 @@ export default function App() {
       setActiveMode(params.active ?? false);
       setScanMaxUrls(params.max_urls ?? 500);
       setScanCrawlDepth(params.crawl_depth ?? 3);
-      appendLog(`→ starting scan against ${params.host}${params.active ? " [active]" : ""}`);
+      // A pure Fuzzing run sets `plugins: "@@NONE"` so the signature
+      // plugin set is suppressed — that's the marker for "this came
+      // from the Fuzzing view." Anything else is a Web scan.
+      const source: "web" | "fuzz" =
+        params.plugins === "@@NONE" && params.active ? "fuzz" : "web";
+      setScanSource(source);
+      appendLog(
+        `→ starting ${source === "fuzz" ? "fuzz" : "scan"} against ${params.host}${params.active ? " [active]" : ""}`,
+      );
       try {
         const id = await startScan(params);
         setScanId(id);
@@ -445,7 +458,8 @@ export default function App() {
             setView(v);
           }}
           collapsed={sidebarCollapsed}
-          webScanRunning={running}
+          webScanRunning={running && scanSource === "web"}
+          fuzzRunning={running && scanSource === "fuzz"}
         />
         <main className={`main${view === "home" ? " main-home" : ""}`}>
           {/* The landing page has its own hero — skip the standard
@@ -456,14 +470,35 @@ export default function App() {
                 <h1>{titleByView[view]}</h1>
                 <div className="sub">{sub}</div>
               </div>
-              <div className="sub" style={{ textAlign: "right" }}>
-                {headline}
-                {scanId && (
-                  <>
-                    {" · "}
-                    <code>{scanId.slice(0, 8)}</code>
-                  </>
-                )}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  justifyContent: "flex-end",
+                }}
+              >
+                <div className="sub" style={{ textAlign: "right" }}>
+                  {headline}
+                  {scanId && (
+                    <>
+                      {" · "}
+                      <code>{scanId.slice(0, 8)}</code>
+                    </>
+                  )}
+                </div>
+                {view === "dashboard" &&
+                  !(running && scanSource === "web") &&
+                  (findings.length > 0 || stats !== null || log.length > 0) && (
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={handleNewScan}
+                      title="Clear previous results and start fresh"
+                    >
+                      New scan
+                    </button>
+                  )}
               </div>
             </header>
           )}
@@ -472,36 +507,89 @@ export default function App() {
 
           {view === "dashboard" && (
             <div className="dashboard">
-              {running && (
-                <ScanIndicator label="Scanning" onCancel={handleCancel} />
-              )}
-              {!running && (findings.length > 0 || stats !== null || log.length > 0) && (
-                <div className="dashboard-actions">
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={handleNewScan}
-                    title="Clear previous results and start fresh"
-                  >
-                    New scan
-                  </button>
-                </div>
-              )}
-              <StatsBar
-                stats={stats}
-                running={running}
-                requestRate={requestRate}
-                activeMode={activeMode}
-                maxUrls={scanMaxUrls}
-                crawlDepth={scanCrawlDepth}
-              />
-              <ScanForm running={running} onStart={handleStart} onCancel={handleCancel} />
+              {/* `webRunning` is the dashboard's "is *my* run live?"
+                  flag — true only for Web scans. A Fuzzing-view run
+                  doesn't claim the dashboard; we surface a small
+                  cross-link instead so the user knows where it lives. */}
               {(() => {
-                // Log only makes sense once scan traffic exists — hide it
-                // (and the findings/log resize handle with it) when the
-                // dashboard is idle so findings + severity fit the viewport
-                // without an empty "—" log panel under them.
-                const logVisible = running || log.length > 0;
+                const webRunning = running && scanSource === "web";
+                const fuzzRunning = running && scanSource === "fuzz";
+                return (
+                  <>
+                    {webRunning && (
+                      <ScanIndicator label="Scanning" onCancel={handleCancel} />
+                    )}
+                    {fuzzRunning && (
+                      <div
+                        style={{
+                          padding: "4px 10px",
+                          marginBottom: 8,
+                          borderRadius: 999,
+                          background: "var(--accent-soft)",
+                          border: "1px solid var(--accent-border)",
+                          color: "var(--accent)",
+                          fontSize: "calc(var(--font-base) - 2px)",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 8,
+                          alignSelf: "flex-start",
+                          width: "fit-content",
+                        }}
+                      >
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: 999,
+                            background: "var(--accent)",
+                          }}
+                        />
+                        <span>Fuzzing run in progress</span>
+                        <button
+                          type="button"
+                          onClick={() => setView("fuzzing")}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            color: "var(--accent)",
+                            cursor: "pointer",
+                            padding: 0,
+                            fontSize: "inherit",
+                            textDecoration: "underline",
+                          }}
+                        >
+                          open
+                        </button>
+                      </div>
+                    )}
+                    <StatsBar
+                      stats={webRunning ? stats : null}
+                      running={webRunning}
+                      requestRate={webRunning ? requestRate : null}
+                      activeMode={activeMode}
+                      maxUrls={scanMaxUrls}
+                      crawlDepth={scanCrawlDepth}
+                    />
+                    <ScanForm
+                      running={webRunning}
+                      onStart={handleStart}
+                      onCancel={handleCancel}
+                    />
+                  </>
+                );
+              })()}
+              {(() => {
+                // Log + findings on the dashboard only mean something
+                // for Web-scan runs. While a Fuzzing run is in flight
+                // (or its findings are still in the shared buffer)
+                // suppress the table so the dashboard doesn't claim
+                // them; the Fuzzing view shows them inline already.
+                const isFuzz = scanSource === "fuzz";
+                const dashFindings = isFuzz ? [] : findings;
+                const dashLog = isFuzz ? [] : log;
+                const logVisible =
+                  (running && scanSource === "web") || dashLog.length > 0;
                 return (
                   <div
                     className={`dashboard-right-col${logVisible ? "" : " idle"}`}
@@ -516,7 +604,7 @@ export default function App() {
                       }
                     >
                       <FindingsTable
-                        findings={findings}
+                        findings={dashFindings}
                         sevFilter={dashSevFilter}
                         onSevFilterChange={setDashSevFilter}
                         hideSeverityChips
@@ -533,11 +621,11 @@ export default function App() {
                       />
                     )}
                     <SeverityBreakdown
-                      findings={findings}
+                      findings={dashFindings}
                       value={dashSevFilter}
                       onChange={setDashSevFilter}
                     />
-                    {logVisible && <LogPanel lines={log} />}
+                    {logVisible && <LogPanel lines={dashLog} />}
                   </div>
                 );
               })()}
@@ -561,14 +649,16 @@ export default function App() {
           {view === "fuzzing" && (
             <div className="dashboard single-pane">
               <FuzzingView
-                running={running}
-                scanId={scanId}
-                findings={findings}
-                stats={stats}
+                running={running && scanSource === "fuzz"}
+                scanId={scanSource === "fuzz" ? scanId : null}
+                findings={scanSource === "fuzz" ? findings : []}
+                stats={scanSource === "fuzz" ? stats : null}
                 onStart={handleStart}
                 onCancel={handleCancel}
                 seed={fuzzerSeed}
                 onSeedConsumed={() => setFuzzerSeed(null)}
+                currentHost={scanSource === "fuzz" ? currentHost : null}
+                requestRate={scanSource === "fuzz" ? requestRate : null}
               />
             </div>
           )}

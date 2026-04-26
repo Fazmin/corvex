@@ -7,10 +7,19 @@ type FilterMode = "all" | "signature" | "active" | "fingerprint";
 type SeverityFilter = "all" | SeverityLevel;
 type SourceFilter = "all" | "sca" | "web";
 
-const FILTER_KEY = "corvexFindingsFilter";
-const SEV_FILTER_KEY = "corvexFindingsSevFilter";
-const QUERY_KEY = "corvexFindingsQuery";
-const SOURCE_FILTER_KEY = "corvexFindingsSourceFilter";
+// localStorage keys are namespaced by `storageNamespace` so the
+// dashboard and the Fuzzing view don't share filter / search state.
+// Without scoping, a stale "Web only" or "CRITICAL" filter set on the
+// dashboard would silently strip every fuzz finding when the user
+// switches to the Fuzzing view.
+const FILTER_KEY_BASE = "corvexFindingsFilter";
+const SEV_FILTER_KEY_BASE = "corvexFindingsSevFilter";
+const QUERY_KEY_BASE = "corvexFindingsQuery";
+const SOURCE_FILTER_KEY_BASE = "corvexFindingsSourceFilter";
+
+function nsKey(base: string, ns?: string) {
+  return ns ? `${base}-${ns}` : base;
+}
 
 function readStorage(key: string, fallback: string): string {
   try {
@@ -164,6 +173,10 @@ interface Props {
    *  strip). Defaults to false for standalone embeddings like the
    *  Active Fuzzing view. */
   hideSeverityChips?: boolean;
+  /** Namespace for the persisted filter / search state. Lets multiple
+   *  FindingsTable instances (dashboard vs. fuzzing view) keep their
+   *  own filter state instead of silently inheriting each other's. */
+  storageNamespace?: string;
 }
 
 export function FindingsTable({
@@ -171,7 +184,12 @@ export function FindingsTable({
   sevFilter: externalSevFilter,
   onSevFilterChange,
   hideSeverityChips = false,
+  storageNamespace,
 }: Props) {
+  const FILTER_KEY = nsKey(FILTER_KEY_BASE, storageNamespace);
+  const SEV_FILTER_KEY = nsKey(SEV_FILTER_KEY_BASE, storageNamespace);
+  const QUERY_KEY = nsKey(QUERY_KEY_BASE, storageNamespace);
+  const SOURCE_FILTER_KEY = nsKey(SOURCE_FILTER_KEY_BASE, storageNamespace);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [filter, setFilter] = useState<FilterMode>(
     () => (readStorage(FILTER_KEY, "all") as FilterMode),

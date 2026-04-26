@@ -3,6 +3,7 @@ import type { FindingPayload, ScanParams, ScanStats } from "../api";
 import type { FuzzerSeed } from "./FuzzingView";
 import { FindingsTable } from "./FindingsTable";
 import { InfoTip } from "./InfoTip";
+import { ScanIndicator, type MetricChip } from "./ScanIndicator";
 
 const HOST_REGEX = /^(?:[a-z][a-z0-9+.-]*:\/\/)?[^\s/]+(?::\d{1,5})?(?:\/\S*)?$/i;
 
@@ -67,6 +68,10 @@ interface Props {
    *  every render. */
   seed?: FuzzerSeed | null;
   onSeedConsumed?: () => void;
+  /** Currently-targeted host (set by App.tsx on the host_start event). */
+  currentHost?: string | null;
+  /** Live request rate from the App-level stats poller. */
+  requestRate?: number | null;
 }
 
 export function ActiveFuzzRunner({
@@ -78,6 +83,8 @@ export function ActiveFuzzRunner({
   onCancel,
   seed,
   onSeedConsumed,
+  currentHost,
+  requestRate,
 }: Props) {
   const initial = useMemo(readForm, []);
   const [host, setHost] = useState(initial.host);
@@ -151,8 +158,14 @@ export function ActiveFuzzRunner({
       sqli_time_delay: sqliTimeDelay,
       tamper: tamper || undefined,
       sqli_enumerate: sqliEnumerate.length > 0 ? sqliEnumerate.join(",") : undefined,
-      // Sensible defaults for a focused fuzzing run:
-      plugins: "@@DEFAULT",
+      // Pure fuzzing run: keep only plugins exposing the Active hook
+      // (xss_reflected, sqli_*, lfi_active, cmd_injection,
+      // open_redirect, crlf, xxe, ssti, spring4shell, nuclei) and drop
+      // every signature plugin. Without `@@ACTIVE` the engine either
+      // inherits the full @@DEFAULT set (run looks like a Web scan)
+      // or `@@NONE` empties the registry and the active fuzzers never
+      // get to iterate the crawl graph.
+      plugins: "@@ACTIVE",
       timeout_secs: 15,
       max_concurrent_requests: 8,
       follow_redirects: true,
@@ -661,19 +674,92 @@ export function ActiveFuzzRunner({
         </div>
       </form>
 
-      {(running || scanId) && (
-        <div className="panel" style={{ marginBottom: 12, padding: "10px 14px" }}>
-          <div style={{ display: "flex", gap: 24, fontSize: "calc(var(--font-base) - 1px)" }}>
-            <span><strong>{stats?.total_requests ?? 0}</strong> requests</span>
-            <span><strong>{findings.length}</strong> findings</span>
-            <span><strong>{stats?.urls_crawled ?? 0}</strong> URLs crawled</span>
-            <span><strong>{stats?.elapsed_secs ?? 0}s</strong> elapsed</span>
-            {running && <span style={{ color: "var(--accent)" }}>● running</span>}
+      {/* Live progress while a fuzz is in flight. The crawler runs
+          first (URLs/maxUrls is a determinate progress bar), then the
+          active modules iterate over each captured URL. We surface the
+          stage + current host so the user sees what's actually being
+          fuzzed right now, plus the standard request / finding /
+          rate counters. */}
+      {running && (() => {
+        const urls = stats?.urls_crawled ?? 0;
+        const cap = maxUrls > 0 ? maxUrls : 0;
+        const inCrawlPhase = cap > 0 && urls < cap;
+        const chips: MetricChip[] = [
+          { label: "requests", value: (stats?.total_requests ?? 0).toLocaleString() },
+          { label: "findings", value: findings.length.toLocaleString() },
+          { label: "URLs", value: cap > 0 ? `${urls}/${cap}` : `${urls}` },
+          {
+            label: "rate",
+            value:
+              requestRate != null && requestRate >= 0
+                ? `${Math.round(requestRate)}/s`
+                : "—",
+          },
+          { label: "elapsed", value: `${stats?.elapsed_secs ?? 0}s` },
+        ];
+        const target = currentHost ?? host;
+        const stageText = stats?.stage?.trim();
+        const phase = inCrawlPhase
+          ? `Crawling ${target}`
+          : stageText
+            ? `${stageText} · ${target}`
+            : `Fuzzing ${target}`;
+        return (
+          <div style={{ marginBottom: 12 }}>
+            <ScanIndicator
+              label={phase}
+              progress={
+                inCrawlPhase ? { current: urls, total: cap } : undefined
+              }
+              chips={chips}
+              onCancel={onCancel}
+              cancelLabel="Cancel"
+            />
+          </div>
+        );
+      })()}
+
+      {!running && scanId && (
+        <div
+          className="panel"
+          style={{ marginBottom: 12, padding: "10px 14px" }}
+        >
+          <div
+            style={{
+              display: "flex",
+              gap: 24,
+              fontSize: "calc(var(--font-base) - 1px)",
+              color: "var(--muted)",
+            }}
+          >
+            <span>
+              <strong style={{ color: "var(--fg)" }}>
+                {stats?.total_requests ?? 0}
+              </strong>{" "}
+              requests
+            </span>
+            <span>
+              <strong style={{ color: "var(--fg)" }}>{findings.length}</strong>{" "}
+              findings
+            </span>
+            <span>
+              <strong style={{ color: "var(--fg)" }}>
+                {stats?.urls_crawled ?? 0}
+              </strong>{" "}
+              URLs crawled
+            </span>
+            <span>
+              <strong style={{ color: "var(--fg)" }}>
+                {stats?.elapsed_secs ?? 0}s
+              </strong>{" "}
+              elapsed
+            </span>
+            <span style={{ color: "var(--success)" }}>● complete</span>
           </div>
         </div>
       )}
 
-      <FindingsTable findings={findings} />
+      <FindingsTable findings={findings} storageNamespace="fuzz" />
     </div>
   );
 }

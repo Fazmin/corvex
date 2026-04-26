@@ -415,6 +415,11 @@ interface FuzzingViewProps {
    *  stays on the exact endpoint the user forwarded. */
   seed?: FuzzerSeed | null;
   onSeedConsumed?: () => void;
+  /** Lifted from App.tsx — surfaces the currently-targeted host in the
+   *  fuzz progress banner so the user can see what's being attacked. */
+  currentHost?: string | null;
+  /** Live request rate from App.tsx's stats poller. */
+  requestRate?: number | null;
 }
 
 export function FuzzingView({
@@ -426,6 +431,8 @@ export function FuzzingView({
   onCancel,
   seed,
   onSeedConsumed,
+  currentHost,
+  requestRate,
 }: FuzzingViewProps) {
   const [tab, setTab] = useState<DetailTab>("run");
 
@@ -503,6 +510,8 @@ export function FuzzingView({
           onCancel={onCancel}
           seed={seed ?? null}
           onSeedConsumed={onSeedConsumed}
+          currentHost={currentHost ?? null}
+          requestRate={requestRate ?? null}
         />
       )}
 
