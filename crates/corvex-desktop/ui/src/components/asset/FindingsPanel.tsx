@@ -45,10 +45,14 @@ export function FindingsPanel({ findings, wide = false }: Props) {
               checks, SCA, banner-CVE, Nuclei templates).
             </p>
             <p>
-              <strong>Dedup key:</strong> <code>(check_id, port, path)</code>.
-              The <em>Count</em> column shows how many raw observations
-              collapsed into the row — useful for spotting
-              repeat-offender endpoints.
+              <strong>Dedup key:</strong>{" "}
+              <code>(check_id, port, path, title)</code>. Title is part
+              of the key so multi-issue plugins (e.g. the dashboard
+              <code>headers</code> check that flags every missing
+              security header on the same path) keep one row per
+              distinct issue. The <em>Count</em> column shows how many
+              raw observations collapsed into the row — useful for
+              spotting repeat-offender endpoints.
             </p>
             <p>
               Use the severity chips to filter. Sorted CRITICAL → INFO,

@@ -1197,7 +1197,7 @@ export function assetEndpoints(
 export function assetFindings(
   host: string,
   port?: number,
-  limit = 500,
+  limit = 5000,
 ): Promise<AssetFinding[]> {
   return invoke<AssetFinding[]>("asset_findings", {
     host,

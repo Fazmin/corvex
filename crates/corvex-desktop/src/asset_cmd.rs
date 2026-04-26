@@ -378,12 +378,22 @@ pub async fn asset_findings(
     .map_err(|e| crate::error::AppError::Other(format!("join: {e}")))?
     .map_err(|e| crate::error::AppError::Other(format!("findings_for_host: {e}")))?;
 
-    // Dedup by (check_id, port, path). Keep the latest as the example
-    // and tally the rest into `occurrence_count`. Sorted by severity
-    // weight then most-recent-first.
-    let mut out: BTreeMap<(String, u16, String), AssetFindingDeduped> = BTreeMap::new();
+    // Dedup by (check_id, port, path, title). Title is included so
+    // distinct issues that happen to share a plugin + path don't
+    // collapse — e.g. the dashboard "headers" plugin emits one finding
+    // per missing header (CSP, HSTS, X-CTO, …) all on `/`, and we
+    // want each as its own row instead of one consolidated entry.
+    // Keep the latest matching row as the example, tally the rest into
+    // `occurrence_count`. Sorted by severity weight then recency.
+    let mut out: BTreeMap<(String, u16, String, String), AssetFindingDeduped> =
+        BTreeMap::new();
     for row in rows {
-        let key = (row.check_id.clone(), row.port, row.path.clone());
+        let key = (
+            row.check_id.clone(),
+            row.port,
+            row.path.clone(),
+            row.title.clone(),
+        );
         let entry = out.entry(key).or_insert_with(|| AssetFindingDeduped {
             check_id: row.check_id.clone(),
             severity: row.severity.clone(),
