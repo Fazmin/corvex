@@ -1068,6 +1068,7 @@ export interface AssetSummary {
   exchange_count: number;
   probe_port_count: number;
   recon_hit_count: number;
+  scan_count: number;
   last_seen_unix: number;
 }
 

@@ -1,4 +1,5 @@
 import type { AssetTech } from "../../api";
+import { InfoTip } from "../InfoTip";
 import {
   emptyStateStyle,
   monoChipStyle,
@@ -18,7 +19,26 @@ export function StackPanel({ techs }: Props) {
   return (
     <section style={panelStyle}>
       <header style={panelHeaderStyle}>
-        <h3 style={panelTitleStyle}>Stack</h3>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <h3 style={panelTitleStyle}>Stack</h3>
+          <InfoTip label="What is the Stack panel?">
+            <p>
+              <strong>The technologies running on this host.</strong>{" "}
+              Wappalyzer-style detections — frameworks, web servers,
+              JS libraries, CMSs, analytics — collapsed to one chip per
+              (name, version) pair.
+            </p>
+            <p>
+              <strong>Source:</strong> the <code>stack-fingerprint</code>{" "}
+              passive check, which runs on every captured proxy exchange.
+              Browse the host through the proxy to populate this panel.
+            </p>
+            <p>
+              Hover a chip for its category and the paths it was detected
+              on. Versioned hits feed the Banner-CVE check.
+            </p>
+          </InfoTip>
+        </span>
         <span style={{ color: "var(--muted)", fontSize: "0.82em" }}>
           {techs.length} technolog{techs.length === 1 ? "y" : "ies"}
         </span>

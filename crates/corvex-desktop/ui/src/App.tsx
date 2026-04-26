@@ -429,7 +429,10 @@ export default function App() {
 
   return (
     <div className="app">
-      <TitleBar />
+      <TitleBar
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={toggleSidebar}
+      />
       <div className={`shell${sidebarCollapsed ? " collapsed" : ""}`}>
         <Sidebar
           view={view}
@@ -443,7 +446,6 @@ export default function App() {
           }}
           onNewScan={handleNewScan}
           collapsed={sidebarCollapsed}
-          onToggleCollapsed={toggleSidebar}
           webScanRunning={running}
         />
         <main className={`main${view === "home" ? " main-home" : ""}`}>

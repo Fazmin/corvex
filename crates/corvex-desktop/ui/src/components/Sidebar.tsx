@@ -2,8 +2,6 @@ import type { ReactNode } from "react";
 import { useProbeRunning } from "../probe_running";
 import {
   AssetsIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   DashboardIcon,
   DatabasesIcon,
   FuzzingIcon,
@@ -40,7 +38,6 @@ interface Props {
   onSelect: (view: View) => void;
   onNewScan: () => void;
   collapsed: boolean;
-  onToggleCollapsed: () => void;
   /** True while a web-scan (dashboard) run is in flight. */
   webScanRunning?: boolean;
 }
@@ -72,7 +69,6 @@ export function Sidebar({
   onSelect,
   onNewScan,
   collapsed,
-  onToggleCollapsed,
   webScanRunning = false,
 }: Props) {
   const { running: probeRunning } = useProbeRunning();
@@ -141,15 +137,6 @@ export function Sidebar({
         <img src="/corvex_logo.png" className="logo" alt="" aria-hidden />
         {!collapsed && <span className="name">corvex-rust</span>}
         {!collapsed && <span className="version">v0.1.0</span>}
-        <button
-          type="button"
-          className="sidebar-toggle"
-          onClick={onToggleCollapsed}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-        </button>
       </div>
 
       <div className="sidebar-section">

@@ -43,6 +43,36 @@ CREATE TABLE IF NOT EXISTS scans (
     total_errors    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_scans_started_at ON scans (started_at DESC);
+
+-- Per-finding persistence for dashboard web-vulnerability scans. The
+-- proxy/checks pipeline writes its findings to exchange_scan_findings
+-- (keyed by exchange_id); the dashboard scan engine has no exchange
+-- context, so its rows live here keyed by scan_id + host. The asset
+-- view unions both tables when rendering Findings for an asset.
+CREATE TABLE IF NOT EXISTS scan_findings (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_id            INTEGER,
+    host               TEXT NOT NULL,
+    port               INTEGER NOT NULL DEFAULT 0,
+    method             TEXT,
+    uri                TEXT NOT NULL DEFAULT '',
+    plugin             TEXT NOT NULL DEFAULT '',
+    corvex_id          TEXT,
+    severity           TEXT NOT NULL DEFAULT 'INFO',
+    message            TEXT NOT NULL DEFAULT '',
+    refs               TEXT,
+    cve                TEXT,
+    cvss               REAL,
+    epss_score         REAL,
+    epss_percentile    REAL,
+    fix_version        TEXT,
+    component          TEXT,
+    component_version  TEXT,
+    created_at         INTEGER NOT NULL,
+    FOREIGN KEY (scan_id) REFERENCES scans(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_scan_findings_host ON scan_findings(host);
+CREATE INDEX IF NOT EXISTS idx_scan_findings_scan ON scan_findings(scan_id);
 "#;
 
 pub struct HistoryDb {
@@ -142,6 +172,65 @@ impl HistoryDb {
     pub fn delete(&self, id: i64) -> SqlResult<usize> {
         let conn = self.conn.lock().expect("history mutex");
         conn.execute("DELETE FROM scans WHERE id = ?1", params![id])
+    }
+
+    /// Persist one dashboard-scan finding so it shows up in the asset
+    /// Findings panel for the matching host. Called from
+    /// `TauriEventSink::item` per finding — the prepared statement
+    /// keeps this fast enough to run synchronously inside the scan
+    /// pipeline.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_scan_finding(
+        &self,
+        scan_id: Option<i64>,
+        host: &str,
+        port: u16,
+        method: Option<&str>,
+        uri: &str,
+        plugin: &str,
+        corvex_id: Option<&str>,
+        severity: &str,
+        message: &str,
+        refs: Option<&str>,
+        cve: Option<&str>,
+        cvss: Option<f32>,
+        epss_score: Option<f32>,
+        epss_percentile: Option<f32>,
+        fix_version: Option<&str>,
+        component: Option<&str>,
+        component_version: Option<&str>,
+    ) -> SqlResult<()> {
+        let conn = self.conn.lock().expect("history mutex");
+        let mut stmt = conn.prepare_cached(
+            "INSERT INTO scan_findings
+                (scan_id, host, port, method, uri, plugin, corvex_id,
+                 severity, message, refs, cve, cvss, epss_score,
+                 epss_percentile, fix_version, component,
+                 component_version, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                     ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        )?;
+        stmt.execute(params![
+            scan_id,
+            host,
+            port as i64,
+            method,
+            uri,
+            plugin,
+            corvex_id,
+            severity,
+            message,
+            refs,
+            cve,
+            cvss.map(|v| v as f64),
+            epss_score.map(|v| v as f64),
+            epss_percentile.map(|v| v as f64),
+            fix_version,
+            component,
+            component_version,
+            now_secs(),
+        ])?;
+        Ok(())
     }
 }
 

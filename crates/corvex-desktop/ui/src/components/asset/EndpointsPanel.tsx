@@ -1,4 +1,5 @@
 import type { AssetEndpoint } from "../../api";
+import { InfoTip } from "../InfoTip";
 import {
   emptyStateStyle,
   fmtRelative,
@@ -27,7 +28,26 @@ export function EndpointsPanel({ endpoints }: Props) {
   return (
     <section style={panelStyle}>
       <header style={panelHeaderStyle}>
-        <h3 style={panelTitleStyle}>Endpoints</h3>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <h3 style={panelTitleStyle}>Endpoints</h3>
+          <InfoTip label="What is the Endpoints panel?">
+            <p>
+              <strong>The URLs this asset has served.</strong> One row
+              per <em>(method, path)</em> tuple aggregated across every
+              proxy session, with exchange and finding counts.
+            </p>
+            <p>
+              <strong>Source:</strong> the proxy <code>exchanges</code>{" "}
+              table (browser traffic, replays, OpenAPI imports). The
+              finding count joins through{" "}
+              <code>exchange_scan_findings</code>.
+            </p>
+            <p>
+              Sorted by traffic volume so the busiest paths surface
+              first. Top 200 are shown.
+            </p>
+          </InfoTip>
+        </span>
         <span style={{ color: "var(--muted)", fontSize: "0.82em" }}>
           {endpoints.length} path{endpoints.length === 1 ? "" : "s"}
         </span>

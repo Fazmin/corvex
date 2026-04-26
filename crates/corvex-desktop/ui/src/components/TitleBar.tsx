@@ -1,12 +1,23 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ChevronLeftIcon, ChevronRightIcon } from "./Icons";
 import { ThemeToggle } from "./ThemeToggle";
+
+interface Props {
+  /** Sidebar collapsed state — drives the chevron direction. */
+  sidebarCollapsed?: boolean;
+  /** Toggle the sidebar from the title bar's left edge. */
+  onToggleSidebar?: () => void;
+}
 
 /**
  * Custom title bar for a frameless Tauri window. Everything inside the
  * `.titlebar-drag` region (marked with `data-tauri-drag-region`) is a
  * draggable surface; the right-side cluster provides window controls.
+ *
+ * The sidebar collapse toggle lives at the far left so it's always
+ * visible and doesn't steal vertical space from the navigation rail.
  */
-export function TitleBar() {
+export function TitleBar({ sidebarCollapsed, onToggleSidebar }: Props) {
   const win = getCurrentWindow();
 
   const onMinimize = () => win.minimize();
@@ -15,6 +26,23 @@ export function TitleBar() {
 
   return (
     <div className="titlebar">
+      {onToggleSidebar && (
+        <button
+          type="button"
+          className="titlebar-sidebar-toggle"
+          onClick={onToggleSidebar}
+          aria-label={
+            sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+          }
+          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {sidebarCollapsed ? (
+            <ChevronRightIcon size={18} />
+          ) : (
+            <ChevronLeftIcon size={18} />
+          )}
+        </button>
+      )}
       <div className="titlebar-drag" data-tauri-drag-region>
         <span className="titlebar-brand" data-tauri-drag-region>
           <img

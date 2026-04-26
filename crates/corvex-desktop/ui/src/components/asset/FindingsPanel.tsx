@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AssetFinding } from "../../api";
+import { InfoTip } from "../InfoTip";
 import {
   emptyStateStyle,
   fmtRelative,
@@ -33,7 +34,26 @@ export function FindingsPanel({ findings }: Props) {
   return (
     <section style={panelStyle}>
       <header style={panelHeaderStyle}>
-        <h3 style={panelTitleStyle}>Findings</h3>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <h3 style={panelTitleStyle}>Findings</h3>
+          <InfoTip label="What is the Findings panel?">
+            <p>
+              <strong>Vulnerabilities tied to this asset</strong>,
+              deduplicated across every engine (passive checks, active
+              checks, SCA, banner-CVE, Nuclei templates).
+            </p>
+            <p>
+              <strong>Dedup key:</strong> <code>(check_id, port, path)</code>.
+              The <em>Count</em> column shows how many raw observations
+              collapsed into the row — useful for spotting
+              repeat-offender endpoints.
+            </p>
+            <p>
+              Use the severity chips to filter. Sorted CRITICAL → INFO,
+              then most recent first.
+            </p>
+          </InfoTip>
+        </span>
         <span style={{ color: "var(--muted)", fontSize: "0.82em" }}>
           {findings.length} unique
         </span>

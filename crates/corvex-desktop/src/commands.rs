@@ -422,11 +422,33 @@ pub async fn scan_start(
         );
     }
 
+    // Persist a "running" row first so the per-finding sink below can
+    // attach the resulting scan id and write findings into
+    // `scan_findings` as the engine produces them. Insert failure is
+    // non-fatal — the scan still runs, just without DB-backed
+    // per-finding history.
+    let history_handle = app.try_state::<Arc<HistoryDb>>().map(|h| h.inner().clone());
+    let history_id: Option<i64> = history_handle.as_ref().and_then(|h| {
+        match h.insert_scan(&host_for_history, &params_json) {
+            Ok(id) => Some(id),
+            Err(e) => {
+                tracing::warn!(target: "history", "insert_scan failed: {e}");
+                None
+            }
+        }
+    });
+
     // Report sinks: always include the Tauri event sink; optionally add
-    // any file sinks the user asked for via -Format / --output.
+    // any file sinks the user asked for via -Format / --output. The
+    // event sink also writes findings to `scan_findings` when a history
+    // handle is present so the asset view sees them after the scan
+    // completes.
     let scan_id = Uuid::new_v4();
-    let mut sinks: Vec<Box<dyn ReportSink>> =
-        vec![Box::new(TauriEventSink::new(app.clone(), scan_id))];
+    let mut event_sink = TauriEventSink::new(app.clone(), scan_id);
+    if let Some(history) = history_handle.clone() {
+        event_sink = event_sink.with_history(history, history_id);
+    }
+    let mut sinks: Vec<Box<dyn ReportSink>> = vec![Box::new(event_sink)];
     if cli.output.is_some() {
         sinks.extend(corvex_plugins::build_sinks(
             cli.format.as_deref().unwrap_or("txt"),
@@ -500,18 +522,8 @@ pub async fn scan_start(
         })
         .await;
 
-    // Persist a "running" row in the SQLite history DB so the scan
-    // appears in the History view immediately. Failure to write isn't
-    // fatal — the scan still runs.
-    let history_id: Option<i64> = app
-        .try_state::<Arc<HistoryDb>>()
-        .and_then(|h| match h.insert_scan(&host_for_history, &params_json) {
-            Ok(id) => Some(id),
-            Err(e) => {
-                tracing::warn!(target: "history", "insert_scan failed: {e}");
-                None
-            }
-        });
+    // (`history_id` already obtained above so the per-finding sink
+    // could attach to the scan row.)
 
     // Spawn the scan. On completion we emit a done event, clean up the
     // running-scan registry, and update the history row with the final

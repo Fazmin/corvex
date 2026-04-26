@@ -2,15 +2,20 @@
 //! and lifecycle events into the Tauri event bus instead of writing them
 //! to a file. The frontend subscribes per-scan by UUID.
 
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
 use corvex_core::error::Result as CorvexResult;
 use corvex_core::http::tls::SslInfo;
 use corvex_core::report::{ReportFormat, ReportItem, ReportSink};
 use corvex_core::state::GlobalState;
 use corvex_core::target::Mark;
 use serde::Serialize;
-use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
+
+use crate::asset_identity::normalize_host;
+use crate::history::HistoryDb;
 
 /// Per-host preamble.
 #[derive(Debug, Clone, Serialize)]
@@ -108,14 +113,37 @@ impl From<&GlobalState> for SummaryPayload {
 }
 
 /// The streaming sink. Instantiated per scan; dropped when the scan ends.
+///
+/// Findings are emitted to the Tauri event bus *and* persisted to
+/// `scan_findings` (when a HistoryDb handle is provided) so the asset
+/// view can render them later, even after the scan window has closed.
 pub struct TauriEventSink {
     app: AppHandle,
     scan_id: Uuid,
+    history: Option<Arc<HistoryDb>>,
+    history_row_id: Option<i64>,
 }
 
 impl TauriEventSink {
     pub fn new(app: AppHandle, scan_id: Uuid) -> Self {
-        Self { app, scan_id }
+        Self {
+            app,
+            scan_id,
+            history: None,
+            history_row_id: None,
+        }
+    }
+
+    /// Attach a history-DB handle + the `scans.id` rowid so per-finding
+    /// rows get persisted under the right parent scan.
+    pub fn with_history(
+        mut self,
+        history: Arc<HistoryDb>,
+        history_row_id: Option<i64>,
+    ) -> Self {
+        self.history = Some(history);
+        self.history_row_id = history_row_id;
+        self
     }
 
     fn ev(&self, kind: &str) -> String {
@@ -156,6 +184,35 @@ impl ReportSink for TauriEventSink {
         let _ = self
             .app
             .emit(&self.ev("finding"), FindingPayload::from_parts(mark, item));
+        if let Some(history) = self.history.as_ref() {
+            let host_norm = normalize_host(&mark.hostname);
+            if !host_norm.is_empty() {
+                if let Err(e) = history.insert_scan_finding(
+                    self.history_row_id,
+                    &host_norm,
+                    mark.port,
+                    Some(item.method.as_str()),
+                    item.uri.as_str(),
+                    item.plugin.as_str(),
+                    Some(item.corvex_id.as_str()),
+                    item.severity.to_string().as_str(),
+                    item.message.as_str(),
+                    Some(item.refs.as_str()),
+                    item.cve.as_deref(),
+                    item.cvss,
+                    item.epss_score,
+                    item.epss_percentile,
+                    item.fix_version.as_deref(),
+                    item.component.as_deref(),
+                    item.component_version.as_deref(),
+                ) {
+                    tracing::warn!(
+                        target: "history",
+                        "scan_findings insert failed: {e}"
+                    );
+                }
+            }
+        }
         Ok(())
     }
 

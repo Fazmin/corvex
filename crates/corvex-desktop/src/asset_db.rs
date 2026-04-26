@@ -66,6 +66,7 @@ pub struct AssetSummaryRow {
     pub exchange_count: u32,
     pub probe_port_count: u32,
     pub recon_hit_count: u32,
+    pub scan_count: u32,
     pub last_seen_unix: i64,
 }
 
@@ -174,9 +175,13 @@ impl AssetDb {
         Ok(out)
     }
 
-    /// Findings for `host` joined through the exchange table, newest
-    /// first. The dedup pass happens in the command layer so the SQL
-    /// stays trivially indexable on `(exchange_id)`.
+    /// Findings for `host` from both finding sources:
+    ///   * proxy/checks pipeline → `exchange_scan_findings` (joined
+    ///     through `exchanges` on host)
+    ///   * dashboard scan engine → `scan_findings` (host stored
+    ///     directly on the row)
+    /// Both are unioned, newest first. The dedup pass happens in the
+    /// command layer so each query stays trivially indexable.
     pub fn findings_for_host(
         &self,
         host: &str,
@@ -184,53 +189,129 @@ impl AssetDb {
         limit: usize,
     ) -> SqlResult<Vec<AssetFindingRow>> {
         let conn = self.conn.lock().expect("asset db mutex");
-        let sql = if port.is_some() {
-            "SELECT f.id, f.exchange_id, f.check_id, f.severity, f.title,
-                    f.description, f.evidence, e.host, e.port, e.path, f.created_at
-               FROM exchange_scan_findings f
-               JOIN exchanges e ON e.id = f.exchange_id
-              WHERE e.host = ?1 AND e.port = ?2
-              ORDER BY f.created_at DESC
-              LIMIT ?3"
-        } else {
-            "SELECT f.id, f.exchange_id, f.check_id, f.severity, f.title,
-                    f.description, f.evidence, e.host, e.port, e.path, f.created_at
-               FROM exchange_scan_findings f
-               JOIN exchanges e ON e.id = f.exchange_id
-              WHERE e.host = ?1
-              ORDER BY f.created_at DESC
-              LIMIT ?2"
-        };
-        let mut stmt = conn.prepare_cached(sql)?;
-        let row_to = |row: &rusqlite::Row<'_>| {
-            let evidence: Option<Vec<u8>> = row.get(6)?;
-            let evidence_json = evidence.and_then(|b| String::from_utf8(b).ok());
-            Ok(AssetFindingRow {
-                id: row.get(0)?,
-                exchange_id: row.get(1)?,
-                check_id: row.get(2)?,
-                severity: row.get(3)?,
-                title: row.get(4)?,
-                description: row.get(5)?,
-                evidence_json,
-                host: row.get(7)?,
-                port: row.get::<_, i64>(8)? as u16,
-                path: row.get(9)?,
-                created_at_unix: row.get(10)?,
-            })
-        };
-        let mut out = Vec::new();
-        if let Some(p) = port {
-            let rows = stmt.query_map(params![host, p as i64, limit as i64], row_to)?;
-            for r in rows {
-                out.push(r?);
-            }
-        } else {
-            let rows = stmt.query_map(params![host, limit as i64], row_to)?;
-            for r in rows {
-                out.push(r?);
+        let mut out: Vec<AssetFindingRow> = Vec::new();
+
+        // -- proxy / checks findings --
+        {
+            let sql = if port.is_some() {
+                "SELECT f.id, f.exchange_id, f.check_id, f.severity, f.title,
+                        f.description, f.evidence, e.host, e.port, e.path, f.created_at
+                   FROM exchange_scan_findings f
+                   JOIN exchanges e ON e.id = f.exchange_id
+                  WHERE e.host = ?1 AND e.port = ?2
+                  ORDER BY f.created_at DESC
+                  LIMIT ?3"
+            } else {
+                "SELECT f.id, f.exchange_id, f.check_id, f.severity, f.title,
+                        f.description, f.evidence, e.host, e.port, e.path, f.created_at
+                   FROM exchange_scan_findings f
+                   JOIN exchanges e ON e.id = f.exchange_id
+                  WHERE e.host = ?1
+                  ORDER BY f.created_at DESC
+                  LIMIT ?2"
+            };
+            let mut stmt = conn.prepare_cached(sql)?;
+            let row_to = |row: &rusqlite::Row<'_>| {
+                let evidence: Option<Vec<u8>> = row.get(6)?;
+                let evidence_json = evidence.and_then(|b| String::from_utf8(b).ok());
+                Ok(AssetFindingRow {
+                    id: row.get(0)?,
+                    exchange_id: row.get(1)?,
+                    check_id: row.get(2)?,
+                    severity: row.get(3)?,
+                    title: row.get(4)?,
+                    description: row.get(5)?,
+                    evidence_json,
+                    host: row.get(7)?,
+                    port: row.get::<_, i64>(8)? as u16,
+                    path: row.get(9)?,
+                    created_at_unix: row.get(10)?,
+                })
+            };
+            if let Some(p) = port {
+                let rows = stmt.query_map(params![host, p as i64, limit as i64], row_to)?;
+                for r in rows {
+                    out.push(r?);
+                }
+            } else {
+                let rows = stmt.query_map(params![host, limit as i64], row_to)?;
+                for r in rows {
+                    out.push(r?);
+                }
             }
         }
+
+        // -- dashboard scan findings --
+        {
+            let sql = if port.is_some() {
+                "SELECT id, plugin, severity, message, refs, host, port, uri,
+                        created_at, corvex_id, cve, cvss, fix_version,
+                        component, component_version
+                   FROM scan_findings
+                  WHERE host = ?1 AND (port = 0 OR port = ?2)
+                  ORDER BY created_at DESC
+                  LIMIT ?3"
+            } else {
+                "SELECT id, plugin, severity, message, refs, host, port, uri,
+                        created_at, corvex_id, cve, cvss, fix_version,
+                        component, component_version
+                   FROM scan_findings
+                  WHERE host = ?1
+                  ORDER BY created_at DESC
+                  LIMIT ?2"
+            };
+            let mut stmt = conn.prepare_cached(sql)?;
+            let row_to = |row: &rusqlite::Row<'_>| {
+                let id: i64 = row.get(0)?;
+                let refs: Option<String> = row.get(4)?;
+                let corvex_id: Option<String> = row.get(9)?;
+                let cve: Option<String> = row.get(10)?;
+                let cvss: Option<f64> = row.get(11)?;
+                let fix_version: Option<String> = row.get(12)?;
+                let component: Option<String> = row.get(13)?;
+                let component_version: Option<String> = row.get(14)?;
+                // Pack the scan-only metadata into the JSON evidence
+                // blob so the UI's existing AssetFinding renderer can
+                // surface CVE / CVSS / fix info without a separate
+                // schema branch.
+                let evidence = serde_json::json!({
+                    "source": "dashboard_scan",
+                    "corvex_id": corvex_id,
+                    "cve": cve,
+                    "cvss": cvss,
+                    "fix_version": fix_version,
+                    "component": component,
+                    "component_version": component_version,
+                });
+                Ok(AssetFindingRow {
+                    id: format!("scan-{id}"),
+                    exchange_id: String::new(),
+                    check_id: row.get::<_, String>(1)?,
+                    severity: row.get::<_, String>(2)?,
+                    title: row.get::<_, String>(3)?,
+                    description: refs,
+                    evidence_json: serde_json::to_string(&evidence).ok(),
+                    host: row.get::<_, String>(5)?,
+                    port: row.get::<_, i64>(6)? as u16,
+                    path: row.get::<_, String>(7)?,
+                    created_at_unix: row.get(8)?,
+                })
+            };
+            if let Some(p) = port {
+                let rows = stmt.query_map(params![host, p as i64, limit as i64], row_to)?;
+                for r in rows {
+                    out.push(r?);
+                }
+            } else {
+                let rows = stmt.query_map(params![host, limit as i64], row_to)?;
+                for r in rows {
+                    out.push(r?);
+                }
+            }
+        }
+
+        out.sort_by(|a, b| b.created_at_unix.cmp(&a.created_at_unix));
+        out.truncate(limit);
         Ok(out)
     }
 
@@ -267,10 +348,11 @@ impl AssetDb {
         Ok(out)
     }
 
-    /// Distinct hosts seen across the proxy and probe stores plus
-    /// recon-discovered subdomains — drives the asset browser. The
-    /// counts are computed in one pass so the list view doesn't have to
-    /// fan out N queries per row.
+    /// Distinct hosts seen across the proxy, probe and recon stores
+    /// plus the dashboard scan history — drives the asset browser. The
+    /// proxy/probe/recon counts come from one SQL pass; scan rows are
+    /// merged in Rust because `scans.host` may be a full URL or a
+    /// host:port that needs URL-aware extraction.
     ///
     /// `query` is matched as a `LIKE %query%` against the host name;
     /// pass an empty string for "all".
@@ -279,87 +361,172 @@ impl AssetDb {
         query: &str,
         limit: usize,
     ) -> SqlResult<Vec<AssetSummaryRow>> {
+        use crate::asset_identity::extract_host_from_scan_target;
+        use std::collections::BTreeMap;
+
         let conn = self.conn.lock().expect("asset db mutex");
-        // The union pulls candidate host names from each source, then a
-        // single GROUP BY collapses them into one row per host with the
-        // counts evaluated as correlated subqueries.
-        let mut stmt = conn.prepare_cached(
-            "WITH hosts AS (
-                SELECT DISTINCT host FROM exchanges
-                UNION
-                SELECT DISTINCT host FROM probe_open_ports
-                UNION
-                SELECT DISTINCT lower(name) FROM recon_findings WHERE kind = 'subdomain'
-             )
-             SELECT host,
-                    (SELECT COUNT(*) FROM exchange_scan_findings f
-                       JOIN exchanges e ON e.id = f.exchange_id
-                      WHERE e.host = hosts.host) AS fc,
-                    (SELECT COUNT(*) FROM exchanges e WHERE e.host = hosts.host) AS xc,
-                    (SELECT COUNT(*) FROM probe_open_ports p WHERE p.host = hosts.host) AS pc,
-                    (SELECT COUNT(*) FROM recon_findings r
-                      WHERE lower(r.name) = hosts.host) AS rc,
-                    COALESCE(
-                       (SELECT MAX(started_at) FROM exchanges WHERE host = hosts.host),
-                       (SELECT MAX(observed_at) FROM probe_open_ports WHERE host = hosts.host),
-                       (SELECT MAX(discovered_at) FROM recon_findings
-                         WHERE lower(name) = hosts.host),
-                       0
-                    ) AS last_seen
-               FROM hosts
-              WHERE host != ''
-                AND (?1 = '' OR host LIKE '%' || ?1 || '%')
-              ORDER BY last_seen DESC, host ASC
-              LIMIT ?2",
-        )?;
-        let rows = stmt.query_map(params![query, limit as i64], |row| {
-            Ok(AssetSummaryRow {
-                host: row.get(0)?,
-                finding_count: row.get::<_, i64>(1)? as u32,
-                exchange_count: row.get::<_, i64>(2)? as u32,
-                probe_port_count: row.get::<_, i64>(3)? as u32,
-                recon_hit_count: row.get::<_, i64>(4)? as u32,
-                last_seen_unix: row.get(5)?,
-            })
-        })?;
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r?);
+        let mut by_host: BTreeMap<String, AssetSummaryRow> = BTreeMap::new();
+
+        // First pass: union over the three SQL-native sources. We
+        // intentionally don't `LIMIT` here — the scan-host merge below
+        // could push a previously-trimmed host above the cutoff once
+        // its scan count is added in.
+        {
+            let mut stmt = conn.prepare_cached(
+                "WITH hosts AS (
+                    SELECT DISTINCT host FROM exchanges
+                    UNION
+                    SELECT DISTINCT host FROM probe_open_ports
+                    UNION
+                    SELECT DISTINCT lower(name) FROM recon_findings WHERE kind = 'subdomain'
+                    UNION
+                    SELECT DISTINCT host FROM scan_findings
+                 )
+                 SELECT host,
+                        ((SELECT COUNT(*) FROM exchange_scan_findings f
+                           JOIN exchanges e ON e.id = f.exchange_id
+                          WHERE e.host = hosts.host)
+                         + (SELECT COUNT(*) FROM scan_findings WHERE host = hosts.host)) AS fc,
+                        (SELECT COUNT(*) FROM exchanges e WHERE e.host = hosts.host) AS xc,
+                        (SELECT COUNT(*) FROM probe_open_ports p WHERE p.host = hosts.host) AS pc,
+                        (SELECT COUNT(*) FROM recon_findings r
+                          WHERE lower(r.name) = hosts.host) AS rc,
+                        COALESCE(
+                           (SELECT MAX(started_at) FROM exchanges WHERE host = hosts.host),
+                           (SELECT MAX(observed_at) FROM probe_open_ports WHERE host = hosts.host),
+                           (SELECT MAX(discovered_at) FROM recon_findings
+                             WHERE lower(name) = hosts.host),
+                           (SELECT MAX(created_at) FROM scan_findings WHERE host = hosts.host),
+                           0
+                        ) AS last_seen
+                   FROM hosts
+                  WHERE host != ''",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(AssetSummaryRow {
+                    host: row.get(0)?,
+                    finding_count: row.get::<_, i64>(1)? as u32,
+                    exchange_count: row.get::<_, i64>(2)? as u32,
+                    probe_port_count: row.get::<_, i64>(3)? as u32,
+                    recon_hit_count: row.get::<_, i64>(4)? as u32,
+                    scan_count: 0,
+                    last_seen_unix: row.get(5)?,
+                })
+            })?;
+            for r in rows {
+                let row = r?;
+                by_host.insert(row.host.clone(), row);
+            }
         }
+
+        // Second pass: scan history. `scans.host` is the raw user input
+        // (URL, host:port, bare host) — extract the hostname so the
+        // joiner matches probe/proxy/recon rows.
+        {
+            let mut stmt =
+                conn.prepare_cached("SELECT host, started_at FROM scans")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                ))
+            })?;
+            for r in rows {
+                let (raw_host, started_at) = r?;
+                let host = extract_host_from_scan_target(&raw_host);
+                if host.is_empty() {
+                    continue;
+                }
+                let entry = by_host.entry(host.clone()).or_insert_with(|| {
+                    AssetSummaryRow {
+                        host: host.clone(),
+                        finding_count: 0,
+                        exchange_count: 0,
+                        probe_port_count: 0,
+                        recon_hit_count: 0,
+                        scan_count: 0,
+                        last_seen_unix: 0,
+                    }
+                });
+                entry.scan_count += 1;
+                if started_at > entry.last_seen_unix {
+                    entry.last_seen_unix = started_at;
+                }
+            }
+        }
+
+        // Apply the LIKE filter, sort by last_seen DESC, host ASC,
+        // truncate to the caller's limit.
+        let q = query.to_lowercase();
+        let mut out: Vec<AssetSummaryRow> = by_host
+            .into_values()
+            .filter(|r| q.is_empty() || r.host.contains(&q))
+            .collect();
+        out.sort_by(|a, b| {
+            b.last_seen_unix
+                .cmp(&a.last_seen_unix)
+                .then_with(|| a.host.cmp(&b.host))
+        });
+        out.truncate(limit);
         Ok(out)
     }
 
     /// Single-row counts for `host`. Same projection as `list_assets`
     /// but with an equality match — used by `asset_overview` so the
-    /// caller doesn't have to scan a LIKE result set.
+    /// caller doesn't have to scan a LIKE result set. Scan-history
+    /// joining is done in Rust because `scans.host` may be a URL or
+    /// host:port that needs URL-aware extraction.
     pub fn summary_for_host(&self, host: &str) -> SqlResult<AssetSummaryRow> {
+        use crate::asset_identity::extract_host_from_scan_target;
+
         let conn = self.conn.lock().expect("asset db mutex");
-        let mut stmt = conn.prepare_cached(
-            "SELECT (SELECT COUNT(*) FROM exchange_scan_findings f
-                       JOIN exchanges e ON e.id = f.exchange_id
-                      WHERE e.host = ?1) AS fc,
-                    (SELECT COUNT(*) FROM exchanges WHERE host = ?1) AS xc,
-                    (SELECT COUNT(*) FROM probe_open_ports WHERE host = ?1) AS pc,
-                    (SELECT COUNT(*) FROM recon_findings
-                      WHERE lower(name) = ?1) AS rc,
-                    COALESCE(
-                       (SELECT MAX(started_at)  FROM exchanges       WHERE host = ?1),
-                       (SELECT MAX(observed_at) FROM probe_open_ports WHERE host = ?1),
-                       (SELECT MAX(discovered_at) FROM recon_findings
-                         WHERE lower(name) = ?1),
-                       0
-                    ) AS last_seen",
-        )?;
-        stmt.query_row(params![host], |row| {
-            Ok(AssetSummaryRow {
-                host: host.to_string(),
-                finding_count: row.get::<_, i64>(0)? as u32,
-                exchange_count: row.get::<_, i64>(1)? as u32,
-                probe_port_count: row.get::<_, i64>(2)? as u32,
-                recon_hit_count: row.get::<_, i64>(3)? as u32,
-                last_seen_unix: row.get(4)?,
-            })
-        })
+        let mut row = {
+            let mut stmt = conn.prepare_cached(
+                "SELECT ((SELECT COUNT(*) FROM exchange_scan_findings f
+                           JOIN exchanges e ON e.id = f.exchange_id
+                          WHERE e.host = ?1)
+                         + (SELECT COUNT(*) FROM scan_findings WHERE host = ?1)) AS fc,
+                        (SELECT COUNT(*) FROM exchanges WHERE host = ?1) AS xc,
+                        (SELECT COUNT(*) FROM probe_open_ports WHERE host = ?1) AS pc,
+                        (SELECT COUNT(*) FROM recon_findings
+                          WHERE lower(name) = ?1) AS rc,
+                        COALESCE(
+                           (SELECT MAX(started_at)  FROM exchanges       WHERE host = ?1),
+                           (SELECT MAX(observed_at) FROM probe_open_ports WHERE host = ?1),
+                           (SELECT MAX(discovered_at) FROM recon_findings
+                             WHERE lower(name) = ?1),
+                           (SELECT MAX(created_at)  FROM scan_findings    WHERE host = ?1),
+                           0
+                        ) AS last_seen",
+            )?;
+            stmt.query_row(params![host], |row| {
+                Ok(AssetSummaryRow {
+                    host: host.to_string(),
+                    finding_count: row.get::<_, i64>(0)? as u32,
+                    exchange_count: row.get::<_, i64>(1)? as u32,
+                    probe_port_count: row.get::<_, i64>(2)? as u32,
+                    recon_hit_count: row.get::<_, i64>(3)? as u32,
+                    scan_count: 0,
+                    last_seen_unix: row.get(4)?,
+                })
+            })?
+        };
+
+        let mut stmt =
+            conn.prepare_cached("SELECT host, started_at FROM scans")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        for r in rows {
+            let (raw_host, started_at) = r?;
+            if extract_host_from_scan_target(&raw_host) == host {
+                row.scan_count += 1;
+                if started_at > row.last_seen_unix {
+                    row.last_seen_unix = started_at;
+                }
+            }
+        }
+        Ok(row)
     }
 
     /// IPs recorded for this host in `recon_findings.value` (CSV) and

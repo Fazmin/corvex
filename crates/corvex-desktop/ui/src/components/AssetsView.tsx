@@ -57,8 +57,9 @@ export function AssetsView() {
             fontSize: "0.92em",
           }}
         >
-          One row per host the app has seen across recon, probing, and the
-          proxy. Click a row to open the asset detail view.
+          One row per host the app has seen across recon, probing, the
+          proxy, and the dashboard scan history. Click a row to open the
+          asset detail view.
         </p>
       </header>
 
@@ -123,19 +124,20 @@ export function AssetsView() {
               <th style={{ ...th, textAlign: "right" }}>Exchanges</th>
               <th style={{ ...th, textAlign: "right" }}>Open ports</th>
               <th style={{ ...th, textAlign: "right" }}>Recon hits</th>
+              <th style={{ ...th, textAlign: "right" }}>Scans</th>
               <th style={th}>Last seen</th>
             </tr>
           </thead>
           <tbody>
             {loading && rows.length === 0 ? (
               <tr>
-                <td colSpan={6} style={empty}>
+                <td colSpan={7} style={empty}>
                   Loading…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} style={empty}>
+                <td colSpan={7} style={empty}>
                   No assets yet. Run a recon, probe a host, or browse one
                   through the proxy.
                 </td>
@@ -182,6 +184,18 @@ export function AssetsView() {
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
                     {r.recon_hit_count}
+                  </td>
+                  <td
+                    style={{
+                      ...td,
+                      textAlign: "right",
+                      color:
+                        r.scan_count > 0
+                          ? "var(--accent)"
+                          : "var(--muted)",
+                    }}
+                  >
+                    {r.scan_count}
                   </td>
                   <td style={{ ...td, color: "var(--muted)" }}>
                     {fmtRelative(r.last_seen_unix)}

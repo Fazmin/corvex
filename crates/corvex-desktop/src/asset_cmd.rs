@@ -16,7 +16,9 @@ use tauri::State;
 use crate::asset_db::{
     AssetDb, AssetEndpointRow, AssetFindingRow, AssetSummaryRow,
 };
-use crate::asset_identity::{cidr_24, normalize_host, registrable_suffix};
+use crate::asset_identity::{
+    cidr_24, extract_host_from_scan_target, normalize_host, registrable_suffix,
+};
 use crate::error::AppResult;
 use crate::history::HistoryDb;
 use crate::probe_store::{ProbeServiceRow, ProbeStore};
@@ -96,6 +98,7 @@ pub struct AssetSummary {
     pub exchange_count: u32,
     pub probe_port_count: u32,
     pub recon_hit_count: u32,
+    pub scan_count: u32,
     pub last_seen_unix: i64,
 }
 
@@ -107,6 +110,7 @@ impl From<AssetSummaryRow> for AssetSummary {
             exchange_count: r.exchange_count,
             probe_port_count: r.probe_port_count,
             recon_hit_count: r.recon_hit_count,
+            scan_count: r.scan_count,
             last_seen_unix: r.last_seen_unix,
         }
     }
@@ -200,26 +204,24 @@ pub async fn asset_overview(
             .last_seen_for_host(&h)
             .map_err(|e| crate::error::AppError::Other(format!("probe last_seen: {e}")))?;
 
-        // History rows for this host — same case-insensitive match.
+        // We rely on `summary_for_host` for scan_count + the latest
+        // scan timestamp folded into last_seen_unix. We still walk the
+        // history rows here once to compute the *earliest* scan
+        // timestamp (first_seen) — there's no SQL helper that returns
+        // a min-by-extracted-host without a similar Rust pass.
         let scans = history
             .list(2000)
             .map_err(|e| crate::error::AppError::Other(format!("history.list: {e}")))?;
-        let scan_matches: Vec<_> = scans
+        let earliest_scan = scans
             .iter()
-            .filter(|s| normalize_host(&s.host) == h)
-            .collect();
-        let scanned_count = scan_matches.len() as u32;
-        let earliest_scan = scan_matches.iter().map(|s| s.started_at).min();
-        let latest_scan = scan_matches.iter().map(|s| s.started_at).max();
+            .filter(|s| extract_host_from_scan_target(&s.host) == h)
+            .map(|s| s.started_at)
+            .min();
 
-        let last_seen_unix = [
-            Some(counts.last_seen_unix).filter(|v| *v > 0),
-            probe_last,
-            latest_scan,
-        ]
-        .into_iter()
-        .flatten()
-        .max();
+        let last_seen_unix = [Some(counts.last_seen_unix).filter(|v| *v > 0), probe_last]
+            .into_iter()
+            .flatten()
+            .max();
         let first_seen_unix = [earliest_scan, probe_last]
             .into_iter()
             .flatten()
@@ -237,7 +239,7 @@ pub async fn asset_overview(
             last_seen_unix,
             asn_placeholder: None,
             cidr_24s: cidrs,
-            scanned_count,
+            scanned_count: counts.scan_count,
         })
     })
     .await
@@ -562,7 +564,7 @@ pub async fn asset_timeline(
             .list(500)
             .map_err(|e| crate::error::AppError::Other(format!("history: {e}")))?;
         for s in scans {
-            if normalize_host(&s.host) != host {
+            if extract_host_from_scan_target(&s.host) != host {
                 continue;
             }
             events.push(AssetTimelineEvent {

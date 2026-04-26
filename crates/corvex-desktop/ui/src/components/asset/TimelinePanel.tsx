@@ -1,4 +1,5 @@
 import type { AssetTimelineEvent } from "../../api";
+import { InfoTip } from "../InfoTip";
 import {
   emptyStateStyle,
   fmtUnix,
@@ -49,7 +50,32 @@ export function TimelinePanel({ events }: Props) {
   return (
     <section style={panelStyle}>
       <header style={panelHeaderStyle}>
-        <h3 style={panelTitleStyle}>Timeline</h3>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <h3 style={panelTitleStyle}>Timeline</h3>
+          <InfoTip label="What is the Timeline panel?">
+            <p>
+              <strong>Everything that happened to this asset, in order.</strong>{" "}
+              Probe runs, proxy exchanges, findings, recon discoveries,
+              and scan rows interleaved by timestamp — newest first.
+            </p>
+            <p>
+              <strong>Color key:</strong>{" "}
+              <span style={{ color: "var(--danger)" }}>FIND</span> findings ·{" "}
+              <span style={{ color: "var(--accent)" }}>EXCH</span> proxy
+              exchanges ·{" "}
+              <span style={{ color: "var(--accent-2)" }}>PROBE</span> probe
+              runs ·{" "}
+              <span style={{ color: "var(--success)" }}>RECON</span> DNS
+              discoveries ·{" "}
+              <span style={{ color: "var(--warning)" }}>SCAN</span> web
+              scans.
+            </p>
+            <p>
+              Useful for "what changed since last week?" and tracing a
+              finding back to the request that produced it.
+            </p>
+          </InfoTip>
+        </span>
         <span style={{ color: "var(--muted)", fontSize: "0.82em" }}>
           last {events.length}
         </span>

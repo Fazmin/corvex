@@ -1,4 +1,5 @@
 import type { AssetService } from "../../api";
+import { InfoTip } from "../InfoTip";
 import { JarmInfo } from "../JarmInfo";
 import {
   emptyStateStyle,
@@ -20,7 +21,26 @@ export function ServicesPanel({ services }: Props) {
   return (
     <section style={panelStyle}>
       <header style={panelHeaderStyle}>
-        <h3 style={panelTitleStyle}>Services</h3>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <h3 style={panelTitleStyle}>Services</h3>
+          <InfoTip label="What is the Services panel?">
+            <p>
+              <strong>What's listening on this host.</strong> One row per
+              open port observed by the probe pipeline, with detected
+              service, product, version, CPE chips, and the JARM TLS
+              fingerprint.
+            </p>
+            <p>
+              <strong>Source:</strong> the <code>probe_open_ports</code>
+              table — populated when you run the host through the{" "}
+              <strong>Probing</strong> view.
+            </p>
+            <p>
+              Click a JARM chip to see which other hosts in your data share
+              the same TLS stack (often the same operator or load balancer).
+            </p>
+          </InfoTip>
+        </span>
         <span style={{ color: "var(--muted)", fontSize: "0.82em" }}>
           {services.length} port{services.length === 1 ? "" : "s"}
         </span>

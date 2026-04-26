@@ -13,7 +13,7 @@ code {
 
 .app {
   display: grid;
-  grid-template-rows: 36px 1fr;
+  grid-template-rows: 48px 1fr;
   height: 100vh;
   background: var(--bg);
 }
@@ -28,13 +28,36 @@ code {
   border-bottom: 1px solid var(--border-soft);
   -webkit-user-select: none;
   user-select: none;
-  padding: 0 0 0 14px;
+  padding: 0;
+  height: 48px;
+}
+
+.titlebar-sidebar-toggle {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border-soft);
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.titlebar-sidebar-toggle:hover {
+  background: var(--panel-hover);
+  color: var(--accent);
 }
 
 .titlebar-drag {
   flex: 1;
   display: flex;
   align-items: center;
+  padding-left: 14px;
+  height: 100%;
   gap: 8px;
   height: 100%;
   color: var(--muted);
@@ -45,7 +68,9 @@ code {
 .titlebar-brand {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  font-size: calc(var(--font-base) + 1px);
+  font-weight: 600;
   color: var(--fg);
   font-weight: 600;
   letter-spacing: 0;
@@ -58,11 +83,11 @@ code {
   background: var(--accent-gradient);
 }
 
-/* PNG logo in the titlebar. Kept small so it doesn't dominate the
-   drag region on narrow windows. */
+/* PNG logo in the titlebar. Slightly larger now that the title bar
+   is 48px tall — keeps the brand mark visually proportionate. */
 .titlebar-brand-logo {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   object-fit: contain;
   display: inline-block;
   flex-shrink: 0;
@@ -81,8 +106,9 @@ code {
 }
 
 .win-btn {
-  width: 42px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
+  font-size: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1961,13 +1987,14 @@ button[disabled] {
 
 /* Icon-only variant used in the titlebar — drops the label and
    squares up the button so it sits neatly next to the window
-   controls. */
+   controls. Sized to match the bumped title bar height. */
 .theme-toggle.theme-toggle-icon-only {
   gap: 0;
   padding: 0;
-  width: 28px;
+  width: 36px;
+  height: 32px;
   justify-content: center;
-  font-size: calc(var(--font-base) - 1px);
+  font-size: calc(var(--font-base) + 4px);
   line-height: 1;
 }
 

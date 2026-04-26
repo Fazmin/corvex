@@ -1,5 +1,6 @@
 import type { AssetRelated } from "../../api";
 import { useAssetNav } from "../../asset_nav";
+import { InfoTip } from "../InfoTip";
 import {
   emptyStateStyle,
   monoChipStyle,
@@ -21,7 +22,33 @@ export function RelatedAssetsPanel({ related }: Props) {
   return (
     <section style={panelStyle}>
       <header style={panelHeaderStyle}>
-        <h3 style={panelTitleStyle}>Related assets</h3>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <h3 style={panelTitleStyle}>Related assets</h3>
+          <InfoTip label="What is the Related assets panel?">
+            <p>
+              <strong>Other hosts in your data that look connected to
+              this one.</strong> Three relationship kinds:
+            </p>
+            <ul style={{ paddingLeft: 18, margin: 0 }}>
+              <li>
+                <strong>Same JARM</strong> — identical TLS fingerprint,
+                usually means the same operator or load balancer.
+              </li>
+              <li>
+                <strong>Same root domain</strong> — recon-discovered
+                siblings sharing the same registrable suffix.
+              </li>
+              <li>
+                <strong>Same /24</strong> — recorded IPs sit in the same
+                IPv4 /24 network. Coarse stand-in until ASN lookup ships.
+              </li>
+            </ul>
+            <p style={{ marginTop: 6 }}>
+              Click any chip to re-center the view on that host. Use the
+              breadcrumb to walk back.
+            </p>
+          </InfoTip>
+        </span>
         <span style={{ color: "var(--muted)", fontSize: "0.82em" }}>
           {total} sibling{total === 1 ? "" : "s"}
         </span>

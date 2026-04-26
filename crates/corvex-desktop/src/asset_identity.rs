@@ -40,6 +40,52 @@ pub fn registrable_suffix(host: &str) -> String {
     format!("{}.{}", labels[n - 2], labels[n - 1])
 }
 
+/// Extract a host from a scan-target string. The `scans.host` column
+/// stores the raw `params.host` from the dashboard, which may be a
+/// URL (`https://acme.com:443/path`), a host:port (`acme.com:8080`),
+/// or a bare hostname. We strip scheme, port and path so the asset
+/// joiner can match scan rows against probe / proxy / recon hosts.
+pub fn extract_host_from_scan_target(s: &str) -> String {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    // Strip the scheme.
+    let after_scheme = if let Some(idx) = trimmed.find("://") {
+        &trimmed[idx + 3..]
+    } else {
+        trimmed
+    };
+    // Strip path / query / fragment.
+    let host_part = after_scheme
+        .split(|c: char| c == '/' || c == '?' || c == '#')
+        .next()
+        .unwrap_or(after_scheme);
+    // Strip the port — but be careful with IPv6 literals which use
+    // colons in the address itself. Bracketed forms keep their
+    // brackets so `normalize_host` can strip them uniformly.
+    let host_only = if host_part.starts_with('[') {
+        if let Some(end) = host_part.find(']') {
+            &host_part[..=end]
+        } else {
+            host_part
+        }
+    } else if host_part.matches(':').count() == 1 {
+        // One colon means hostname:port (IPv4 or DNS). Multiple colons
+        // means a bare IPv6 literal we shouldn't try to split.
+        let idx = host_part.rfind(':').unwrap();
+        let (lhs, rhs) = host_part.split_at(idx);
+        if rhs[1..].parse::<u16>().is_ok() {
+            lhs
+        } else {
+            host_part
+        }
+    } else {
+        host_part
+    };
+    normalize_host(host_only)
+}
+
 /// `/24` network for an IPv4 literal — used by the related-assets
 /// "same network" panel. Returns `None` for IPv6 (we don't surface
 /// IPv6 neighborhoods today; `/64` would be most of the internet).
@@ -77,6 +123,40 @@ mod tests {
     #[test]
     fn registrable_passes_through_ip() {
         assert_eq!(registrable_suffix("1.2.3.4"), "1.2.3.4");
+    }
+
+    #[test]
+    fn extracts_host_from_full_url() {
+        assert_eq!(
+            extract_host_from_scan_target("https://acme.com:443/login?x=1"),
+            "acme.com"
+        );
+        assert_eq!(
+            extract_host_from_scan_target("http://example.com/"),
+            "example.com"
+        );
+        assert_eq!(
+            extract_host_from_scan_target("https://Acme.COM"),
+            "acme.com"
+        );
+    }
+
+    #[test]
+    fn extracts_host_from_host_port() {
+        assert_eq!(
+            extract_host_from_scan_target("example.com:8080"),
+            "example.com"
+        );
+        assert_eq!(
+            extract_host_from_scan_target("EXAMPLE.com"),
+            "example.com"
+        );
+    }
+
+    #[test]
+    fn preserves_ipv6_literals() {
+        assert_eq!(extract_host_from_scan_target("[::1]:443"), "::1");
+        assert_eq!(extract_host_from_scan_target("::1"), "::1");
     }
 
     #[test]

@@ -1,4 +1,5 @@
 import type { AssetOverview } from "../../api";
+import { InfoTip } from "../InfoTip";
 import {
   accentChipStyle,
   emptyStateStyle,
@@ -28,7 +29,25 @@ export function IdentityPanel({ overview }: Props) {
   return (
     <section style={panelStyle}>
       <header style={panelHeaderStyle}>
-        <h3 style={panelTitleStyle}>Identity</h3>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <h3 style={panelTitleStyle}>Identity</h3>
+          <InfoTip label="What is the Identity panel?">
+            <p>
+              <strong>Who this host is.</strong> Counts across every data
+              source the app has captured for this asset, plus IPs, DNS
+              records, and the <code>/24</code> networks those IPs sit in.
+            </p>
+            <p>
+              <strong>Sources:</strong> recon findings (DNS records, A/AAAA
+              IPs), probe runs (resolved IPs and last-seen), proxy exchanges
+              (host observed in traffic), and scan history (web scan rows).
+            </p>
+            <p>
+              <em>ASN</em> is a placeholder — offline ASN lookup is a planned
+              follow-up.
+            </p>
+          </InfoTip>
+        </span>
         <span style={{ color: "var(--muted)", fontSize: "0.82em" }}>
           last seen {fmtRelative(overview.last_seen_unix)}
         </span>
