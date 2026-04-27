@@ -90,6 +90,13 @@ export function ActiveFuzzRunner({
   const [host, setHost] = useState(initial.host);
   const [scope, setScope] = useState(initial.scope);
   const [seedBanner, setSeedBanner] = useState<string | null>(null);
+  /** When the seed came from a clustered endpoint pattern, surface the
+   *  pattern + injection-hint count so the user can see why specific
+   *  path segments are being treated as fuzz targets. */
+  const [seedClusterContext, setSeedClusterContext] = useState<{
+    pattern: string;
+    hintCount: number;
+  } | null>(null);
   const lastSeededId = useRef<string | null>(null);
   const [crawlDepth, setCrawlDepth] = useState(initial.crawlDepth);
   const [maxUrls, setMaxUrls] = useState(initial.maxUrls);
@@ -113,6 +120,14 @@ export function ActiveFuzzRunner({
     setHost(seed.url);
     setScope("page");
     setSeedBanner(seed.url);
+    if (seed.cluster && seed.injectionHints && seed.injectionHints.length > 0) {
+      setSeedClusterContext({
+        pattern: seed.cluster.pattern,
+        hintCount: seed.injectionHints.length,
+      });
+    } else {
+      setSeedClusterContext(null);
+    }
     writeForm({
       host: seed.url,
       scope: "page",
@@ -187,11 +202,31 @@ export function ActiveFuzzRunner({
             fontSize: "calc(var(--font-base) - 1px)",
           }}
         >
-          <span className="muted">Seeded from Intercept →</span>
-          <code style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {seedBanner}
+          <span className="muted">
+            Seeded from {seedClusterContext ? "cluster pattern" : "Intercept"} →
+          </span>
+          <code
+            style={{
+              flex: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {seedClusterContext ? seedClusterContext.pattern : seedBanner}
           </code>
-          <span className="muted">scope forced to <code>page</code></span>
+          {seedClusterContext && (
+            <span
+              className="muted"
+              title="Path segments matching :id / :uuid / :slug are flagged as injection points. The runner consumes these hints when scheduling fuzz targets — see FuzzTarget::from_pattern_url."
+            >
+              {seedClusterContext.hintCount} path-segment hint
+              {seedClusterContext.hintCount === 1 ? "" : "s"}
+            </span>
+          )}
+          <span className="muted">
+            scope forced to <code>page</code>
+          </span>
           <button
             type="button"
             className="link-button"

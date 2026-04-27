@@ -93,7 +93,7 @@ impl ActiveCheck for HiddenParams {
     async fn run(&self, ctx: &CheckCtx, target: &Exchange) -> Vec<Finding> {
         // Baseline: unmodified request. Short-circuit the whole check
         // if we can't establish a comparison point.
-        let Ok(baseline_resp) = ctx.client.send(&target.request).await else {
+        let Ok(baseline_resp) = ctx.send_with_csrf(&target.request).await else {
             return Vec::new();
         };
         let baseline_body = normalise(baseline_resp.body.as_slice());
@@ -107,7 +107,7 @@ impl ActiveCheck for HiddenParams {
         else {
             return Vec::new();
         };
-        let control_ratio = match ctx.client.send(&control_req).await {
+        let control_ratio = match ctx.send_with_csrf(&control_req).await {
             Ok(r) => {
                 let body = normalise(r.body.as_slice());
                 page_ratio(baseline_body.as_bytes(), body.as_bytes())
@@ -134,7 +134,7 @@ impl ActiveCheck for HiddenParams {
             let Some(canary_req) = append_param(&target.request, name, &canary) else {
                 continue;
             };
-            let Ok(resp1) = ctx.client.send(&canary_req).await else {
+            let Ok(resp1) = ctx.send_with_csrf(&canary_req).await else {
                 continue;
             };
             let body1 = normalise(resp1.body.as_slice());
@@ -165,7 +165,7 @@ impl ActiveCheck for HiddenParams {
 
             if !reflected && !shape_diff1 && !status_changed1 {
                 if let Some(val1_req) = append_param(&target.request, name, "1") {
-                    if let Ok(resp2) = ctx.client.send(&val1_req).await {
+                    if let Ok(resp2) = ctx.send_with_csrf(&val1_req).await {
                         let body2 = normalise(resp2.body.as_slice());
                         let ratio2 = page_ratio(baseline_body.as_bytes(), body2.as_bytes());
                         let shape_diff2 = ratio2 < SAME_SHAPE_THRESHOLD

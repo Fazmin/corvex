@@ -9,9 +9,11 @@
 use std::sync::Arc;
 
 use corvex_proxy::{
-    run_replay, Exchange, ExchangeId, ExchangeSummary, InterceptMode, InterceptVerdict,
-    PendingIntercept, ProxyConfig, ProxyState, ProxyStatus, ReplayInput, RetentionPolicy,
-    ScopeRules, SessionId, StoredFinding, WsFrame,
+    cluster::derive_pattern, run_replay, CsrfObservation, CsrfRule, EndpointCluster,
+    Exchange, ExchangeId, ExchangeSummary, InterceptMode, InterceptRules,
+    InterceptVerdict, PendingIntercept, ProxyConfig, ProxyState, ProxyStatus,
+    ReplayInput, RetentionPolicy, RuleCondition, ScopeRules, SessionId, StoredFinding,
+    WsFrame,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -103,6 +105,71 @@ pub async fn exchanges_list(
     let session_copy = session;
     let rows = tauri::async_runtime::spawn_blocking(move || {
         db.list_exchanges(&session_copy, limit, offset)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("join: {e}")))?
+    .map_err(|e| AppError::Other(format!("list_exchanges: {e}")))?;
+    Ok(rows)
+}
+
+/// Snapshot of endpoint-pattern clusters for the given session.
+///
+/// Returns an empty Vec when the requested session is not the active
+/// one — the in-memory aggregator is scoped to the live session by
+/// design (see `cluster_index` on `ProxyState`).
+#[tauri::command]
+pub async fn exchanges_clustered_list(
+    state: State<'_, Arc<ProxyState>>,
+    session: SessionId,
+) -> AppResult<Vec<EndpointCluster>> {
+    Ok(state.cluster_snapshot(&session).await)
+}
+
+/// Concrete exchange instances that fall under a single cluster
+/// pattern. The UI calls this when a cluster row is expanded so the
+/// member rows can be loaded lazily — clusters with thousands of
+/// instances would otherwise inflate the snapshot.
+#[tauri::command]
+pub async fn cluster_instances(
+    state: State<'_, Arc<ProxyState>>,
+    session: SessionId,
+    method: String,
+    host: String,
+    port: u16,
+    pattern: String,
+    limit: Option<usize>,
+) -> AppResult<Vec<ExchangeSummary>> {
+    // We pull a generous page from the DB and filter in memory by re-
+    // deriving the pattern on each row's path. The pattern derivation
+    // is cheap (regex match on segments); paging by SQL would require
+    // either materialising the pattern as a stored column or a
+    // CASE-heavy WHERE clause, neither of which is worth it at the
+    // sizes the proxy session caps allow (≤ 100 k rows).
+    let cap = limit.unwrap_or(200).clamp(1, 2000);
+    let db = state.db().clone();
+    let want_method = method;
+    let want_host = host;
+    let want_pattern = pattern;
+    let session_copy = session;
+    let rows = tauri::async_runtime::spawn_blocking(move || {
+        // Pull up to 5 000 rows — enough to cover any real cluster
+        // without scanning a 100 k-row session end-to-end.
+        const SCAN_CAP: usize = 5_000;
+        let summaries = db.list_exchanges(&session_copy, SCAN_CAP, 0)?;
+        let mut out: Vec<ExchangeSummary> = Vec::new();
+        for s in summaries {
+            if s.method == want_method
+                && s.host == want_host
+                && s.port == port
+                && derive_pattern(&s.path) == want_pattern
+            {
+                out.push(s);
+                if out.len() >= cap {
+                    break;
+                }
+            }
+        }
+        Ok::<_, rusqlite::Error>(out)
     })
     .await
     .map_err(|e| AppError::Other(format!("join: {e}")))?
@@ -272,6 +339,117 @@ pub async fn scope_set(
         .map_err(|e| AppError::Other(format!("save_scope_rules: {e}")))?;
 
     state.set_scope_rules(rules).await;
+    Ok(())
+}
+
+// --- Conditional intercept rules ------------------------------------
+
+#[tauri::command]
+pub async fn intercept_rules_get(
+    state: State<'_, Arc<ProxyState>>,
+) -> AppResult<InterceptRules> {
+    Ok(state.intercept_rules_snapshot().await)
+}
+
+#[tauri::command]
+pub async fn intercept_rules_set(
+    state: State<'_, Arc<ProxyState>>,
+    rules: InterceptRules,
+) -> AppResult<()> {
+    // Validate any regex-bearing conditions up front so a typo
+    // shows up at Save time rather than silently fail-closing on
+    // every match later.
+    for rule in &rules.rules {
+        for cond in &rule.conditions {
+            match cond {
+                RuleCondition::PathRegex { pattern } => {
+                    if !pattern.is_empty() {
+                        regex::Regex::new(pattern).map_err(|e| {
+                            AppError::Other(format!(
+                                "rule {:?}: bad path regex {pattern:?}: {e}",
+                                rule.id
+                            ))
+                        })?;
+                    }
+                }
+                RuleCondition::HasHeader { regex: Some(r), .. } => {
+                    if !r.is_empty() {
+                        regex::Regex::new(r).map_err(|e| {
+                            AppError::Other(format!(
+                                "rule {:?}: bad header regex {r:?}: {e}",
+                                rule.id
+                            ))
+                        })?;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    state
+        .set_intercept_rules(rules)
+        .await
+        .map_err(|e| AppError::Other(format!("set_intercept_rules: {e}")))
+}
+
+// --- CSRF token automation -------------------------------------------
+
+#[tauri::command]
+pub async fn csrf_rules_get(
+    state: State<'_, Arc<ProxyState>>,
+) -> AppResult<Vec<CsrfRule>> {
+    Ok(state.csrf_rules_snapshot())
+}
+
+#[tauri::command]
+pub async fn csrf_rules_set(
+    state: State<'_, Arc<ProxyState>>,
+    rules: Vec<CsrfRule>,
+) -> AppResult<()> {
+    // Validate the regex-bearing source kinds up front. Keeps a typo
+    // from quietly disabling extraction once the listener is hot.
+    for rule in &rules {
+        match &rule.source {
+            corvex_proxy::TokenSource::HtmlInput { name_regex }
+            | corvex_proxy::TokenSource::MetaTag { name_regex } => {
+                if !name_regex.is_empty() {
+                    regex::Regex::new(name_regex).map_err(|e| {
+                        AppError::Other(format!(
+                            "rule {:?}: bad name_regex {name_regex:?}: {e}",
+                            rule.name
+                        ))
+                    })?;
+                }
+            }
+            _ => {}
+        }
+    }
+    state
+        .set_csrf_rules(rules)
+        .map_err(|e| AppError::Other(format!("set_csrf_rules: {e}")))
+}
+
+#[tauri::command]
+pub async fn csrf_rules_reset_defaults(
+    state: State<'_, Arc<ProxyState>>,
+) -> AppResult<Vec<CsrfRule>> {
+    let defaults = corvex_proxy::csrf::default_rules();
+    state
+        .set_csrf_rules(defaults.clone())
+        .map_err(|e| AppError::Other(format!("set_csrf_rules: {e}")))?;
+    Ok(defaults)
+}
+
+#[tauri::command]
+pub async fn csrf_status(
+    state: State<'_, Arc<ProxyState>>,
+) -> AppResult<Vec<CsrfObservation>> {
+    Ok(state.csrf_observations_snapshot())
+}
+
+#[tauri::command]
+pub async fn csrf_clear_session(state: State<'_, Arc<ProxyState>>) -> AppResult<()> {
+    state.clear_csrf_observations();
     Ok(())
 }
 
@@ -585,10 +763,16 @@ pub struct ReplayResult {
 }
 
 #[tauri::command]
+/// Replay a captured exchange. `apply_csrf` defaults to `true` so
+/// token-rotating apps stay logged-in without per-replay config;
+/// explicit `false` opts out (useful when the user wants to
+/// reproduce a deliberate token-mismatch failure against the
+/// target).
 pub async fn replay_send(
     state: State<'_, Arc<ProxyState>>,
     base_id: ExchangeId,
     edited_bytes_base64: Option<String>,
+    apply_csrf: Option<bool>,
 ) -> AppResult<ReplayResult> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 
@@ -628,11 +812,18 @@ pub async fn replay_send(
         .transpose()
         .map_err(|e| AppError::Other(format!("base64: {e}")))?;
 
+    let csrf_store = if apply_csrf.unwrap_or(true) {
+        Some(state.csrf_store())
+    } else {
+        None
+    };
+
     let input = ReplayInput {
         session_id,
         base,
         base_id,
         edited_bytes,
+        csrf_store,
     };
 
     let client = state.upstream_client();
@@ -819,7 +1010,12 @@ pub async fn checks_run(
 ) -> AppResult<ChecksRunSummary> {
     use tauri::Emitter;
     let client = state.upstream_client();
-    let ctx = corvex_checks::CheckCtx { client };
+    let ctx = corvex_checks::CheckCtx {
+        client,
+        // Active checks pick up tokens captured by the proxy
+        // listener so probes don't 419 on token-rotating apps.
+        csrf: Some(state.csrf_store()),
+    };
     let registry = bridge.registry.clone();
     let db = state.db().clone();
 

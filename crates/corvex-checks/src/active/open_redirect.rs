@@ -49,7 +49,7 @@ impl ActiveCheck for OpenRedirect {
                     continue;
                 }
 
-                let resp = match ctx.client.send(&mutated).await {
+                let resp = match ctx.send_with_csrf(&mutated).await {
                     Ok(r) => r,
                     Err(_) => continue,
                 };

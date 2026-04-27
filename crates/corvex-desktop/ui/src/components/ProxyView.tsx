@@ -5,6 +5,13 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import {
   checksList,
   checksRun,
+  clusterInstances,
+  csrfClearSession,
+  csrfRulesGet,
+  csrfRulesResetDefaults,
+  csrfRulesSet,
+  csrfStatus,
+  exchangesClusteredList,
   exchangesList,
   exchangeGet,
   findingsForSession,
@@ -12,7 +19,10 @@ import {
   interceptGetMode,
   interceptPendingList,
   interceptResolve,
+  interceptRulesGet,
+  interceptRulesSet,
   interceptSetMode,
+  onCsrfObserved,
   onInterceptPending,
   onProxyExchange,
   onScanFinding,
@@ -31,17 +41,27 @@ import {
   scopeSet,
   wsFramesForExchange,
   type CheckDescriptor,
+  type ClusterAnomaly,
+  type CsrfObservation,
+  type CsrfRule,
+  type EndpointCluster,
   type ExchangeSummary,
   type FindingRow,
   type InterceptMode,
+  type InterceptRule,
   type LiveFindingPayload,
   type OwaspTaxonomyInfo,
   type PendingIntercept,
+  type PhaseFilter,
+  type RuleCondition,
+  type RuleKind,
   type ProxyStatus,
   type ReplayResult,
   type RetentionPolicy,
   type ScopeRule,
   type ScopeRules,
+  type TokenInject,
+  type TokenSource,
   type WsFrame,
 } from "../api";
 
@@ -63,9 +83,51 @@ const TAB_LABELS: Record<Tab, string> = {
  * placeholders describing what's coming in the next milestones so the
  * navigation feels complete today.
  */
-export interface FuzzerSeed {
-  url: string;
-  exchangeId?: string;
+// Re-export the canonical FuzzerSeed / PathSegmentHint definitions
+// from App.tsx so call sites that already imported from this module
+// keep working. The shape lives in App.tsx because it's used as the
+// shared bus type across views (Traffic, Recon, Fuzzing).
+import type { FuzzerSeed, PathSegmentHint } from "../App";
+export type { FuzzerSeed, PathSegmentHint };
+
+/** Build a sample URL from a cluster pattern, replacing each
+ *  placeholder with a representative sentinel so the fuzzer's URL
+ *  parser accepts it. The fuzzer only uses the host/path shape; the
+ *  injection hints carry the real semantics. */
+function clusterPatternUrl(cluster: EndpointCluster): string {
+  const path = cluster.pattern.replace(
+    /:(id|oid|uuid|slug)\b/g,
+    (_m, kind: string) => {
+      switch (kind) {
+        case "id":
+          return "1";
+        case "oid":
+          return "507f1f77bcf86cd799439011";
+        case "uuid":
+          return "00000000-0000-0000-0000-000000000000";
+        default:
+          return "FUZZ";
+      }
+    },
+  );
+  const portPart =
+    (cluster.scheme === "https" && cluster.port === 443) ||
+    (cluster.scheme === "http" && cluster.port === 80)
+      ? ""
+      : `:${cluster.port}`;
+  return `${cluster.scheme}://${cluster.host}${portPart}${path}`;
+}
+
+function pathSegmentHintsFromPattern(pattern: string): PathSegmentHint[] {
+  const segments = pattern.replace(/^\//, "").split("/");
+  const hints: PathSegmentHint[] = [];
+  segments.forEach((seg, idx) => {
+    const m = /^:(id|uuid|oid|slug)/.exec(seg);
+    if (m) {
+      hints.push({ kind: "path_segment", index: idx, placeholder: m[1] });
+    }
+  });
+  return hints;
 }
 
 interface ProxyViewProps {
@@ -358,6 +420,7 @@ export function ProxyView({ onSendToFuzzer }: ProxyViewProps = {}) {
             <ProxyTrafficTab
               exchanges={exchanges}
               running={running}
+              sessionId={status?.session_id ?? null}
               onSendToReplay={(ex) => {
                 setReplayBase(ex);
                 setTab("replay");
@@ -368,6 +431,23 @@ export function ProxyView({ onSendToFuzzer }: ProxyViewProps = {}) {
                 );
                 setTab("checks");
               }}
+              onSendClusterToChecks={(instances) => {
+                // Bulk-add cluster members to the Checks tab queue. The
+                // dedup-by-id check prevents the second click on the
+                // same expanded cluster from doubling rows.
+                setCheckTargets((prev) => {
+                  const seen = new Set(prev.map((p) => p.id));
+                  const next = [...prev];
+                  for (const ex of instances) {
+                    if (!seen.has(ex.id)) {
+                      next.push(ex);
+                      seen.add(ex.id);
+                    }
+                  }
+                  return next;
+                });
+                setTab("checks");
+              }}
               onSendToFuzzer={
                 onSendToFuzzer
                   ? (ex) =>
@@ -375,6 +455,28 @@ export function ProxyView({ onSendToFuzzer }: ProxyViewProps = {}) {
                         url: exchangeUrl(ex),
                         exchangeId: ex.id,
                       })
+                  : undefined
+              }
+              onSendClusterToFuzzer={
+                onSendToFuzzer
+                  ? (cluster) => {
+                      // Cluster patterns map to path-segment injection
+                      // points so the fuzzer can substitute :id / :uuid /
+                      // :slug placeholders with attack payloads.
+                      onSendToFuzzer({
+                        url: clusterPatternUrl(cluster),
+                        cluster: {
+                          method: cluster.method,
+                          host: cluster.host,
+                          port: cluster.port,
+                          scheme: cluster.scheme,
+                          pattern: cluster.pattern,
+                        },
+                        injectionHints: pathSegmentHintsFromPattern(
+                          cluster.pattern,
+                        ),
+                      });
+                    }
                   : undefined
               }
             />
@@ -400,20 +502,64 @@ export function ProxyView({ onSendToFuzzer }: ProxyViewProps = {}) {
   );
 }
 
+const GROUPED_STORAGE_KEY = "corvexTrafficGrouped";
+
 function ProxyTrafficTab({
   exchanges,
   running,
+  sessionId,
   onSendToReplay,
   onSendToChecks,
   onSendToFuzzer,
+  onSendClusterToFuzzer,
+  onSendClusterToChecks,
 }: {
   exchanges: ExchangeSummary[];
   running: boolean;
+  sessionId: string | null;
   onSendToReplay: (ex: ExchangeSummary) => void;
   onSendToChecks: (ex: ExchangeSummary) => void;
   onSendToFuzzer?: (ex: ExchangeSummary) => void;
+  onSendClusterToFuzzer?: (cluster: EndpointCluster) => void;
+  onSendClusterToChecks?: (instances: ExchangeSummary[]) => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [grouped, setGrouped] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(GROUPED_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(GROUPED_STORAGE_KEY, grouped ? "1" : "0");
+    } catch {
+      // localStorage unavailable (private mode) — view-only toggle.
+    }
+  }, [grouped]);
+
+  const toolbar = (
+    <div className="proxy-traffic-toolbar">
+      <span className="muted" style={{ fontSize: 12 }}>View</span>
+      <button
+        type="button"
+        className={`chip${!grouped ? " active" : ""}`}
+        onClick={() => setGrouped(false)}
+      >
+        Flat
+      </button>
+      <button
+        type="button"
+        className={`chip${grouped ? " active" : ""}`}
+        onClick={() => setGrouped(true)}
+        title="Collapse /api/users/1, /api/users/2, … into one /api/users/:id row with anomaly badges"
+      >
+        Group by endpoint
+      </button>
+    </div>
+  );
 
   if (!running && exchanges.length === 0) {
     return (
@@ -439,8 +585,23 @@ function ProxyTrafficTab({
     );
   }
 
+  if (grouped) {
+    return (
+      <div className="proxy-traffic-wrap">
+        {toolbar}
+        <ProxyClusteredView
+          sessionId={sessionId}
+          exchangeCount={exchanges.length}
+          onSendClusterToFuzzer={onSendClusterToFuzzer}
+          onSendClusterToChecks={onSendClusterToChecks}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="proxy-traffic-wrap">
+    {toolbar}
     <table className="findings-table proxy-traffic-table">
       <colgroup>
         <col style={{ width: "64px" }} />
@@ -601,11 +762,330 @@ function ProxyTrafficTab({
   );
 }
 
+const ANOMALY_LABEL: Record<ClusterAnomaly, string> = {
+  auth_mismatch: "auth mismatch",
+  status_outlier: "status outlier",
+  size_outlier: "size outlier",
+  rate_limited: "rate limited",
+};
+
+const ANOMALY_TITLE: Record<ClusterAnomaly, string> = {
+  auth_mismatch:
+    "Members are split on the Authorization header — mixing logged-in and anonymous traffic on the same endpoint shape is a classic IDOR/broken-access-control signal.",
+  status_outlier:
+    "≥80% of members share one status class (2xx/4xx/5xx) and at least one sits outside it. The outliers may reveal authorization bypass or hidden error paths.",
+  size_outlier:
+    "At least one 2xx response sits more than 3σ from the cluster mean — the body shape of one instance differs meaningfully from the rest.",
+  rate_limited:
+    "At least one member returned 429. Check whether you're tripping a rate-limit and consider throttling your scan / fuzz against this pattern.",
+};
+
+function ProxyClusteredView({
+  sessionId,
+  exchangeCount,
+  onSendClusterToFuzzer,
+  onSendClusterToChecks,
+}: {
+  sessionId: string | null;
+  /** Used as a refresh trigger — when new exchanges arrive we re-pull
+   *  the cluster snapshot. The actual count is irrelevant; the change
+   *  is the signal. */
+  exchangeCount: number;
+  onSendClusterToFuzzer?: (cluster: EndpointCluster) => void;
+  onSendClusterToChecks?: (instances: ExchangeSummary[]) => void;
+}) {
+  const [clusters, setClusters] = useState<EndpointCluster[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [members, setMembers] = useState<Record<string, ExchangeSummary[]>>({});
+  const [memberLoading, setMemberLoading] = useState<Record<string, boolean>>(
+    {},
+  );
+
+  // Refresh the cluster snapshot whenever the live exchange count
+  // moves. Cheap — the snapshot reads in-memory aggregates, no DB hit.
+  useEffect(() => {
+    let cancelled = false;
+    if (!sessionId) {
+      setClusters([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+    exchangesClusteredList(sessionId)
+      .then((rows) => {
+        if (!cancelled) {
+          setClusters(rows);
+          setError(null);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, exchangeCount]);
+
+  const clusterKey = useCallback(
+    (c: EndpointCluster) =>
+      `${c.method}|${c.scheme}|${c.host}|${c.port}|${c.pattern}`,
+    [],
+  );
+
+  const loadMembers = useCallback(
+    async (c: EndpointCluster) => {
+      if (!sessionId) return;
+      const key = clusterKey(c);
+      setMemberLoading((prev) => ({ ...prev, [key]: true }));
+      try {
+        const rows = await clusterInstances({
+          session: sessionId,
+          method: c.method,
+          host: c.host,
+          port: c.port,
+          pattern: c.pattern,
+          limit: 200,
+        });
+        setMembers((prev) => ({ ...prev, [key]: rows }));
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setMemberLoading((prev) => ({ ...prev, [key]: false }));
+      }
+    },
+    [clusterKey, sessionId],
+  );
+
+  const onToggle = useCallback(
+    (c: EndpointCluster) => {
+      const key = clusterKey(c);
+      if (expandedKey === key) {
+        setExpandedKey(null);
+        return;
+      }
+      setExpandedKey(key);
+      if (!members[key]) {
+        void loadMembers(c);
+      }
+    },
+    [clusterKey, expandedKey, loadMembers, members],
+  );
+
+  if (clusters.length === 0) {
+    return (
+      <div className="proxy-empty">
+        <p>
+          No patterns yet. Browse the target — once two requests share a
+          numeric / UUID / slug-shaped path segment they'll fold into one row
+          here.
+        </p>
+        {error && <p className="error">Cluster fetch failed: {error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <table className="findings-table proxy-traffic-table">
+      <colgroup>
+        <col style={{ width: "80px" }} />
+        <col />
+        <col style={{ width: "70px" }} />
+        <col style={{ width: "180px" }} />
+        <col style={{ width: "180px" }} />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Pattern</th>
+          <th>Count</th>
+          <th>Status mix</th>
+          <th>Anomalies</th>
+        </tr>
+      </thead>
+      <tbody>
+        {clusters.map((c) => {
+          const key = clusterKey(c);
+          const open = expandedKey === key;
+          const memberRows = members[key] ?? [];
+          const loadingMembers = memberLoading[key];
+          return (
+            <>
+              <tr
+                key={key}
+                className="proxy-row proxy-cluster-row"
+                onClick={() => onToggle(c)}
+              >
+                <td>
+                  <span className="badge-inline">{c.method}</span>
+                </td>
+                <td className="proxy-url">
+                  <span className="muted">
+                    {c.scheme}://{c.host}
+                    {(c.scheme === "https" && c.port === 443) ||
+                    (c.scheme === "http" && c.port === 80)
+                      ? ""
+                      : `:${c.port}`}
+                  </span>
+                  <span className="mono">{c.pattern}</span>
+                </td>
+                <td className="muted">{c.instance_count}×</td>
+                <td>
+                  {c.status_breakdown.map(([s, count]) => (
+                    <span
+                      key={s}
+                      className="badge-inline"
+                      style={{ marginRight: 4 }}
+                      title={`${count} response${count === 1 ? "" : "s"}`}
+                    >
+                      {s} · {count}
+                    </span>
+                  ))}
+                </td>
+                <td>
+                  {c.anomaly_flags.length === 0 && (
+                    <span className="muted">—</span>
+                  )}
+                  {c.anomaly_flags.map((flag) => (
+                    <span
+                      key={flag}
+                      className="badge-inline"
+                      data-status="warn"
+                      title={ANOMALY_TITLE[flag]}
+                      style={{ marginRight: 4 }}
+                    >
+                      ⚠ {ANOMALY_LABEL[flag]}
+                    </span>
+                  ))}
+                </td>
+              </tr>
+              {open && (
+                <tr
+                  className="finding-detail-row"
+                  key={`${key}-detail`}
+                >
+                  <td colSpan={5}>
+                    <div className="proxy-detail-compact">
+                      <div className="proxy-detail-fields">
+                        <div className="proxy-detail-line">
+                          <span className="proxy-field">
+                            <span className="proxy-field-k">Avg duration</span>
+                            <span className="proxy-field-v">
+                              {c.avg_duration_ms} ms
+                            </span>
+                          </span>
+                          <span className="proxy-field">
+                            <span className="proxy-field-k">Size mean</span>
+                            <span className="proxy-field-v">
+                              {humanSize(c.size_mean)}
+                              {c.size_stddev > 0
+                                ? ` ± ${humanSize(c.size_stddev)}`
+                                : ""}
+                            </span>
+                          </span>
+                          <span className="proxy-field">
+                            <span className="proxy-field-k">Last seen</span>
+                            <span className="proxy-field-v">
+                              {new Date(
+                                c.last_seen_unix * 1000,
+                              ).toLocaleTimeString()}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                      <div className="proxy-detail-actions">
+                        {onSendClusterToFuzzer && (
+                          <button
+                            type="button"
+                            className="proxy-send-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSendClusterToFuzzer(c);
+                            }}
+                            title="Seed the Active Fuzzer with this pattern. Path-segment placeholders (:id / :uuid / :slug) become injection points."
+                          >
+                            Send cluster to Fuzzer →
+                          </button>
+                        )}
+                        {onSendClusterToChecks && memberRows.length > 0 && (
+                          <button
+                            type="button"
+                            className="proxy-send-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSendClusterToChecks(memberRows);
+                            }}
+                            title="Queue every member of this cluster in the Checks tab. Auth-consistency runs across the cluster to surface IDOR signals."
+                          >
+                            Send cluster to Checks →
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        <strong style={{ fontSize: 12 }}>Instances</strong>
+                        {loadingMembers && (
+                          <span className="muted" style={{ marginLeft: 8 }}>
+                            loading…
+                          </span>
+                        )}
+                        <table
+                          className="findings-table"
+                          style={{ marginTop: 4 }}
+                        >
+                          <tbody>
+                            {memberRows.map((m) => (
+                              <tr key={m.id} className="proxy-row">
+                                <td style={{ width: 64 }} className="muted">
+                                  {m.status ?? "-"}
+                                </td>
+                                <td className="proxy-url mono">
+                                  {m.path}
+                                  {m.query ? `?${m.query}` : ""}
+                                </td>
+                                <td
+                                  style={{ width: 80 }}
+                                  className="muted"
+                                >
+                                  {humanSize(m.size_response)}
+                                </td>
+                                <td
+                                  style={{ width: 80 }}
+                                  className="muted"
+                                >
+                                  {m.duration_ms ?? "-"} ms
+                                </td>
+                              </tr>
+                            ))}
+                            {memberRows.length === 0 && !loadingMembers && (
+                              <tr>
+                                <td colSpan={4} className="muted">
+                                  No members loaded — the cluster index lost
+                                  state? Try toggling Flat / Group again.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 type SettingsSection =
   | "overview"
   | "ca"
   | "browser"
   | "scope"
+  | "intercept_rules"
+  | "csrf"
   | "retention"
   | "verify"
   | "troubleshoot";
@@ -615,9 +1095,11 @@ const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: "ca", label: "2. Certificate authority" },
   { id: "browser", label: "3. Browser setup" },
   { id: "scope", label: "4. Scope rules" },
-  { id: "retention", label: "5. Retention" },
-  { id: "verify", label: "6. Verify" },
-  { id: "troubleshoot", label: "7. Troubleshooting" },
+  { id: "intercept_rules", label: "5. Intercept rules" },
+  { id: "csrf", label: "6. CSRF tokens" },
+  { id: "retention", label: "7. Retention" },
+  { id: "verify", label: "8. Verify" },
+  { id: "troubleshoot", label: "9. Troubleshooting" },
 ];
 
 function ProxySettingsTab() {
@@ -666,6 +1148,10 @@ function ProxySettingsTab() {
       {section === "browser" && <SetupBrowser />}
 
       {section === "scope" && <SetupScopeRules />}
+
+      {section === "intercept_rules" && <SetupInterceptRules />}
+
+      {section === "csrf" && <SetupCsrfRules />}
 
       {section === "retention" && <SetupRetention />}
 
@@ -1218,6 +1704,1031 @@ function normaliseRule(r: ScopeRule): ScopeRule {
       r.path_regex && r.path_regex.trim() !== "" ? r.path_regex.trim() : null,
     port: r.port && r.port > 0 ? r.port : null,
   };
+}
+
+interface InterceptPreset {
+  id: string;
+  label: string;
+  description: string;
+  rules: InterceptRule[];
+}
+
+function newRuleId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+const INTERCEPT_PRESETS: InterceptPreset[] = [
+  {
+    id: "skip-static",
+    label: "Skip static assets",
+    description:
+      "Exclude image / font / stylesheet / script / map paths so the queue doesn't drown in browser background fetches.",
+    rules: [
+      {
+        id: "preset-skip-static",
+        kind: "exclude",
+        phase: "both",
+        enabled: true,
+        conditions: [
+          {
+            kind: "PathRegex",
+            pattern:
+              "\\.(?:png|jpe?g|gif|svg|ico|woff2?|ttf|eot|css|js|map)(?:$|\\?)",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "only-mutations",
+    label: "Only mutating requests",
+    description:
+      "Include POST / PUT / PATCH / DELETE on the request side. GETs flow through unimpeded.",
+    rules: [
+      {
+        id: "preset-mutations",
+        kind: "include",
+        phase: "request",
+        enabled: true,
+        conditions: [
+          {
+            kind: "MethodIn",
+            methods: ["POST", "PUT", "PATCH", "DELETE"],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "auth-endpoints",
+    label: "Only auth endpoints",
+    description:
+      "Include requests to login / logout / signup / signin / auth / token / session paths. Useful when probing how a target hands out and rotates credentials.",
+    rules: [
+      {
+        id: "preset-auth",
+        kind: "include",
+        phase: "request",
+        enabled: true,
+        conditions: [
+          {
+            kind: "PathRegex",
+            pattern: "(?i)(login|logout|signin|signup|auth|token|session)",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "error-responses",
+    label: "Only error responses",
+    description:
+      "Include responses with 4xx / 5xx status. Lets the request pass through and only pauses on the way back if something failed.",
+    rules: [
+      {
+        id: "preset-errors",
+        kind: "include",
+        phase: "response",
+        enabled: true,
+        conditions: [{ kind: "StatusRange", min: 400, max: 599 }],
+      },
+    ],
+  },
+];
+
+const PHASE_OPTIONS: { value: PhaseFilter; label: string }[] = [
+  { value: "request", label: "Request" },
+  { value: "response", label: "Response" },
+  { value: "both", label: "Both" },
+];
+
+const COND_KINDS: { value: RuleCondition["kind"]; label: string }[] = [
+  { value: "HostGlob", label: "Host glob" },
+  { value: "PathRegex", label: "Path regex" },
+  { value: "MethodIn", label: "Method in" },
+  { value: "ContentTypeContains", label: "Content-Type contains" },
+  { value: "StatusRange", label: "Status range" },
+  { value: "HasHeader", label: "Has header" },
+];
+
+function defaultCondition(kind: RuleCondition["kind"]): RuleCondition {
+  switch (kind) {
+    case "HostGlob":
+      return { kind: "HostGlob", pattern: "" };
+    case "PathRegex":
+      return { kind: "PathRegex", pattern: "" };
+    case "MethodIn":
+      return { kind: "MethodIn", methods: ["POST"] };
+    case "ContentTypeContains":
+      return { kind: "ContentTypeContains", needle: "" };
+    case "StatusRange":
+      return { kind: "StatusRange", min: 400, max: 599 };
+    case "HasHeader":
+      return { kind: "HasHeader", name: "", regex: null };
+  }
+}
+
+function SetupInterceptRules() {
+  const [rules, setRules] = useState<InterceptRule[]>([]);
+  const [initial, setInitial] = useState<string>("[]");
+  const [status, setStatus] =
+    useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    interceptRulesGet()
+      .then((r) => {
+        if (cancelled) return;
+        setRules(r.rules);
+        setInitial(JSON.stringify(r.rules));
+      })
+      .catch((e) => !cancelled && setError(String(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const dirty = JSON.stringify(rules) !== initial;
+
+  const update = (idx: number, patch: Partial<InterceptRule>) => {
+    setRules((prev) =>
+      prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)),
+    );
+  };
+  const remove = (idx: number) => {
+    setRules((prev) => prev.filter((_, i) => i !== idx));
+  };
+  const addRule = (kind: RuleKind) => {
+    setRules((prev) => [
+      ...prev,
+      {
+        id: newRuleId(kind),
+        kind,
+        phase: "both",
+        enabled: true,
+        conditions: [defaultCondition("HostGlob")],
+      },
+    ]);
+  };
+  const applyPreset = (preset: InterceptPreset) => {
+    // Each preset's rules get a fresh id stamp so reapplying doesn't
+    // collide with previously-applied copies.
+    setRules((prev) => [
+      ...prev,
+      ...preset.rules.map((r) => ({
+        ...r,
+        id: newRuleId(`${preset.id}-${r.kind}`),
+        conditions: r.conditions.map((c) => ({ ...c })),
+      })),
+    ]);
+  };
+  const updateCondition = (
+    ruleIdx: number,
+    condIdx: number,
+    next: RuleCondition,
+  ) => {
+    setRules((prev) =>
+      prev.map((r, i) =>
+        i === ruleIdx
+          ? {
+              ...r,
+              conditions: r.conditions.map((c, j) =>
+                j === condIdx ? next : c,
+              ),
+            }
+          : r,
+      ),
+    );
+  };
+  const addCondition = (ruleIdx: number) => {
+    setRules((prev) =>
+      prev.map((r, i) =>
+        i === ruleIdx
+          ? { ...r, conditions: [...r.conditions, defaultCondition("HostGlob")] }
+          : r,
+      ),
+    );
+  };
+  const removeCondition = (ruleIdx: number, condIdx: number) => {
+    setRules((prev) =>
+      prev.map((r, i) =>
+        i === ruleIdx
+          ? {
+              ...r,
+              conditions: r.conditions.filter((_, j) => j !== condIdx),
+            }
+          : r,
+      ),
+    );
+  };
+  const save = async () => {
+    setStatus("saving");
+    setError(null);
+    try {
+      await interceptRulesSet({ rules });
+      setInitial(JSON.stringify(rules));
+      setStatus("saved");
+      window.setTimeout(() => setStatus("idle"), 1500);
+    } catch (e) {
+      setError(String(e));
+      setStatus("idle");
+    }
+  };
+  const revert = async () => {
+    try {
+      const r = await interceptRulesGet();
+      setRules(r.rules);
+      setInitial(JSON.stringify(r.rules));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <section>
+      <h3>Intercept rules</h3>
+      <p className="muted">
+        Layer on top of the Intercept mode toggle. <em>Include</em>{" "}
+        rules narrow what pauses (the listener pauses only when at
+        least one include matches). <em>Exclude</em> rules short-
+        circuit a pause regardless — exclude wins. An empty list
+        reverts to mode-only behaviour. All conditions inside one
+        rule must match (AND); rules of the same kind are OR-ed.
+      </p>
+
+      {error && <p className="error">{error}</p>}
+
+      <div style={{ marginTop: 8 }}>
+        <strong style={{ fontSize: "0.92em" }}>Presets</strong>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 6,
+            marginTop: 4,
+          }}
+        >
+          {INTERCEPT_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="chip"
+              onClick={() => applyPreset(p)}
+              title={p.description}
+            >
+              + {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          margin: "12px 0 6px",
+        }}
+      >
+        <strong>Rules ({rules.length})</strong>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            type="button"
+            className="chip"
+            onClick={() => addRule("include")}
+          >
+            + Include rule
+          </button>
+          <button
+            type="button"
+            className="chip"
+            onClick={() => addRule("exclude")}
+          >
+            + Exclude rule
+          </button>
+        </div>
+      </div>
+
+      {rules.length === 0 ? (
+        <p className="muted">
+          No rules. Mode-only intercept fires for every in-scope
+          exchange that the toggle permits.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {rules.map((rule, idx) => (
+            <div
+              key={rule.id}
+              className="panel"
+              style={{
+                padding: "8px 10px",
+                borderLeft: `3px solid var(--${rule.kind === "include" ? "accent" : "warning"})`,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 6,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={rule.enabled}
+                  onChange={(e) => update(idx, { enabled: e.target.checked })}
+                  title="Enable / disable"
+                />
+                <select
+                  value={rule.kind}
+                  onChange={(e) =>
+                    update(idx, { kind: e.target.value as RuleKind })
+                  }
+                >
+                  <option value="include">Include</option>
+                  <option value="exclude">Exclude</option>
+                </select>
+                <select
+                  value={rule.phase}
+                  onChange={(e) =>
+                    update(idx, { phase: e.target.value as PhaseFilter })
+                  }
+                >
+                  {PHASE_OPTIONS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="muted mono" style={{ flex: 1 }}>
+                  {rule.id}
+                </span>
+                <button
+                  type="button"
+                  className="chip"
+                  onClick={() => remove(idx)}
+                >
+                  ×
+                </button>
+              </div>
+
+              {rule.conditions.map((cond, ci) => (
+                <ConditionEditor
+                  key={ci}
+                  condition={cond}
+                  onChange={(c) => updateCondition(idx, ci, c)}
+                  onRemove={() => removeCondition(idx, ci)}
+                />
+              ))}
+
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => addCondition(idx)}
+                style={{ marginTop: 4 }}
+              >
+                + condition
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button
+          type="button"
+          className="primary-btn"
+          onClick={save}
+          disabled={!dirty || status === "saving"}
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          className="chip"
+          onClick={revert}
+          disabled={!dirty}
+        >
+          Revert
+        </button>
+        {status === "saving" && <span className="muted">Saving…</span>}
+        {status === "saved" && <span className="muted">Saved.</span>}
+      </div>
+    </section>
+  );
+}
+
+function ConditionEditor({
+  condition,
+  onChange,
+  onRemove,
+}: {
+  condition: RuleCondition;
+  onChange: (c: RuleCondition) => void;
+  onRemove: () => void;
+}) {
+  const changeKind = (kind: RuleCondition["kind"]) => {
+    onChange(defaultCondition(kind));
+  };
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 4,
+        alignItems: "center",
+        marginTop: 4,
+      }}
+    >
+      <select
+        value={condition.kind}
+        onChange={(e) => changeKind(e.target.value as RuleCondition["kind"])}
+        style={{ width: 180 }}
+      >
+        {COND_KINDS.map((k) => (
+          <option key={k.value} value={k.value}>
+            {k.label}
+          </option>
+        ))}
+      </select>
+      {condition.kind === "HostGlob" && (
+        <input
+          type="text"
+          value={condition.pattern}
+          onChange={(e) =>
+            onChange({ kind: "HostGlob", pattern: e.target.value })
+          }
+          placeholder="example.com or *.tenant.com"
+          style={{ flex: 1 }}
+        />
+      )}
+      {condition.kind === "PathRegex" && (
+        <input
+          type="text"
+          value={condition.pattern}
+          onChange={(e) =>
+            onChange({ kind: "PathRegex", pattern: e.target.value })
+          }
+          placeholder="/auth | \.png$"
+          style={{ flex: 1 }}
+        />
+      )}
+      {condition.kind === "MethodIn" && (
+        <input
+          type="text"
+          value={condition.methods.join(",")}
+          onChange={(e) =>
+            onChange({
+              kind: "MethodIn",
+              methods: e.target.value
+                .split(",")
+                .map((s) => s.trim().toUpperCase())
+                .filter((s) => s.length > 0),
+            })
+          }
+          placeholder="POST, PUT, PATCH, DELETE"
+          style={{ flex: 1 }}
+        />
+      )}
+      {condition.kind === "ContentTypeContains" && (
+        <input
+          type="text"
+          value={condition.needle}
+          onChange={(e) =>
+            onChange({ kind: "ContentTypeContains", needle: e.target.value })
+          }
+          placeholder="image/ | application/json"
+          style={{ flex: 1 }}
+        />
+      )}
+      {condition.kind === "StatusRange" && (
+        <>
+          <input
+            type="number"
+            value={condition.min}
+            onChange={(e) =>
+              onChange({
+                kind: "StatusRange",
+                min: Number(e.target.value) || 0,
+                max: condition.max,
+              })
+            }
+            min={100}
+            max={599}
+            style={{ width: 80 }}
+          />
+          <span className="muted">–</span>
+          <input
+            type="number"
+            value={condition.max}
+            onChange={(e) =>
+              onChange({
+                kind: "StatusRange",
+                min: condition.min,
+                max: Number(e.target.value) || 0,
+              })
+            }
+            min={100}
+            max={599}
+            style={{ width: 80 }}
+          />
+          <span className="muted" style={{ flex: 1, fontSize: "0.85em" }}>
+            (response phase only)
+          </span>
+        </>
+      )}
+      {condition.kind === "HasHeader" && (
+        <>
+          <input
+            type="text"
+            value={condition.name}
+            onChange={(e) =>
+              onChange({
+                kind: "HasHeader",
+                name: e.target.value,
+                regex: condition.regex ?? null,
+              })
+            }
+            placeholder="Authorization"
+            style={{ width: 160 }}
+          />
+          <input
+            type="text"
+            value={condition.regex ?? ""}
+            onChange={(e) =>
+              onChange({
+                kind: "HasHeader",
+                name: condition.name,
+                regex: e.target.value.trim() === "" ? null : e.target.value,
+              })
+            }
+            placeholder="optional value regex"
+            style={{ flex: 1 }}
+          />
+        </>
+      )}
+      <button
+        type="button"
+        className="chip"
+        onClick={onRemove}
+        title="Remove condition"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+const SOURCE_KINDS: { value: TokenSource["kind"]; label: string; field: string }[] = [
+  { value: "HtmlInput", label: "HTML <input>", field: "name regex" },
+  { value: "MetaTag", label: "<meta> tag", field: "name regex" },
+  { value: "JsonPath", label: "JSON pointer", field: "/path/to/token" },
+  { value: "SetCookie", label: "Set-Cookie", field: "cookie name" },
+  { value: "ResponseHeader", label: "Response header", field: "header name" },
+];
+
+const INJECT_KINDS: { value: TokenInject["kind"]; label: string; field: string }[] = [
+  { value: "FormField", label: "Form field", field: "field name" },
+  { value: "JsonField", label: "JSON pointer", field: "/path/to/field" },
+  { value: "Header", label: "Request header", field: "header name" },
+  { value: "Cookie", label: "Cookie", field: "cookie name" },
+];
+
+function sourceField(s: TokenSource): string {
+  switch (s.kind) {
+    case "HtmlInput":
+    case "MetaTag":
+      return s.name_regex;
+    case "JsonPath":
+      return s.pointer;
+    case "SetCookie":
+    case "ResponseHeader":
+      return s.name;
+  }
+}
+
+function setSourceField(s: TokenSource, value: string): TokenSource {
+  switch (s.kind) {
+    case "HtmlInput":
+      return { kind: "HtmlInput", name_regex: value };
+    case "MetaTag":
+      return { kind: "MetaTag", name_regex: value };
+    case "JsonPath":
+      return { kind: "JsonPath", pointer: value };
+    case "SetCookie":
+      return { kind: "SetCookie", name: value };
+    case "ResponseHeader":
+      return { kind: "ResponseHeader", name: value };
+  }
+}
+
+function changeSourceKind(kind: TokenSource["kind"], existing: string): TokenSource {
+  switch (kind) {
+    case "HtmlInput":
+      return { kind: "HtmlInput", name_regex: existing };
+    case "MetaTag":
+      return { kind: "MetaTag", name_regex: existing };
+    case "JsonPath":
+      return { kind: "JsonPath", pointer: existing };
+    case "SetCookie":
+      return { kind: "SetCookie", name: existing };
+    case "ResponseHeader":
+      return { kind: "ResponseHeader", name: existing };
+  }
+}
+
+function injectField(i: TokenInject): string {
+  switch (i.kind) {
+    case "FormField":
+    case "Header":
+    case "Cookie":
+      return i.name;
+    case "JsonField":
+      return i.pointer;
+  }
+}
+
+function setInjectField(i: TokenInject, value: string): TokenInject {
+  switch (i.kind) {
+    case "FormField":
+      return { kind: "FormField", name: value };
+    case "JsonField":
+      return { kind: "JsonField", pointer: value };
+    case "Header":
+      return { kind: "Header", name: value };
+    case "Cookie":
+      return { kind: "Cookie", name: value };
+  }
+}
+
+function changeInjectKind(kind: TokenInject["kind"], existing: string): TokenInject {
+  switch (kind) {
+    case "FormField":
+      return { kind: "FormField", name: existing };
+    case "JsonField":
+      return { kind: "JsonField", pointer: existing };
+    case "Header":
+      return { kind: "Header", name: existing };
+    case "Cookie":
+      return { kind: "Cookie", name: existing };
+  }
+}
+
+function fmtAge(unix: number): string {
+  const ageSec = Math.max(0, Math.floor(Date.now() / 1000 - unix));
+  if (ageSec < 60) return `${ageSec}s ago`;
+  if (ageSec < 3600) return `${Math.floor(ageSec / 60)}m ago`;
+  if (ageSec < 86400) return `${Math.floor(ageSec / 3600)}h ago`;
+  return `${Math.floor(ageSec / 86400)}d ago`;
+}
+
+function SetupCsrfRules() {
+  const [rules, setRules] = useState<CsrfRule[]>([]);
+  const [initial, setInitial] = useState<string>("[]");
+  const [status, setStatus] =
+    useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [observations, setObservations] = useState<CsrfObservation[]>([]);
+
+  // Initial load + live observation feed.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([csrfRulesGet(), csrfStatus()])
+      .then(([r, obs]) => {
+        if (cancelled) return;
+        setRules(r);
+        setInitial(JSON.stringify(r));
+        setObservations(obs);
+      })
+      .catch((e) => !cancelled && setError(String(e)));
+    let unlisten: (() => void) | undefined;
+    onCsrfObserved((obs) => {
+      setObservations((prev) => {
+        const next = prev.filter(
+          (p) => !(p.rule_id === obs.rule_id && p.host === obs.host),
+        );
+        next.push(obs);
+        return next;
+      });
+    }).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  const dirty = JSON.stringify(rules) !== initial;
+
+  const update = (idx: number, patch: Partial<CsrfRule>) => {
+    setRules((prev) =>
+      prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)),
+    );
+  };
+  const remove = (idx: number) => {
+    setRules((prev) => prev.filter((_, i) => i !== idx));
+  };
+  const addRule = () => {
+    setRules((prev) => [
+      ...prev,
+      {
+        id: `custom-${Date.now()}`,
+        name: "Custom rule",
+        enabled: true,
+        host_glob: null,
+        source: { kind: "HtmlInput", name_regex: "" },
+        inject: { kind: "FormField", name: "" },
+      },
+    ]);
+  };
+  const save = async () => {
+    setStatus("saving");
+    setError(null);
+    try {
+      await csrfRulesSet(rules);
+      setInitial(JSON.stringify(rules));
+      setStatus("saved");
+      window.setTimeout(() => setStatus("idle"), 1500);
+    } catch (e) {
+      setError(String(e));
+      setStatus("idle");
+    }
+  };
+  const revert = async () => {
+    try {
+      const r = await csrfRulesGet();
+      setRules(r);
+      setInitial(JSON.stringify(r));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const resetDefaults = async () => {
+    setStatus("saving");
+    try {
+      const defaults = await csrfRulesResetDefaults();
+      setRules(defaults);
+      setInitial(JSON.stringify(defaults));
+      setStatus("saved");
+      window.setTimeout(() => setStatus("idle"), 1500);
+    } catch (e) {
+      setError(String(e));
+      setStatus("idle");
+    }
+  };
+  const clearObs = async () => {
+    try {
+      await csrfClearSession();
+      setObservations([]);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <section>
+      <h3>CSRF tokens</h3>
+      <p className="muted">
+        Token-rotating apps cycle a fresh CSRF token on every login or
+        page render. The proxy auto-captures tokens from each response
+        and splices them into matching outbound requests, so Replay,
+        Active Checks, and the Active Fuzzer all stay logged-in for
+        free. Each rule pairs a <em>source</em> (where to read the
+        token from in the response) with an <em>inject</em> step (how
+        to write it into the next request). The bundled defaults
+        cover Laravel, Rails, ASP.NET, Django, generic{" "}
+        <code>&lt;meta name="csrf-token"&gt;</code>, and the Angular
+        XSRF cookie convention.
+      </p>
+
+      {error && <p className="error">{error}</p>}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "8px 0" }}>
+        <strong>Rules</strong>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button type="button" className="chip" onClick={addRule}>
+            + Add rule
+          </button>
+          <button
+            type="button"
+            className="chip"
+            onClick={resetDefaults}
+            title="Replace the rule list with the bundled defaults. Custom rules are dropped."
+          >
+            Reset to defaults
+          </button>
+        </div>
+      </div>
+
+      {rules.length === 0 ? (
+        <p className="muted">No rules — click <strong>Reset to defaults</strong> to bring back the bundled set.</p>
+      ) : (
+        <table className="findings-table" style={{ marginBottom: 12 }}>
+          <thead>
+            <tr>
+              <th style={{ width: "32px" }}>On</th>
+              <th>Name</th>
+              <th>Host glob</th>
+              <th>Source</th>
+              <th>Inject</th>
+              <th style={{ width: "60px" }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rules.map((r, idx) => (
+              <tr key={r.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={r.enabled}
+                    onChange={(e) => update(idx, { enabled: e.target.checked })}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    value={r.name}
+                    onChange={(e) => update(idx, { name: e.target.value })}
+                    style={{ width: "100%" }}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    value={r.host_glob ?? ""}
+                    onChange={(e) =>
+                      update(idx, {
+                        host_glob: e.target.value.trim() === "" ? null : e.target.value,
+                      })
+                    }
+                    placeholder="* (any)"
+                    style={{ width: "100%" }}
+                  />
+                </td>
+                <td>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <select
+                      value={r.source.kind}
+                      onChange={(e) =>
+                        update(idx, {
+                          source: changeSourceKind(
+                            e.target.value as TokenSource["kind"],
+                            sourceField(r.source),
+                          ),
+                        })
+                      }
+                    >
+                      {SOURCE_KINDS.map((k) => (
+                        <option key={k.value} value={k.value}>
+                          {k.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={sourceField(r.source)}
+                      onChange={(e) =>
+                        update(idx, {
+                          source: setSourceField(r.source, e.target.value),
+                        })
+                      }
+                      placeholder={
+                        SOURCE_KINDS.find((k) => k.value === r.source.kind)?.field
+                      }
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                </td>
+                <td>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <select
+                      value={r.inject.kind}
+                      onChange={(e) =>
+                        update(idx, {
+                          inject: changeInjectKind(
+                            e.target.value as TokenInject["kind"],
+                            injectField(r.inject),
+                          ),
+                        })
+                      }
+                    >
+                      {INJECT_KINDS.map((k) => (
+                        <option key={k.value} value={k.value}>
+                          {k.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={injectField(r.inject)}
+                      onChange={(e) =>
+                        update(idx, {
+                          inject: setInjectField(r.inject, e.target.value),
+                        })
+                      }
+                      placeholder={
+                        INJECT_KINDS.find((k) => k.value === r.inject.kind)?.field
+                      }
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="chip"
+                    onClick={() => remove(idx)}
+                    title="Delete rule"
+                  >
+                    ×
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button
+          type="button"
+          className="primary-btn"
+          onClick={save}
+          disabled={!dirty || status === "saving"}
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          className="chip"
+          onClick={revert}
+          disabled={!dirty}
+        >
+          Revert
+        </button>
+        {status === "saving" && <span className="muted">Saving…</span>}
+        {status === "saved" && <span className="muted">Saved.</span>}
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <strong>Live status</strong>
+          <button
+            type="button"
+            className="chip"
+            onClick={clearObs}
+            title="Wipe observed values (e.g. after re-logging in to a target)."
+          >
+            Clear observations
+          </button>
+        </div>
+        {observations.length === 0 ? (
+          <p className="muted">
+            No tokens observed yet. Browse a target through the proxy
+            and watch them flow in here.
+          </p>
+        ) : (
+          <table className="findings-table">
+            <thead>
+              <tr>
+                <th>Rule</th>
+                <th>Host</th>
+                <th>Latest value</th>
+                <th>Observed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {observations
+                .slice()
+                .sort((a, b) => b.observed_at_unix - a.observed_at_unix)
+                .map((o) => (
+                  <tr key={`${o.rule_id}|${o.host}`}>
+                    <td>
+                      {rules.find((r) => r.id === o.rule_id)?.name ?? o.rule_id}
+                    </td>
+                    <td className="muted mono">{o.host || "(global)"}</td>
+                    <td className="mono" title={o.value}>
+                      {o.value.length > 32
+                        ? `${o.value.slice(0, 16)}…${o.value.slice(-8)}`
+                        : o.value}
+                    </td>
+                    <td className="muted">{fmtAge(o.observed_at_unix)}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function SetupRetention() {
@@ -1993,6 +3504,7 @@ function ProxyInterceptTab() {
   const [editor, setEditor] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeRuleCount, setActiveRuleCount] = useState<number>(0);
 
   const selected = useMemo(
     () => pending.find((p) => p.id === selectedId) ?? null,
@@ -2001,12 +3513,14 @@ function ProxyInterceptTab() {
 
   const refresh = useCallback(async () => {
     try {
-      const [m, list] = await Promise.all([
+      const [m, list, ruleSet] = await Promise.all([
         interceptGetMode(),
         interceptPendingList(),
+        interceptRulesGet(),
       ]);
       setMode(m);
       setPending(list);
+      setActiveRuleCount(ruleSet.rules.filter((r) => r.enabled).length);
     } catch (e) {
       setError(String(e));
     }
@@ -2126,6 +3640,15 @@ function ProxyInterceptTab() {
           >
             Drop all
           </button>
+          {activeRuleCount > 0 && (
+            <span
+              className="chip"
+              data-status="warn"
+              title="Active intercept rules narrow what the mode toggle pauses. Configure under Settings → Intercept rules."
+            >
+              ⚠ {activeRuleCount} rule{activeRuleCount === 1 ? "" : "s"} active
+            </span>
+          )}
         </div>
         <p className="muted">
           When intercept is on, in-scope exchanges pause here. The
@@ -2135,7 +3658,10 @@ function ProxyInterceptTab() {
           upstream reply arrives but before it reaches the client —
           useful for tweaking status codes, headers, or response bodies
           on the fly. Out-of-scope traffic is never paused; configure
-          scope rules on the Settings tab.
+          scope rules on the Settings tab. <strong>Intercept rules</strong>{" "}
+          (Settings → Intercept rules) further narrow what the mode
+          pauses — e.g. only POSTs to <code>/auth</code>, or skip every{" "}
+          <code>.png</code> request.
         </p>
         {error && <div className="proxy-error">{error}</div>}
       </section>
@@ -2253,6 +3779,10 @@ function ProxyReplayTab({
   const [response, setResponse] = useState<ReplayResult | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Default ON — token-rotating apps reject replays with stale
+   *  CSRF tokens. Toggle off to send the request exactly as typed
+   *  (useful when reproducing a deliberate token-mismatch). */
+  const [applyCsrf, setApplyCsrf] = useState<boolean>(true);
 
   useEffect(() => {
     if (!base) {
@@ -2304,7 +3834,7 @@ function ProxyReplayTab({
     setError(null);
     try {
       const edited = dirty ? btoa(editor) : null;
-      const r = await replaySend(base.id, edited);
+      const r = await replaySend(base.id, edited, applyCsrf);
       setResponse(r);
     } catch (e) {
       setError(String(e));
@@ -2344,7 +3874,23 @@ function ProxyReplayTab({
           Base: <code>{base.method}</code> {base.scheme}://{base.host}
           {base.path}
         </span>
-        <div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: "calc(var(--font-base) - 1px)",
+            }}
+            title="Splice the latest captured CSRF token into the outbound request after your edits. Turn off to reproduce a deliberate token-mismatch."
+          >
+            <input
+              type="checkbox"
+              checked={applyCsrf}
+              onChange={(e) => setApplyCsrf(e.target.checked)}
+            />
+            Apply CSRF
+          </label>
           <button
             type="button"
             className="chip active"

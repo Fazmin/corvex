@@ -199,7 +199,7 @@ impl ActiveCheck for Ssrf {
         // Baseline body — used to suppress findings when the marker
         // was already present in the unmodified response (some
         // homepages literally contain the word "Apache" in a footer).
-        let baseline_body = match ctx.client.send(&target.request).await {
+        let baseline_body = match ctx.send_with_csrf(&target.request).await {
             Ok(r) => r.body_str().into_owned(),
             Err(_) => String::new(),
         };
@@ -224,7 +224,7 @@ impl ActiveCheck for Ssrf {
                     continue;
                 }
 
-                let Ok(resp) = ctx.client.send(&mutated).await else {
+                let Ok(resp) = ctx.send_with_csrf(&mutated).await else {
                     continue;
                 };
                 let body = resp.body_str();

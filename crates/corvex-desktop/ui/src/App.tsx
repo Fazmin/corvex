@@ -4,6 +4,8 @@ import {
   dbSummary,
   onDone,
   onFinding,
+  interceptRulesGet,
+  interceptRulesSet,
   onHostEnd,
   onHostStart,
   onLogLine,
@@ -55,6 +57,32 @@ export interface FuzzerSeed {
   // Origin exchange id — mainly used so the runner can label its run in
   // the history alongside the captured request that seeded it.
   exchangeId?: string;
+  /** Set when the seed came from a clustered endpoint pattern in the
+   *  Traffic tab's "Group by endpoint" view. Carries the pattern shape
+   *  so the fuzzer banner can show the user where path-segment
+   *  injection points came from. */
+  cluster?: {
+    method: string;
+    host: string;
+    port: number;
+    scheme: string;
+    pattern: string;
+  };
+  /** Path-segment injection hints derived from the cluster pattern.
+   *  Each hint names a 0-based path segment index the fuzzer should
+   *  treat as an injection point. Consumed by
+   *  `FuzzTarget::from_pattern_url` once the runner picks them up. */
+  injectionHints?: PathSegmentHint[];
+}
+
+export interface PathSegmentHint {
+  kind: "path_segment";
+  /** 0-based index of the segment in the path (excluding leading
+   *  slash). For `/api/users/:id` the placeholder sits at index 2. */
+  index: number;
+  /** The placeholder kind (`id` / `uuid` / `oid` / `slug`) so a future
+   *  payload corpus can be picked per kind. */
+  placeholder: string;
 }
 
 export default function App() {
@@ -715,6 +743,34 @@ export default function App() {
                 }}
                 onSendToChecks={async (host) => {
                   await proxySeedHost({ host, source: "recon" });
+                }}
+                onPauseHost={async (host) => {
+                  // Append an Include intercept rule for the host
+                  // (request phase) so the next request to a freshly-
+                  // discovered subdomain pauses. Symmetric to
+                  // onAddToProxyScope: scope admits, this pauses.
+                  const current = await interceptRulesGet();
+                  const already = current.rules.some((r) =>
+                    r.kind === "include" &&
+                    r.conditions.some(
+                      (c) =>
+                        c.kind === "HostGlob" &&
+                        c.pattern.toLowerCase() === host.toLowerCase(),
+                    ),
+                  );
+                  if (already) return;
+                  await interceptRulesSet({
+                    rules: [
+                      ...current.rules,
+                      {
+                        id: `recon-${host}-${Date.now().toString(36)}`,
+                        kind: "include",
+                        phase: "request",
+                        enabled: true,
+                        conditions: [{ kind: "HostGlob", pattern: host }],
+                      },
+                    ],
+                  });
                 }}
               />
             </div>

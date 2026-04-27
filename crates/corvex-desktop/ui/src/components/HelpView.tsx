@@ -768,6 +768,113 @@ export function HelpView() {
             Traffic log linked back to the original.
           </p>
 
+          <h4>Group by endpoint pattern</h4>
+          <p>
+            Browsing a real REST API floods the Traffic log with rows
+            that look identical except for an ID:{" "}
+            <code>/api/users/1</code>, <code>/api/users/2</code>,{" "}
+            <code>/api/users/3</code>… and so on. The{" "}
+            <strong>[Flat] [Group by endpoint]</strong> chip at the top
+            of the Traffic table folds those into one row keyed by{" "}
+            <code>/api/users/:id</code>. Patterns are derived per
+            segment: all-digits → <code>:id</code>, canonical UUID →{" "}
+            <code>:uuid</code>, 24-char hex (Mongo ObjectId) →{" "}
+            <code>:oid</code>, long mixed-alnum → <code>:slug</code>.
+            Generic alpha words (<code>me</code>, <code>admin</code>,{" "}
+            <code>latest</code>) stay verbatim — those are usually
+            meaningful endpoints, not parameters.
+          </p>
+          <p>
+            Each cluster row shows the method, pattern, instance count,
+            and a status mix (<code>200×4 401×1</code>). Click to expand
+            and see every member exchange plus avg duration, mean ± σ
+            response size, and last-seen time. The toggle persists in
+            local storage, so the view you picked is the one you get
+            next time.
+          </p>
+          <p>
+            Four <strong>anomaly badges</strong> light up on cluster
+            rows when they fire — the same flags that drive the new{" "}
+            <code>auth-consistency</code> findings:
+          </p>
+          <ul>
+            <li>
+              <strong>⚠ auth mismatch</strong> — members are split on
+              presence of an <code>Authorization</code> header. Mixing
+              logged-in and anonymous traffic on the same REST pattern
+              is the canonical IDOR / broken-access-control signal.
+            </li>
+            <li>
+              <strong>⚠ status outlier</strong> — ≥80% of members share
+              one status class (2xx/4xx/5xx) and at least one sits
+              outside it. The outlier may reveal an authorization
+              bypass or a hidden error path.
+            </li>
+            <li>
+              <strong>⚠ size outlier</strong> — at least one 2xx
+              response is more than 3σ from the cluster's mean body
+              size. The body shape of one instance differs meaningfully
+              from the rest.
+            </li>
+            <li>
+              <strong>⚠ rate limited</strong> — at least one member
+              returned 429. Worth backing off your scan / fuzz cadence
+              against this pattern.
+            </li>
+          </ul>
+          <p>
+            Anomalies also persist as findings in the Findings panel —
+            check id <code>auth-consistency:&lt;kind&gt;</code>, tied
+            to the first member exchange so you can deep-link into the
+            real request and verify.
+          </p>
+          <p>
+            Cross-tool actions on a cluster row:
+          </p>
+          <ul>
+            <li>
+              <strong>Send cluster to Fuzzer →</strong> seeds the
+              Active Fuzzer with the pattern URL and a{" "}
+              <em>path-segment hint</em> for every placeholder. The
+              fuzzer banner shows{" "}
+              <em>"Seeded from cluster pattern → /api/users/:id · 1
+              path-segment hint"</em> so you can see why the path
+              segment is being treated as an injection point. Good for
+              IDOR / path-traversal probing of REST endpoints —
+              previously, fuzzing <code>/api/users/1</code> would just
+              vary query params; now the segment <code>1</code> itself
+              becomes a fuzz target.
+            </li>
+            <li>
+              <strong>Send cluster to Checks →</strong> queues every
+              member instance in the Checks tab so an active check can
+              fire across the cluster (e.g. comparing whether a
+              hidden-parameter discovery on one instance reveals the
+              same params on its peers).
+            </li>
+          </ul>
+          <p>
+            The Asset detail view's <strong>Endpoints</strong> panel
+            picks up the same toggle: <em>[Flat] [Clustered]</em>{" "}
+            collapses paths host-wide so a host that's served thousands
+            of <code>/api/posts/:id</code> requests reads as one row
+            with the count summed.
+          </p>
+          <p>
+            <strong>Example.</strong> Browse a Juice-Shop instance
+            authenticated as user 6. Open
+            <code>/api/Users/6</code>, then{" "}
+            <code>/api/Users/7</code> through <code>/api/Users/9</code>.
+            One returns 401. Toggle <em>Group by endpoint</em> →{" "}
+            <code>GET /api/Users/:id</code> shows{" "}
+            <code>5×</code> with both <strong>auth mismatch</strong>{" "}
+            (your tab logged out partway) and{" "}
+            <strong>status outlier</strong> (<code>200×4 401×1</code>).
+            Click <strong>Send cluster to Fuzzer</strong> and the
+            placeholder segment goes through the
+            ID-payload corpus.
+          </p>
+
           <h4>Intercept tab — pause, edit, forward</h4>
           <p>
             Intercept is off by default (pass-through). Turn it on from the
@@ -887,6 +994,270 @@ Content-Length: 17
             bytes that fail to parse as valid HTTP fall back to the
             original (warning logged), so a typo won't silently corrupt
             the stream.
+          </p>
+
+          <h4>Conditional intercept rules</h4>
+          <p>
+            The Intercept mode toggle is all-or-nothing — turn it on
+            and every in-scope exchange queues. Real workflows want
+            narrower triggers. Rules under{" "}
+            <em>Settings → Intercept rules</em> layer on top of the
+            mode: <strong>Include</strong> rules narrow what pauses
+            (the listener pauses only when at least one matching
+            include fires); <strong>Exclude</strong> rules short-
+            circuit the pause regardless of mode (exclude wins).
+            Empty rule list reverts to mode-only behaviour.
+          </p>
+          <p>
+            Inside one rule, all conditions must match (AND); rules
+            of the same kind are OR-ed. The available condition
+            kinds:
+          </p>
+          <ul>
+            <li>
+              <strong>Host glob</strong> — exact host match or{" "}
+              <code>*.tenant.com</code>-style wildcard.
+            </li>
+            <li>
+              <strong>Path regex</strong> — Rust regex over the
+              request path (no query string).
+            </li>
+            <li>
+              <strong>Method in</strong> — comma-separated list,
+              case-insensitive (e.g.{" "}
+              <code>POST, PUT, PATCH, DELETE</code>).
+            </li>
+            <li>
+              <strong>Content-Type contains</strong> — substring
+              match (case-insensitive). Reads the request{" "}
+              <code>Content-Type</code> on request-phase rules and
+              the response <code>Content-Type</code> on response-
+              phase rules.
+            </li>
+            <li>
+              <strong>Status range</strong> — inclusive numeric
+              range. Only meaningful on response-phase rules; mixing
+              status with a request-phase rule fails closed (matches
+              nothing).
+            </li>
+            <li>
+              <strong>Has header</strong> — header presence by name
+              (case-insensitive), with an optional value regex (e.g.{" "}
+              <code>Authorization</code> +{" "}
+              <code>^Bearer </code>).
+            </li>
+          </ul>
+          <p>
+            Each rule has a <strong>Phase</strong> (Request /
+            Response / Both) so the listener consults only the
+            applicable rules at each pause point. The Intercept tab
+            shows a <strong>⚠ N rules active</strong> chip next to
+            the mode selector when any enabled rule exists, so you
+            never wonder why a request you expected to pause didn't.
+          </p>
+          <p>
+            <strong>Bundled presets</strong> live above the rule
+            editor as one-click <em>+ Apply</em> buttons (they
+            don't replace your existing rules — they append, so you
+            can stack a "Skip static assets" exclude on top of an
+            "Only mutations" include):
+          </p>
+          <ul>
+            <li>
+              <strong>Skip static assets</strong> — Exclude / Both
+              with{" "}
+              <code>{`\\.(?:png|jpe?g|gif|svg|ico|woff2?|ttf|eot|css|js|map)(?:$|\\?)`}</code>.
+              The single most common quality-of-life win against an
+              SPA.
+            </li>
+            <li>
+              <strong>Only mutating requests</strong> — Include /
+              Request with method in{" "}
+              <code>POST PUT PATCH DELETE</code>. GETs flow through
+              unimpeded.
+            </li>
+            <li>
+              <strong>Only auth endpoints</strong> — Include /
+              Request with path regex{" "}
+              <code>(?i)(login|logout|signin|signup|auth|token|session)</code>.
+              Useful when probing how a target hands out and rotates
+              credentials.
+            </li>
+            <li>
+              <strong>Only error responses</strong> — Include /
+              Response with status range <code>400–599</code>. Lets
+              the request pass through and only pauses on the way
+              back if something failed.
+            </li>
+          </ul>
+          <p>
+            <strong>Cross-engine: recon → pause.</strong> The Recon
+            view's per-row actions now include a{" "}
+            <strong>Pause</strong> button alongside Scope / Checks /
+            Fuzzer. It's the symmetric counterpart of "Add to Proxy
+            scope": Scope <em>admits</em> traffic; Pause adds an
+            Include intercept rule (host glob, request phase) so
+            first-contact traffic to a freshly-discovered subdomain
+            pauses for inspection. Workflow: discover a subdomain →
+            Pause → browse the new host → inspect the very first
+            request the browser sends.
+          </p>
+          <p>
+            <strong>Worked example.</strong> You're auditing a
+            Single-Page App. Intercept mode = Both, but you only
+            want to inspect mutating XHRs to authentication
+            endpoints — the SPA's CSS / fonts / WebSocket frames
+            shouldn't queue. Apply <strong>Skip static assets</strong>{" "}
+            (Exclude/Both) and <strong>Only auth endpoints</strong>{" "}
+            (Include/Request); add a third rule with method-in{" "}
+            <code>POST, PUT, PATCH, DELETE</code> (Include/Request)
+            so a GET to <code>/auth/whoami</code> doesn't pause but
+            a POST to <code>/auth/login</code> does. Save. Browse
+            the SPA — the queue stays clean and only meaningful auth
+            mutations land in the editor.
+          </p>
+          <p className="callout">
+            Edits take effect on the very next request — the listener
+            reads the rule snapshot per-pause, no session restart
+            needed. Rules persist in <code>history.sqlite</code>{" "}
+            (table <code>proxy_intercept_rules</code>); conditions
+            round-trip as a JSON blob so future condition kinds slot
+            in without a migration.
+          </p>
+
+          <h4>Automatic CSRF token handling</h4>
+          <p>
+            Token-rotating apps cycle a fresh CSRF token on every login
+            or page render. Manually copy-pasting them from a captured
+            GET into the next POST is the most tedious part of any
+            authenticated pen test — the proxy now does it silently.
+            Each captured response is checked against a configured set
+            of <em>token rules</em>; matching values land in an
+            in-memory store and get spliced into matching outbound
+            requests automatically.
+          </p>
+          <p>
+            <strong>Where to configure.</strong>{" "}
+            <em>Proxy → Settings → CSRF tokens</em>. Six bundled rules
+            ship enabled out of the box — Laravel{" "}
+            <code>_token</code>, Rails{" "}
+            <code>authenticity_token</code> (form + header),
+            ASP.NET <code>__RequestVerificationToken</code>, Django{" "}
+            <code>csrfmiddlewaretoken</code>, generic{" "}
+            <code>{`<meta name="csrf-token">`}</code> → header
+            injection, and the Angular{" "}
+            <code>XSRF-TOKEN</code> cookie convention. Each rule pairs
+            a <em>source</em> (where to read the token from in
+            responses) with an <em>inject</em> step (how to splice it
+            into requests). Source kinds:
+          </p>
+          <ul>
+            <li>
+              <strong>HTML <code>&lt;input&gt;</code></strong> — match
+              by name regex, read the <code>value</code> attribute.
+            </li>
+            <li>
+              <strong><code>&lt;meta&gt;</code> tag</strong> — match
+              by name regex, read the <code>content</code> attribute.
+            </li>
+            <li>
+              <strong>JSON pointer</strong> — RFC 6901 path into a
+              JSON response body (e.g. <code>/data/csrfToken</code>).
+            </li>
+            <li>
+              <strong><code>Set-Cookie</code></strong> — read the
+              named cookie value from any <code>Set-Cookie</code>{" "}
+              header (case-sensitive cookie name).
+            </li>
+            <li>
+              <strong>Response header</strong> — read the value of
+              an arbitrary header by name (case-insensitive).
+            </li>
+          </ul>
+          <p>
+            Inject kinds: <strong>form field</strong> (rewrites a
+            <code>application/x-www-form-urlencoded</code> body
+            in-place — refuses to touch JSON bodies), <strong>JSON
+            pointer</strong> (sets a value at the given pointer
+            in a JSON request body), <strong>request header</strong>{" "}
+            (replaces if present, adds otherwise), or{" "}
+            <strong>cookie</strong> (preserves other cookies on the
+            existing <code>Cookie</code> header).
+          </p>
+          <p>
+            <strong>Live status panel.</strong> Below the rule editor
+            is a status table — rule | host | latest value (truncated
+            for readability) | observed N seconds ago. Updates push in
+            via <code>proxy://csrf-observed</code> as new values land.
+            <strong> Clear observations</strong> wipes the cache (use
+            after a re-login if you want the next response to repopulate
+            from scratch).
+          </p>
+          <p>
+            <strong>Per-host rules.</strong> Leave <em>host glob</em>{" "}
+            blank for a global rule. Use <code>example.com</code> for
+            an exact host match or <code>*.tenant.com</code> to scope
+            to a subdomain tree. Per-host rules keep separate buckets
+            in the cache so a token captured on{" "}
+            <code>foo.tenant.com</code> never leaks to{" "}
+            <code>bar.tenant.com</code>.
+          </p>
+          <p>
+            <strong>Cross-engine reach.</strong> The same store is
+            consulted by:
+          </p>
+          <ul>
+            <li>
+              <strong>Proxy listener</strong> — splices fresh tokens
+              into every outbound request that matches an enabled
+              rule. Tagged <code>csrf-injected</code> on the Traffic
+              row.
+            </li>
+            <li>
+              <strong>Replay</strong> — the toolbar carries an{" "}
+              <strong>Apply CSRF</strong> checkbox (default on). Turn
+              off to send the request exactly as you typed it (handy
+              when you <em>want</em> to reproduce a token-mismatch
+              failure).
+            </li>
+            <li>
+              <strong>Active Checks</strong> — the new{" "}
+              <code>send_with_csrf</code> helper on{" "}
+              <code>CheckCtx</code> is wired through every active
+              probe (Reflected XSS, Error-based / Boolean-blind /
+              Time-based SQLi, Open Redirect, SSRF,
+              Hidden-Parameter Discovery). Probes that previously
+              all 419'd against a CSRF-protected POST endpoint now
+              land cleanly.
+            </li>
+          </ul>
+          <p>
+            <strong>Worked example.</strong> A SPA's{" "}
+            <code>POST /api/login</code> returns{" "}
+            <code>{`{"data":{"csrfToken":"abcd…"}}`}</code>; the SPA
+            uses the token via the <code>X-CSRF-Token</code> request
+            header on every subsequent mutation. Add a custom rule:
+          </p>
+          <pre className="help-cmd">
+{`Source:  JSON pointer  /data/csrfToken
+Inject:  Header        X-CSRF-Token`}
+          </pre>
+          <p>
+            Save. Now browse the SPA, log in. The status panel shows{" "}
+            <code>X-CSRF-Token</code> live. Click any{" "}
+            <code>POST</code> in the Traffic log →{" "}
+            <strong>Send to Replay</strong> → <strong>Send</strong>:
+            the replayed request goes out with the live token even
+            though you never typed it. Run a Reflected-XSS active
+            check against a captured POST: where it would previously
+            return 419, it now reaches the form handler and probes
+            the actual response body.
+          </p>
+          <p className="callout">
+            Tokens never leave the machine — observation cache is
+            in-memory, rules persist in <code>history.sqlite</code>.
+            <code>csrf_clear_session</code> wipes the live cache
+            without touching rules.
           </p>
 
           <h4>Settings · Scope rules — what gets paused and checked</h4>
@@ -1656,15 +2027,17 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
 
           <h4>Cross-tool integrations</h4>
           <p>
-            Every discovered host carries three per-row actions:
+            Every discovered host carries four per-row actions:
           </p>
           <ul>
             <li>
-              <strong>Scope</strong> — appends an include rule for the host
-              to the Proxy → Settings → Scope rules list, so Intercept pauses
-              exchanges from that host as soon as they flow through the
-              proxy. A bulk "Add all N to Proxy scope" button at the bottom
-              of the grid does the same thing for everything on screen.
+              <strong>Scope</strong> — appends an include rule for the
+              host to the Proxy → Settings → Scope rules list, so the
+              Checks engine and Intercept treat exchanges from that
+              host as in-scope (active features only run on in-scope
+              traffic). A bulk "Add all N to Proxy scope" button at
+              the bottom of the grid does the same for everything on
+              screen.
             </li>
             <li>
               <strong>Checks</strong> — injects a synthetic{" "}
@@ -1679,6 +2052,16 @@ match myapp m|^HTTP/1\\.[01] \\d+.*\\r\\nServer: MyApp/(\\d+\\.\\d+)|i p/MyApp/ 
               Fuzzing view (same pipe as Traffic row's Send to Fuzzer);
               scope defaults to <code>page</code> so the fuzzer hits exactly
               that endpoint.
+            </li>
+            <li>
+              <strong>Pause</strong> — appends an{" "}
+              <em>Include</em> intercept rule (host glob, request
+              phase) under Proxy → Settings → Intercept rules. The
+              symmetric counterpart of Scope: where Scope <em>admits</em>{" "}
+              traffic, Pause <em>queues</em> first-contact requests
+              for inspection. Combine with Intercept mode = Request to
+              actually pause; the rule is dormant when intercept is
+              off. Scenario 34 walks through the workflow.
             </li>
           </ul>
 
@@ -3229,6 +3612,199 @@ Content-Length: 42
           </p>
 
           <h4>
+            32. Find IDOR / broken access control with traffic
+            clustering
+          </h4>
+          <p>
+            Browsing a REST API floods the Traffic log with rows that
+            look identical except for an ID. Group-by-endpoint
+            collapses them into one row and surfaces anomalies that
+            are invisible in the flat view (one instance returning
+            401 in a sea of 200s, mismatched <code>Authorization</code>{" "}
+            headers, response sizes that don't fit the cluster
+            shape).
+          </p>
+          <ol className="numbered">
+            <li>
+              Start the proxy. Log in to a target as user A. Browse a
+              listing or detail endpoint that takes an ID:{" "}
+              <code>/api/users/1</code>, <code>/api/users/2</code>,{" "}
+              <code>/api/users/3</code>… Each lands as a separate row.
+            </li>
+            <li>
+              Now mix authentication state. Open a private window
+              (anonymous), or remove your <code>Authorization</code>{" "}
+              header in the browser, hit the same path with a few
+              different IDs.
+            </li>
+            <li>
+              On the Traffic tab, click the <strong>Group by
+              endpoint</strong> chip at the top. The numeric segments
+              fold into <code>/api/users/:id</code>; the Count column
+              shows the instance total; the Status mix column splits
+              counts by code.
+            </li>
+            <li>
+              Look for anomaly badges on the cluster row. The
+              important ones for IDOR / auth-bypass:{" "}
+              <strong>⚠ auth mismatch</strong> (members are split on
+              presence of <code>Authorization</code>) and{" "}
+              <strong>⚠ status outlier</strong> (≥80% share one
+              status class but at least one sits outside).
+            </li>
+            <li>
+              Click the cluster row to expand. The instance list
+              shows each underlying request with its status and
+              size — line up the 401 against the 200s and confirm
+              which IDs the target leaked vs. denied.
+            </li>
+            <li>
+              Click <strong>Send cluster to Checks</strong> to queue
+              every member exchange in the Checks tab; auth-
+              consistency findings already lit up automatically (look
+              under check id <code>auth-consistency:auth-mismatch</code>
+              {" "}in the Findings panel).
+            </li>
+          </ol>
+          <p className="callout">
+            Cluster patterns also feed the Active Fuzzer — click{" "}
+            <strong>Send cluster to Fuzzer</strong> to seed the fuzzer
+            with the pattern URL. Path-segment placeholders
+            (<code>:id</code>, <code>:uuid</code>, <code>:slug</code>)
+            become injection points so payloads target the segment
+            itself, not just query params.
+          </p>
+
+          <h4>
+            33. Stay logged in across Replay, Checks, and Fuzzer with
+            CSRF auto-handling
+          </h4>
+          <p>
+            Token-rotating apps reject every replay / check / fuzz
+            probe with 419 once the captured token expires. The
+            CSRF store captures fresh tokens from each response and
+            splices them into matching outbound requests — silently,
+            on every engine that builds its own HTTP requests.
+          </p>
+          <ol className="numbered">
+            <li>
+              Open <strong>Proxy → Settings → CSRF tokens</strong>.
+              Six bundled rules are enabled by default — Laravel{" "}
+              <code>_token</code>, Rails{" "}
+              <code>authenticity_token</code> (form + header),
+              ASP.NET <code>__RequestVerificationToken</code>,
+              Django <code>csrfmiddlewaretoken</code>, generic{" "}
+              <code>{`<meta name="csrf-token">`}</code>, and the
+              Angular <code>XSRF-TOKEN</code> cookie.
+            </li>
+            <li>
+              For an SPA returning a JSON token (e.g.{" "}
+              <code>{`{"data":{"csrfToken":"…"}}`}</code>), click{" "}
+              <strong>+ Add rule</strong> and configure:{" "}
+              Source = <em>JSON pointer</em>,{" "}
+              <code>/data/csrfToken</code>; Inject = <em>Header</em>,{" "}
+              <code>X-CSRF-Token</code>. Save.
+            </li>
+            <li>
+              Browse the target through the proxy. Log in. Watch the
+              <em> Live status</em> table populate as the rules fire —
+              each captured value shows up with rule | host | latest
+              value (truncated) | observed seconds-ago.
+            </li>
+            <li>
+              From the Traffic log, expand a CSRF-protected POST →{" "}
+              <strong>Send to Replay</strong>. The toolbar's{" "}
+              <strong>Apply CSRF</strong> checkbox is on by default —
+              click <strong>Send</strong>. The replay lands cleanly
+              even though the in-editor token has long expired:
+              corvex spliced the latest captured value before
+              forwarding. Tag <code>csrf-injected</code> appears on
+              the resulting Traffic row.
+            </li>
+            <li>
+              On the Checks tab, run a Reflected XSS or Error-based
+              SQLi probe against a captured POST. Probes that
+              previously all 419'd now hit the form handler — every
+              active check (XSS, SQLi error/boolean/time, Open
+              Redirect, SSRF, Hidden-Parameter Discovery) routes
+              through the same store via{" "}
+              <code>send_with_csrf</code>.
+            </li>
+            <li>
+              Re-login on the target → token rotates → status panel
+              shows the new value within milliseconds → next
+              outbound request picks it up. No manual copy-paste.
+            </li>
+          </ol>
+          <p className="callout">
+            To deliberately reproduce a token-mismatch (e.g.
+            verifying that a CSRF guard <em>is</em> present), uncheck
+            the <strong>Apply CSRF</strong> box in the Replay
+            toolbar. Or click <strong>Clear observations</strong> in
+            the Settings panel to wipe the cache without removing
+            rules.
+          </p>
+
+          <h4>
+            34. Pause first-contact traffic to a freshly-discovered
+            subdomain
+          </h4>
+          <p>
+            Recon turns up a new subdomain. You want to inspect the
+            very first request your browser makes to it — TLS
+            handshake, cookie scoping, redirects, anything the SPA
+            does on initial load — without fishing it out of a
+            crowded Traffic log.
+          </p>
+          <ol className="numbered">
+            <li>
+              In the toolbar, set Intercept mode to{" "}
+              <strong>Request</strong>. (Both works too, but Request
+              is the right phase for first-contact inspection.)
+            </li>
+            <li>
+              Open the <strong>Recon</strong> view. Run an enumeration
+              against the seed domain. Wait for results.
+            </li>
+            <li>
+              On a discovered host row, click <strong>Pause</strong>{" "}
+              (the fourth action, next to Scope / Checks / Fuzzer).
+              The status pill confirms{" "}
+              <code>{`{host} → Intercept (pause on next request)`}</code>.
+              Behind the scenes this appends an Include intercept
+              rule with <code>HostGlob</code> matching that host.
+            </li>
+            <li>
+              Verify under <strong>Proxy → Settings → Intercept
+              rules</strong>: a new include rule is at the bottom of
+              the list, phase <em>Request</em>, condition{" "}
+              <em>Host glob</em> = your subdomain.
+            </li>
+            <li>
+              The Intercept tab shows a{" "}
+              <strong>⚠ N rules active</strong> chip next to the mode
+              selector — a reminder that the mode toggle alone won't
+              pause everything in scope; rules narrow it.
+            </li>
+            <li>
+              Browse the new subdomain in your proxied browser. The
+              very first request queues in the Intercept tab. Inspect
+              the raw bytes, edit if needed, Forward / Drop. Done —
+              repeat for every fresh subdomain without the Traffic
+              log filling up with noise from other hosts.
+            </li>
+          </ol>
+          <p className="callout">
+            <strong>Stack with presets.</strong> Add a one-click{" "}
+            <em>Skip static assets</em> exclude (Settings → Intercept
+            rules → presets) and the queue won't fill with the
+            subdomain's CSS / fonts / favicon. <em>Only mutating
+            requests</em> as a second filter narrows further to
+            POST / PUT / PATCH / DELETE if you only care about state-
+            changing traffic.
+          </p>
+
+          <h4>
             16. Triage a CVE-bearing finding with Exploit-DB
           </h4>
           <p>
@@ -4045,6 +4621,70 @@ Content-Length: 42
               fallback to <code>1</code> for strict-equality checks.
               Scenario 29 covers the recipe.
             </dd>
+            <dt>Endpoint cluster / pattern</dt>
+            <dd>
+              A row in the Traffic tab's <em>Group by endpoint</em>{" "}
+              view that folds concrete paths sharing a shape into one
+              entry — <code>/api/users/1</code>,{" "}
+              <code>/api/users/2</code>, … become{" "}
+              <code>/api/users/:id</code>. Placeholder kinds:{" "}
+              <code>:id</code> (digits), <code>:uuid</code> (canonical
+              UUID), <code>:oid</code> (24-char hex / Mongo
+              ObjectId), <code>:slug</code> (long mixed-alnum).
+              Anomaly badges (auth mismatch, status outlier, size
+              outlier, rate limited) flag IDOR / broken-access shapes
+              automatically; same data feeds the{" "}
+              <code>auth-consistency</code> passive findings emitted
+              for every flag that flips on. Scenario 32 walks the
+              IDOR workflow end-to-end.
+            </dd>
+            <dt>Path-segment injection</dt>
+            <dd>
+              Fuzzer injection point that substitutes a single path
+              segment (<code>/api/users/<strong>1</strong></code>)
+              with attack payloads. Driven by{" "}
+              <code>InjectionPoint::PathSegment(usize)</code> in the
+              fuzzer engine; populated by{" "}
+              <code>FuzzTarget::from_pattern_url</code> when the
+              user clicks <strong>Send cluster to Fuzzer</strong> on
+              a Traffic-tab cluster row. Unlocks IDOR / path-
+              traversal probing on REST endpoints where the
+              parameter sits in the path, not the query string.
+            </dd>
+            <dt>CSRF token store</dt>
+            <dd>
+              In-memory cache (live on{" "}
+              <code>ProxyState.csrf_store</code>) of token values
+              observed in responses, keyed by{" "}
+              <em>(rule, host)</em>. Rules pair a{" "}
+              <em>source</em> (HTML input regex / meta tag /
+              JSON pointer / Set-Cookie / response header) with an{" "}
+              <em>inject</em> step (form field / JSON pointer /
+              header / cookie). Six bundled defaults cover Laravel,
+              Rails (form + meta), ASP.NET, Django, Angular XSRF
+              cookie. Consulted on every outbound HTTP request the
+              proxy listener forwards, every Replay (toggleable),
+              and every active check's probe (via{" "}
+              <code>CheckCtx::send_with_csrf</code>). Scenario 33
+              walks the workflow.
+            </dd>
+            <dt>Conditional intercept rule</dt>
+            <dd>
+              A condition layer on top of the Intercept mode toggle:
+              <em> Include</em> rules narrow what pauses (the
+              listener pauses only when at least one matches);{" "}
+              <em>Exclude</em> rules short-circuit the pause
+              regardless. Conditions: host glob, path regex,
+              method-in, content-type substring, status range
+              (response phase), header-presence with optional value
+              regex. Empty rule list reverts to mode-only behaviour.
+              Bundled presets: skip static assets, only mutating
+              requests, only auth endpoints, only error responses.
+              Configured under <em>Proxy → Settings → Intercept
+              rules</em>; the Intercept tab shows a{" "}
+              <strong>⚠ N rules active</strong> chip when any rule
+              is enabled. Scenario 34 covers the recon-driven flow.
+            </dd>
             <dt>Active Nuclei execution</dt>
             <dd>
               Umbrella active check (<code>nuclei-active</code>,
@@ -4520,6 +5160,53 @@ Content-Length: 42
           <h3>Known limitations</h3>
           <p>Deliberate, up-front honesty — things the app does not do today:</p>
           <ul>
+            <li>
+              <strong>Cluster path-segment fuzzing is half-wired.</strong>{" "}
+              Send cluster to Fuzzer surfaces the pattern + path-segment
+              hints in the Active Fuzzer's seed banner, and the
+              fuzzer-engine builder (
+              <code>FuzzTarget::from_pattern_url</code>) is in place
+              with unit tests, but the fuzzer runner doesn't yet
+              consume the hints end-to-end — the seed URL is fuzzed
+              with the same query-param / form-field strategy as a
+              normal seed. Path-segment substitution lands as a
+              follow-up; the data path is wired up to the runner
+              boundary so the consumer change is the only missing
+              piece.
+            </li>
+            <li>
+              <strong>Cluster anomaly detection is heuristic, not
+              proof.</strong> An <em>auth mismatch</em> badge means
+              the cluster has both authed and anon members; a{" "}
+              <em>status outlier</em> badge means one instance broke
+              the cluster's status class. Both are strong IDOR
+              signals but neither <em>proves</em> a vuln — confirm by
+              expanding the cluster, replaying the outlier as a
+              different user, and checking whether the response
+              actually leaks data the user shouldn't see.
+            </li>
+            <li>
+              <strong>CSRF auto-injection respects rule shape, not
+              app shape.</strong> A Form-field inject only rewrites
+              when <code>Content-Type: application/x-www-form-
+              urlencoded</code>; JSON-field inject requires a valid
+              JSON body. If your target sends multipart bodies or a
+              custom encoding, the rule won't fire and the request
+              goes out unchanged (no silent corruption). The Settings
+              status panel only lists rules that have observed at
+              least one value — a rule that never fires is invisible
+              there but still configured.
+            </li>
+            <li>
+              <strong>Intercept rules don't suppress out-of-scope
+              traffic.</strong> Rules layer on top of the existing
+              scope check — the listener still classifies every
+              exchange as in/out/excluded first, and only in-scope
+              exchanges ever reach the rule engine. To narrow{" "}
+              <em>capture</em> (i.e. what shows up in the Traffic
+              log), use Scope rules; intercept rules only narrow
+              what <em>pauses</em>.
+            </li>
             <li>
               <strong>Nuclei engine v1 coverage is partial.</strong> The
               bundled subset currently runs about one-third of its templates

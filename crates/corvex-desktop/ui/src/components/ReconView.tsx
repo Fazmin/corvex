@@ -32,12 +32,18 @@ interface Props {
   /** Push a synthetic Exchange for the host into the active proxy
    *  session (goes through the same pipeline as OpenAPI import). */
   onSendToChecks?: (host: string) => Promise<void>;
+  /** Append an Include intercept rule for the host so first-contact
+   *  traffic to a freshly-discovered subdomain pauses for inspection.
+   *  Symmetric counterpart to onAddToProxyScope: scope admits, this
+   *  pauses. */
+  onPauseHost?: (host: string) => Promise<void>;
 }
 
 export function ReconView({
   onSendToFuzzer,
   onAddToProxyScope,
   onSendToChecks,
+  onPauseHost,
 }: Props) {
   const [pane, setPane] = useState<Pane>("run");
 
@@ -674,6 +680,26 @@ export function ReconView({
                               style={{ marginLeft: 6 }}
                             >
                               Fuzzer
+                            </button>
+                          )}
+                          {onPauseHost && (
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={async () => {
+                                try {
+                                  await onPauseHost(row.host);
+                                  setActionStatus(
+                                    `${row.host} → Intercept (pause on next request)`,
+                                  );
+                                } catch (e) {
+                                  setError(String(e));
+                                }
+                              }}
+                              style={{ marginLeft: 6 }}
+                              title="Add an Include intercept rule for this host so first-contact traffic pauses for inspection."
+                            >
+                              Pause
                             </button>
                           )}
                         </td>

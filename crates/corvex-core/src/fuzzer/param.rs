@@ -33,6 +33,43 @@ pub struct FuzzTarget {
 }
 
 impl FuzzTarget {
+    /// Build a single fuzz target from a clustered endpoint pattern.
+    ///
+    /// The Traffic-tab "Group by endpoint" view derives patterns like
+    /// `/api/users/:id`. When the user clicks **Send cluster to
+    /// Fuzzer**, the desktop substitutes a sentinel value for each
+    /// placeholder (`:id` → `1`, `:uuid` → all-zeros, …) and forwards
+    /// the resulting URL plus the placeholder segment indices here.
+    /// Each index becomes an [`InjectionPoint::PathSegment`] so the
+    /// fuzzer can replace just that segment with attack payloads —
+    /// the natural shape for IDOR / path-traversal probing of a REST
+    /// pattern.
+    ///
+    /// Returns an empty Vec when `segment_indices` is empty (no
+    /// placeholders → nothing to fuzz on the path) so callers can fold
+    /// the result into a wider target list without branching.
+    pub fn from_pattern_url(
+        url: &str,
+        method: &str,
+        segment_indices: &[usize],
+        depth: usize,
+    ) -> Vec<Self> {
+        if segment_indices.is_empty() {
+            return Vec::new();
+        }
+        let points: Vec<InjectionPoint> = segment_indices
+            .iter()
+            .copied()
+            .map(InjectionPoint::PathSegment)
+            .collect();
+        vec![Self {
+            url: url.to_string(),
+            method: method.to_string(),
+            points,
+            depth,
+        }]
+    }
+
     /// Build fuzz targets from a crawled page. Each query param and
     /// each form field becomes an injection point.
     pub fn from_crawled(page: &CrawledPage) -> Vec<Self> {
@@ -190,4 +227,55 @@ fn extract_path(url: &str) -> String {
 
 fn urlencoding(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+}
+
+#[cfg(test)]
+mod path_segment_tests {
+    use super::*;
+
+    #[test]
+    fn from_pattern_url_empty_hints_yields_no_target() {
+        let targets = FuzzTarget::from_pattern_url(
+            "https://api.test/api/users/1",
+            "GET",
+            &[],
+            0,
+        );
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn from_pattern_url_creates_one_target_with_path_segment_points() {
+        let targets = FuzzTarget::from_pattern_url(
+            "https://api.test/api/users/1",
+            "GET",
+            &[2],
+            1,
+        );
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].points.len(), 1);
+        match &targets[0].points[0] {
+            InjectionPoint::PathSegment(idx) => assert_eq!(*idx, 2),
+            other => panic!("expected PathSegment, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inject_path_segment_substitutes_correct_segment() {
+        let targets = FuzzTarget::from_pattern_url(
+            "https://api.test/api/users/1/orders/2",
+            "GET",
+            &[2, 4],
+            0,
+        );
+        assert_eq!(targets.len(), 1);
+        let t = &targets[0];
+        let req = t.inject(0, "9999", "api.test", 443, None);
+        // Index 2 = "1" in /api/users/1/orders/2 → /api/users/9999/orders/2
+        assert!(req.uri.starts_with("/api/users/9999/orders/2"));
+
+        // Now inject at the second hint (index 4 — the final segment).
+        let req2 = t.inject(1, "FUZZ", "api.test", 443, None);
+        assert!(req2.uri.starts_with("/api/users/1/orders/FUZZ"));
+    }
 }

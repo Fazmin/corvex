@@ -151,7 +151,7 @@ async fn nuclei_active_fires_template_against_target_base_url() {
     let store = build_store_with_demo_template(&dir);
     let registry = registry_with_store(store);
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     // Target exchange is for `/` — crucially, the template's real
     // path is `/admin/debug`, which has never been seen in traffic.
@@ -213,7 +213,7 @@ async fn nuclei_active_stays_quiet_when_template_marker_absent() {
     let store = build_store_with_demo_template(&dir);
     let registry = registry_with_store(store);
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(&addr.ip().to_string(), addr.port(), "/");
     let exchange = synth_exchange(req);

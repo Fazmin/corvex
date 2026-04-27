@@ -397,10 +397,11 @@ export const ENUMERATE_TARGETS = [
 
 type DetailTab = "run" | "modules" | "techniques" | "tamper" | "dbms" | "enumerate";
 
-export interface FuzzerSeed {
-  url: string;
-  exchangeId?: string;
-}
+// Re-export the canonical FuzzerSeed from App.tsx — see App.tsx for
+// the full shape (now includes cluster + injectionHints fields used
+// when the seed originates from a Traffic-tab clustered pattern).
+import type { FuzzerSeed } from "../App";
+export type { FuzzerSeed };
 
 interface FuzzingViewProps {
   running: boolean;

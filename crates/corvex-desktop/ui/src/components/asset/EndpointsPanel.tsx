@@ -1,4 +1,9 @@
-import type { AssetEndpoint } from "../../api";
+import { useEffect, useState } from "react";
+import {
+  assetEndpointsClustered,
+  type AssetEndpoint,
+  type AssetEndpointCluster,
+} from "../../api";
 import { InfoTip } from "../InfoTip";
 import {
   emptyStateStyle,
@@ -13,6 +18,9 @@ import {
 
 interface Props {
   endpoints: AssetEndpoint[];
+  /** Host this panel is rendering. Used by the clustered fetch — the
+   *  flat list is already pre-loaded by the parent view. */
+  host: string;
 }
 
 function statusColor(status: number | null): string {
@@ -24,7 +32,47 @@ function statusColor(status: number | null): string {
   return "var(--muted)";
 }
 
-export function EndpointsPanel({ endpoints }: Props) {
+const STORAGE_KEY = "corvexAssetEndpointsClustered";
+
+export function EndpointsPanel({ endpoints, host }: Props) {
+  const [clustered, setClustered] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [clusters, setClusters] = useState<AssetEndpointCluster[] | null>(
+    null,
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, clustered ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [clustered]);
+
+  useEffect(() => {
+    if (!clustered) return;
+    let cancelled = false;
+    assetEndpointsClustered(host)
+      .then((rows) => {
+        if (!cancelled) {
+          setClusters(rows);
+          setError(null);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clustered, host]);
+
   return (
     <section style={panelStyle}>
       <header style={panelHeaderStyle}>
@@ -43,21 +91,55 @@ export function EndpointsPanel({ endpoints }: Props) {
               <code>exchange_scan_findings</code>.
             </p>
             <p>
-              Sorted by traffic volume so the busiest paths surface
-              first. Top 200 are shown.
+              The <em>Clustered</em> view collapses paths sharing a
+              shape (<code>/api/users/1</code>, <code>/api/users/2</code>{" "}
+              → <code>/api/users/:id</code>) so REST APIs read at a
+              glance. Useful for spotting IDOR-shaped patterns at the
+              host level.
             </p>
           </InfoTip>
         </span>
-        <span style={{ color: "var(--muted)", fontSize: "0.82em" }}>
-          {endpoints.length} path{endpoints.length === 1 ? "" : "s"}
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: "0.82em",
+          }}
+        >
+          <button
+            type="button"
+            className={`chip${!clustered ? " active" : ""}`}
+            onClick={() => setClustered(false)}
+          >
+            Flat
+          </button>
+          <button
+            type="button"
+            className={`chip${clustered ? " active" : ""}`}
+            onClick={() => setClustered(true)}
+          >
+            Clustered
+          </button>
+          <span style={{ color: "var(--muted)" }}>
+            {clustered
+              ? `${clusters?.length ?? 0} pattern${clusters?.length === 1 ? "" : "s"}`
+              : `${endpoints.length} path${endpoints.length === 1 ? "" : "s"}`}
+          </span>
         </span>
       </header>
-      {endpoints.length === 0 ? (
+      {error && (
+        <div style={emptyStateStyle}>
+          Cluster fetch failed: <code>{error}</code>
+        </div>
+      )}
+      {!clustered && endpoints.length === 0 && (
         <div style={emptyStateStyle}>
           No endpoints captured yet. Browse this host through the proxy
           (or replay an exchange) to populate this panel.
         </div>
-      ) : (
+      )}
+      {!clustered && endpoints.length > 0 && (
         <div style={{ overflowX: "auto" }}>
           <table style={tableStyle}>
             <thead>
@@ -133,6 +215,108 @@ export function EndpointsPanel({ endpoints }: Props) {
               Showing top 200 by traffic.
             </div>
           )}
+        </div>
+      )}
+      {clustered && clusters && clusters.length === 0 && (
+        <div style={emptyStateStyle}>
+          No patterns detected yet. The clusterer needs at least one
+          numeric / UUID / slug-shaped path segment to fold rows
+          together.
+        </div>
+      )}
+      {clustered && clusters && clusters.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={tableHeadCell}>Method</th>
+                <th style={tableHeadCell}>Pattern</th>
+                <th style={{ ...tableHeadCell, textAlign: "right" }}>
+                  Instances
+                </th>
+                <th style={{ ...tableHeadCell, textAlign: "right" }}>
+                  Exchanges
+                </th>
+                <th style={{ ...tableHeadCell, textAlign: "right" }}>
+                  Findings
+                </th>
+                <th style={tableHeadCell}>Last status</th>
+                <th style={tableHeadCell}>Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clusters.slice(0, 200).map((c) => (
+                <tr key={`${c.port}-${c.method}-${c.pattern}`}>
+                  <td style={{ ...tableCell, color: "var(--accent)" }}>
+                    {c.method}
+                  </td>
+                  <td style={{ ...tableCell, wordBreak: "break-all" }}>
+                    <span style={{ color: "var(--muted)" }}>
+                      {c.scheme}://{c.host}:{c.port}
+                    </span>
+                    <span>{c.pattern}</span>
+                    {c.sample_paths.length > 0 && (
+                      <div
+                        style={{
+                          color: "var(--muted)",
+                          fontSize: "0.78em",
+                          marginTop: 2,
+                        }}
+                        title={c.sample_paths.join("\n")}
+                      >
+                        e.g.{" "}
+                        {c.sample_paths.slice(0, 3).join(", ")}
+                        {c.sample_paths.length > 3
+                          ? ` +${c.sample_paths.length - 3} more`
+                          : ""}
+                      </div>
+                    )}
+                  </td>
+                  <td
+                    style={{
+                      ...tableCell,
+                      textAlign: "right",
+                      color: "var(--fg-strong)",
+                    }}
+                  >
+                    {c.instance_count}
+                  </td>
+                  <td
+                    style={{
+                      ...tableCell,
+                      textAlign: "right",
+                      color: "var(--fg-strong)",
+                    }}
+                  >
+                    {c.exchange_count}
+                  </td>
+                  <td
+                    style={{
+                      ...tableCell,
+                      textAlign: "right",
+                      color:
+                        c.finding_count > 0
+                          ? "var(--danger)"
+                          : "var(--muted)",
+                    }}
+                  >
+                    {c.finding_count}
+                  </td>
+                  <td
+                    style={{
+                      ...tableCell,
+                      color: statusColor(c.last_status),
+                    }}
+                  >
+                    {c.last_status ?? "—"}
+                  </td>
+                  <td style={{ ...tableCell, color: "var(--muted)" }}>
+                    {fmtRelative(c.last_seen_unix)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </section>

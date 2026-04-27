@@ -92,6 +92,48 @@ pub struct CheckDescriptor {
 /// way to emit findings.
 pub struct CheckCtx {
     pub client: Arc<HttpClient>,
+    /// Live CSRF token store. Active checks that build their own
+    /// outbound probe requests (XSS, SQLi, Open Redirect) call
+    /// `apply_to_request` on the request before sending so token-
+    /// rotating apps don't 419 every probe — see
+    /// `corvex_proxy::CsrfStore::apply_to_request`.
+    /// `None` means "don't apply" (the test harness uses this so
+    /// fixtures don't depend on a populated store).
+    pub csrf: Option<Arc<corvex_proxy::CsrfStore>>,
+}
+
+impl CheckCtx {
+    /// Convenience: splice fresh CSRF tokens into a request the
+    /// active check is about to send. No-op when no store is
+    /// attached. Returns the rule ids that fired so the check can
+    /// decide whether to tag the resulting finding.
+    pub fn apply_csrf(
+        &self,
+        request: &mut corvex_core::http::request::Request,
+    ) -> Vec<String> {
+        match self.csrf.as_ref() {
+            Some(store) => store.apply_to_request(request),
+            None => Vec::new(),
+        }
+    }
+
+    /// Send a request through the shared HTTP client, splicing fresh
+    /// CSRF tokens into the request beforehand when a store is
+    /// attached. Drop-in replacement for `ctx.client.send(&req)` —
+    /// every active check that builds its own probe should use this
+    /// so token-rotating apps don't reject every probe.
+    pub async fn send_with_csrf(
+        &self,
+        request: &corvex_core::http::request::Request,
+    ) -> corvex_core::error::Result<corvex_core::http::response::Response> {
+        if self.csrf.is_some() {
+            let mut spliced = request.clone();
+            self.apply_csrf(&mut spliced);
+            self.client.send(&spliced).await
+        } else {
+            self.client.send(request).await
+        }
+    }
 }
 
 /// Synchronous per-exchange inspection. Called from the proxy hot

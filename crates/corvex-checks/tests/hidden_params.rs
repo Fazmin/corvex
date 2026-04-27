@@ -111,7 +111,7 @@ async fn hidden_params_discovers_admin_and_debug() {
     let addr = spawn_hidden_params_upstream();
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 16));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(
         &addr.ip().to_string(),
@@ -191,7 +191,7 @@ async fn hidden_params_stays_quiet_on_fully_static_endpoint() {
 
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 16));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(
         &addr.ip().to_string(),

@@ -20,6 +20,8 @@ use crate::body_store::{BodyKind, BodyStore, INLINE_THRESHOLD};
 use crate::exchange::{
     Exchange, ExchangeId, ExchangeSummary, ScopeDecision, SessionId,
 };
+use crate::csrf::{CsrfRule, TokenInject, TokenSource};
+use crate::intercept_rules::{InterceptRule, InterceptRules, PhaseFilter, RuleCondition, RuleKind};
 use crate::scope::{ScopeRule, ScopeRules};
 use crate::ws::{WsDirection, WsFrame};
 
@@ -113,6 +115,31 @@ CREATE TABLE IF NOT EXISTS proxy_scope_rules (
     path_regex  TEXT,
     port        INTEGER,
     ordinal     INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS proxy_csrf_rules (
+    rule_id      TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    host_glob    TEXT,
+    source_kind  TEXT NOT NULL,
+    source_value TEXT NOT NULL,
+    inject_kind  TEXT NOT NULL,
+    inject_value TEXT NOT NULL,
+    ordinal      INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS proxy_intercept_rules (
+    rule_id    TEXT PRIMARY KEY,
+    kind       TEXT NOT NULL,           -- 'include' | 'exclude'
+    phase      TEXT NOT NULL,           -- 'request' | 'response' | 'both'
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    -- Conditions stored as a JSON array of tagged-enum values; the
+    -- rule shape is too irregular for a flat columns layout, and the
+    -- JSON blob round-trips cleanly through the existing
+    -- serde-tagged-enum encoding.
+    conditions TEXT NOT NULL,
+    ordinal    INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_exchanges_session_started ON exchanges(session_id, started_at DESC);
@@ -709,9 +736,244 @@ impl ProxyDb {
         tx.commit()?;
         Ok(())
     }
+
+    /// Load every persisted CSRF rule, ordered by `ordinal` so the UI
+    /// renders them in the order they were saved. Source / inject
+    /// shapes are tagged-enum-encoded as `(kind, value)` columns —
+    /// see [`encode_csrf_source`] / [`decode_csrf_source`].
+    pub fn load_csrf_rules(&self) -> SqlResult<Vec<CsrfRule>> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let mut stmt = conn.prepare(
+            "SELECT rule_id, name, enabled, host_glob,
+                    source_kind, source_value, inject_kind, inject_value
+               FROM proxy_csrf_rules
+              ORDER BY ordinal ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let rule_id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let enabled: i64 = row.get(2)?;
+            let host_glob: Option<String> = row.get(3)?;
+            let source_kind: String = row.get(4)?;
+            let source_value: String = row.get(5)?;
+            let inject_kind: String = row.get(6)?;
+            let inject_value: String = row.get(7)?;
+            Ok(CsrfRule {
+                id: rule_id,
+                name,
+                enabled: enabled != 0,
+                host_glob,
+                source: decode_csrf_source(&source_kind, &source_value),
+                inject: decode_csrf_inject(&inject_kind, &inject_value),
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Replace every persisted CSRF rule. One transaction so a
+    /// partial rewrite can't land on disk.
+    pub fn save_csrf_rules(&self, rules: &[CsrfRule]) -> SqlResult<()> {
+        let mut conn = self.conn.lock().expect("proxy db mutex");
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM proxy_csrf_rules", [])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO proxy_csrf_rules (rule_id, name, enabled, host_glob,
+                    source_kind, source_value, inject_kind, inject_value, ordinal)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )?;
+            for (i, rule) in rules.iter().enumerate() {
+                let (sk, sv) = encode_csrf_source(&rule.source);
+                let (ik, iv) = encode_csrf_inject(&rule.inject);
+                stmt.execute(params![
+                    rule.id,
+                    rule.name,
+                    if rule.enabled { 1_i64 } else { 0_i64 },
+                    rule.host_glob,
+                    sk,
+                    sv,
+                    ik,
+                    iv,
+                    i as i64,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+fn encode_csrf_source(s: &TokenSource) -> (&'static str, String) {
+    match s {
+        TokenSource::HtmlInput { name_regex } => ("html_input", name_regex.clone()),
+        TokenSource::MetaTag { name_regex } => ("meta_tag", name_regex.clone()),
+        TokenSource::JsonPath { pointer } => ("json_path", pointer.clone()),
+        TokenSource::SetCookie { name } => ("set_cookie", name.clone()),
+        TokenSource::ResponseHeader { name } => ("response_header", name.clone()),
+    }
+}
+
+fn decode_csrf_source(kind: &str, value: &str) -> TokenSource {
+    match kind {
+        "meta_tag" => TokenSource::MetaTag {
+            name_regex: value.to_string(),
+        },
+        "json_path" => TokenSource::JsonPath {
+            pointer: value.to_string(),
+        },
+        "set_cookie" => TokenSource::SetCookie {
+            name: value.to_string(),
+        },
+        "response_header" => TokenSource::ResponseHeader {
+            name: value.to_string(),
+        },
+        // Default to html_input — the most common shape, and a
+        // forward-compatible fallback for any future kind we don't
+        // recognise (the rule will be visible in the UI as broken
+        // rather than being silently dropped).
+        _ => TokenSource::HtmlInput {
+            name_regex: value.to_string(),
+        },
+    }
+}
+
+fn encode_csrf_inject(s: &TokenInject) -> (&'static str, String) {
+    match s {
+        TokenInject::FormField { name } => ("form_field", name.clone()),
+        TokenInject::JsonField { pointer } => ("json_field", pointer.clone()),
+        TokenInject::Header { name } => ("header", name.clone()),
+        TokenInject::Cookie { name } => ("cookie", name.clone()),
+    }
+}
+
+fn decode_csrf_inject(kind: &str, value: &str) -> TokenInject {
+    match kind {
+        "json_field" => TokenInject::JsonField {
+            pointer: value.to_string(),
+        },
+        "header" => TokenInject::Header {
+            name: value.to_string(),
+        },
+        "cookie" => TokenInject::Cookie {
+            name: value.to_string(),
+        },
+        _ => TokenInject::FormField {
+            name: value.to_string(),
+        },
+    }
+}
+
+fn encode_rule_kind(k: RuleKind) -> &'static str {
+    match k {
+        RuleKind::Include => "include",
+        RuleKind::Exclude => "exclude",
+    }
+}
+
+fn decode_rule_kind(s: &str) -> RuleKind {
+    match s {
+        "exclude" => RuleKind::Exclude,
+        _ => RuleKind::Include,
+    }
+}
+
+fn encode_phase_filter(p: PhaseFilter) -> &'static str {
+    match p {
+        PhaseFilter::Request => "request",
+        PhaseFilter::Response => "response",
+        PhaseFilter::Both => "both",
+    }
+}
+
+fn decode_phase_filter(s: &str) -> PhaseFilter {
+    match s {
+        "response" => PhaseFilter::Response,
+        "both" => PhaseFilter::Both,
+        _ => PhaseFilter::Request,
+    }
 }
 
 impl ProxyDb {
+    /// Load every persisted intercept rule, ordered by `ordinal` so
+    /// the UI lists them in the order the user saved them.
+    /// Conditions are JSON-decoded — corruption in the blob is
+    /// logged and the rule is skipped (rather than failing the
+    /// whole load and locking the user out of every other rule).
+    pub fn load_intercept_rules(&self) -> SqlResult<InterceptRules> {
+        let conn = self.conn.lock().expect("proxy db mutex");
+        let mut stmt = conn.prepare(
+            "SELECT rule_id, kind, phase, enabled, conditions
+               FROM proxy_intercept_rules
+              ORDER BY ordinal ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let rule_id: String = row.get(0)?;
+            let kind: String = row.get(1)?;
+            let phase: String = row.get(2)?;
+            let enabled: i64 = row.get(3)?;
+            let conditions_json: String = row.get(4)?;
+            Ok((rule_id, kind, phase, enabled, conditions_json))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (rule_id, kind, phase, enabled, conditions_json) = row?;
+            let conditions: Vec<RuleCondition> =
+                match serde_json::from_str(&conditions_json) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "proxy",
+                            "skipping intercept rule {rule_id}: bad conditions JSON ({e})"
+                        );
+                        continue;
+                    }
+                };
+            out.push(InterceptRule {
+                id: rule_id,
+                kind: decode_rule_kind(&kind),
+                phase: decode_phase_filter(&phase),
+                enabled: enabled != 0,
+                conditions,
+            });
+        }
+        Ok(InterceptRules { rules: out })
+    }
+
+    /// Replace every persisted intercept rule. Single transaction so
+    /// a partial rewrite can't land on disk.
+    pub fn save_intercept_rules(&self, rules: &InterceptRules) -> SqlResult<()> {
+        let mut conn = self.conn.lock().expect("proxy db mutex");
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM proxy_intercept_rules", [])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO proxy_intercept_rules
+                    (rule_id, kind, phase, enabled, conditions, ordinal)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for (i, rule) in rules.rules.iter().enumerate() {
+                let conditions_json =
+                    serde_json::to_string(&rule.conditions).map_err(|e| {
+                        rusqlite::Error::ToSqlConversionFailure(Box::new(e))
+                    })?;
+                stmt.execute(params![
+                    rule.id,
+                    encode_rule_kind(rule.kind),
+                    encode_phase_filter(rule.phase),
+                    if rule.enabled { 1_i64 } else { 0_i64 },
+                    conditions_json,
+                    i as i64,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Persist a captured WebSocket frame. Called from the splice loop
     /// — the `sequence` field is set per direction so frames stay
     /// ordered within each stream even if the two directions race.

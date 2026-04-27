@@ -64,7 +64,7 @@ impl ActiveCheck for BooleanBlindSqli {
     }
 
     async fn run(&self, ctx: &CheckCtx, target: &Exchange) -> Vec<Finding> {
-        let Ok(baseline) = ctx.client.send(&target.request).await else {
+        let Ok(baseline) = ctx.send_with_csrf(&target.request).await else {
             return Vec::new();
         };
         let baseline_body = normalise(baseline.body.as_slice());
@@ -90,10 +90,10 @@ impl ActiveCheck for BooleanBlindSqli {
                 if param_hit.contains(&name) {
                     continue;
                 }
-                let Ok(r_true) = ctx.client.send(&req_true).await else {
+                let Ok(r_true) = ctx.send_with_csrf(&req_true).await else {
                     continue;
                 };
-                let Ok(r_false) = ctx.client.send(&req_false).await else {
+                let Ok(r_false) = ctx.send_with_csrf(&req_false).await else {
                     continue;
                 };
 

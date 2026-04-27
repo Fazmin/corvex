@@ -13,6 +13,7 @@ use std::sync::Arc;
 use corvex_core::http::client::HttpClient;
 use corvex_core::http::request::Request as CoreRequest;
 
+use crate::csrf::CsrfStore;
 use crate::exchange::{Exchange, ExchangeId, ExchangeOrigin, ScopeDecision, SessionId};
 use crate::parser::parse_request;
 
@@ -33,6 +34,12 @@ pub struct ReplayInput {
     pub base: CoreRequest,
     pub base_id: ExchangeId,
     pub edited_bytes: Option<Vec<u8>>,
+    /// When set, the live CSRF store is consulted *after* the user's
+    /// edited bytes are parsed and fresh tokens are spliced into the
+    /// outbound request. Set to `None` (or pass an empty store) to
+    /// replay the request exactly as the user typed it — useful for
+    /// confirming a token-mismatch flow on purpose.
+    pub csrf_store: Option<Arc<CsrfStore>>,
 }
 
 /// Send the request and return a completed [`Exchange`]. The caller
@@ -42,10 +49,17 @@ pub async fn run_replay(
     client: Arc<HttpClient>,
     input: ReplayInput,
 ) -> Result<Exchange, ReplayError> {
-    let request = match input.edited_bytes {
+    let mut request = match input.edited_bytes {
         Some(bytes) => parse_request(&bytes, &input.base.host, input.base.port, input.base.ssl)
             .map_err(ReplayError::ParseEdit)?,
         None => input.base.clone(),
+    };
+
+    // Splice fresh CSRF tokens in *after* parsing so the user's edits
+    // are the source of truth and the auto-injection layers on top.
+    let csrf_applied = match input.csrf_store.as_ref() {
+        Some(store) => store.apply_to_request(&mut request),
+        None => Vec::new(),
     };
 
     let started = std::time::Instant::now();
@@ -67,6 +81,9 @@ pub async fn run_replay(
         // can pick it up.
         ScopeDecision::InScope,
     );
+    if !csrf_applied.is_empty() {
+        exchange.tags.push("csrf-injected".to_string());
+    }
     exchange.size_response = response.body.len() as u64;
     exchange.response = Some(response);
     exchange.duration_ms = Some(elapsed_ms);

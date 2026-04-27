@@ -538,6 +538,35 @@ export interface ExchangeSummary {
   query: string | null;
 }
 
+/** Anomaly classes attached to a clustered endpoint pattern. The
+ *  Traffic tab renders each as a coloured chip on the cluster row. */
+export type ClusterAnomaly =
+  | "auth_mismatch"
+  | "status_outlier"
+  | "size_outlier"
+  | "rate_limited";
+
+/** A clustered endpoint pattern — i.e. /api/users/1, /api/users/2, …
+ *  collapsed into one row keyed by /api/users/:id. */
+export interface EndpointCluster {
+  session_id: string;
+  method: string;
+  scheme: string;
+  host: string;
+  port: number;
+  pattern: string;
+  instance_count: number;
+  /** [(status, count)] sorted by count descending. */
+  status_breakdown: [number, number][];
+  avg_duration_ms: number;
+  size_mean: number;
+  size_stddev: number;
+  anomaly_flags: ClusterAnomaly[];
+  last_seen_unix: number;
+  /** Up to a handful of representative exchange IDs for deep-linking. */
+  sample_exchange_ids: string[];
+}
+
 export interface ExchangeDetail {
   id: string;
   method: string;
@@ -601,6 +630,100 @@ export function scopeGet(): Promise<ScopeRules> {
 
 export function scopeSet(rules: ScopeRules): Promise<void> {
   return invoke<void>("scope_set", { rules });
+}
+
+// --- Conditional intercept rules ---------------------------------------
+
+export type RuleKind = "include" | "exclude";
+export type PhaseFilter = "request" | "response" | "both";
+
+export type RuleCondition =
+  | { kind: "HostGlob"; pattern: string }
+  | { kind: "PathRegex"; pattern: string }
+  | { kind: "MethodIn"; methods: string[] }
+  | { kind: "ContentTypeContains"; needle: string }
+  | { kind: "StatusRange"; min: number; max: number }
+  | { kind: "HasHeader"; name: string; regex?: string | null };
+
+export interface InterceptRule {
+  id: string;
+  kind: RuleKind;
+  phase: PhaseFilter;
+  enabled: boolean;
+  conditions: RuleCondition[];
+}
+
+export interface InterceptRules {
+  rules: InterceptRule[];
+}
+
+export function interceptRulesGet(): Promise<InterceptRules> {
+  return invoke<InterceptRules>("intercept_rules_get");
+}
+
+export function interceptRulesSet(rules: InterceptRules): Promise<void> {
+  return invoke<void>("intercept_rules_set", { rules });
+}
+
+// --- CSRF token automation ---------------------------------------------
+
+export type TokenSource =
+  | { kind: "HtmlInput"; name_regex: string }
+  | { kind: "MetaTag"; name_regex: string }
+  | { kind: "JsonPath"; pointer: string }
+  | { kind: "SetCookie"; name: string }
+  | { kind: "ResponseHeader"; name: string };
+
+export type TokenInject =
+  | { kind: "FormField"; name: string }
+  | { kind: "JsonField"; pointer: string }
+  | { kind: "Header"; name: string }
+  | { kind: "Cookie"; name: string };
+
+export interface CsrfRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** `null` (or omitted) means the rule applies to every host. */
+  host_glob?: string | null;
+  source: TokenSource;
+  inject: TokenInject;
+}
+
+export interface CsrfObservation {
+  rule_id: string;
+  /** Empty when the rule has no `host_glob` (i.e. applies globally). */
+  host: string;
+  value: string;
+  observed_at_unix: number;
+}
+
+export function csrfRulesGet(): Promise<CsrfRule[]> {
+  return invoke<CsrfRule[]>("csrf_rules_get");
+}
+
+export function csrfRulesSet(rules: CsrfRule[]): Promise<void> {
+  return invoke<void>("csrf_rules_set", { rules });
+}
+
+export function csrfRulesResetDefaults(): Promise<CsrfRule[]> {
+  return invoke<CsrfRule[]>("csrf_rules_reset_defaults");
+}
+
+export function csrfStatus(): Promise<CsrfObservation[]> {
+  return invoke<CsrfObservation[]>("csrf_status");
+}
+
+export function csrfClearSession(): Promise<void> {
+  return invoke<void>("csrf_clear_session");
+}
+
+export function onCsrfObserved(
+  cb: (obs: CsrfObservation) => void,
+): Promise<UnlistenFn> {
+  return listen<CsrfObservation>("proxy://csrf-observed", (e) =>
+    cb(e.payload),
+  );
 }
 
 export interface HarExportReport {
@@ -808,6 +931,28 @@ export function exchangesList(
   return invoke<ExchangeSummary[]>("exchanges_list", { session, limit, offset });
 }
 
+/** Endpoint-pattern cluster snapshot for the active session. Returns
+ *  an empty array when the supplied session is not the live one — the
+ *  in-memory aggregator is reset on session start/stop. */
+export function exchangesClusteredList(
+  session: string,
+): Promise<EndpointCluster[]> {
+  return invoke<EndpointCluster[]>("exchanges_clustered_list", { session });
+}
+
+/** Concrete instances belonging to a single cluster. Called when a
+ *  cluster row is expanded so member rows are loaded lazily. */
+export function clusterInstances(args: {
+  session: string;
+  method: string;
+  host: string;
+  port: number;
+  pattern: string;
+  limit?: number;
+}): Promise<ExchangeSummary[]> {
+  return invoke<ExchangeSummary[]>("cluster_instances", args);
+}
+
 export function exchangeGet(id: string): Promise<ExchangeDetail | null> {
   return invoke<ExchangeDetail | null>("exchange_get", { id });
 }
@@ -877,10 +1022,16 @@ export function interceptDropAll(): Promise<void> {
 export function replaySend(
   baseId: string,
   editedBytesBase64: string | null,
+  /** Default `true` — splice the latest captured CSRF token into the
+   *  outbound request after the user's edits. Pass `false` to send the
+   *  request exactly as typed (useful for reproducing a deliberate
+   *  token-mismatch failure). */
+  applyCsrf: boolean = true,
 ): Promise<ReplayResult> {
   return invoke<ReplayResult>("replay_send", {
     baseId,
     editedBytesBase64,
+    applyCsrf,
   });
 }
 
@@ -1132,6 +1283,23 @@ export interface AssetEndpoint {
   last_exchange_id: string;
 }
 
+/** Clustered version of `AssetEndpoint`: `/api/users/1`, `/api/users/2`,
+ *  … fold into one row keyed by `/api/users/:id`. Counts are summed
+ *  across instances, sample_paths shows up to 5 underlying paths. */
+export interface AssetEndpointCluster {
+  host: string;
+  port: number;
+  scheme: string;
+  method: string;
+  pattern: string;
+  instance_count: number;
+  exchange_count: number;
+  finding_count: number;
+  last_status: number | null;
+  last_seen_unix: number;
+  sample_paths: string[];
+}
+
 export interface AssetFinding {
   check_id: string;
   severity: string;
@@ -1188,6 +1356,20 @@ export function assetEndpoints(
   limit = 200,
 ): Promise<AssetEndpoint[]> {
   return invoke<AssetEndpoint[]>("asset_endpoints", {
+    host,
+    port: port ?? null,
+    limit,
+  });
+}
+
+/** Clustered endpoints — server-side aggregates instances of the same
+ *  pattern into one row. */
+export function assetEndpointsClustered(
+  host: string,
+  port?: number,
+  limit = 2000,
+): Promise<AssetEndpointCluster[]> {
+  return invoke<AssetEndpointCluster[]>("asset_endpoints_clustered", {
     host,
     port: port ?? null,
     limit,

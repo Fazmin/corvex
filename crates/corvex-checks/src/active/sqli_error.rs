@@ -40,7 +40,7 @@ impl ActiveCheck for ErrorBasedSqli {
 
         // Baseline — errors already present without any injection get
         // suppressed so we don't flag pre-existing error pages.
-        let baseline_errors: HashSet<String> = match ctx.client.send(&target.request).await {
+        let baseline_errors: HashSet<String> = match ctx.send_with_csrf(&target.request).await {
             Ok(r) => error_matches(&r.body_str())
                 .into_iter()
                 .map(|m| m.description.to_string())
@@ -54,7 +54,7 @@ impl ActiveCheck for ErrorBasedSqli {
                 if seen.contains(&param) {
                     continue;
                 }
-                let resp = match ctx.client.send(&mutated).await {
+                let resp = match ctx.send_with_csrf(&mutated).await {
                     Ok(r) => r,
                     Err(_) => continue,
                 };

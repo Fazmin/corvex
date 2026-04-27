@@ -269,11 +269,38 @@ fn main() {
                             }
                         }
                     });
+                    // Fan out newly-observed CSRF token values so the
+                    // Settings → CSRF status panel updates without
+                    // polling. Each event carries the rule_id, host,
+                    // and the new value the engine just captured.
+                    let handle = app.handle().clone();
+                    let mut crx = state.subscribe_csrf_observations();
+                    tauri::async_runtime::spawn(async move {
+                        loop {
+                            match crx.recv().await {
+                                Ok(obs) => {
+                                    let _ = handle.emit("proxy://csrf-observed", obs);
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                    return;
+                                }
+                            }
+                        }
+                    });
                     // Hook the Checks engine onto the proxy exchange
                     // stream. Passive findings stream in real time;
                     // active runs are triggered explicitly from the UI.
                     let bridge = Arc::new(check_bridge::CheckBridge::new());
                     bridge.attach(state.clone(), app.handle().clone());
+                    // Cluster-anomaly emitter — taps the same broadcast
+                    // and emits one finding per anomaly the first time
+                    // a clustered endpoint pattern flips one on. See
+                    // `attach_cluster_anomalies` for the dedup keying.
+                    bridge.attach_cluster_anomalies(
+                        state.clone(),
+                        app.handle().clone(),
+                    );
                     app.manage(bridge);
                     app.manage(state);
                     tracing::info!(target: "proxy", "proxy state ready");
@@ -374,6 +401,7 @@ fn main() {
             asset_cmd::asset_services,
             asset_cmd::asset_stack,
             asset_cmd::asset_endpoints,
+            asset_cmd::asset_endpoints_clustered,
             asset_cmd::asset_findings,
             asset_cmd::asset_related,
             asset_cmd::asset_timeline,
@@ -383,6 +411,13 @@ fn main() {
             proxy_cmd::proxy_export_ca_pem,
             proxy_cmd::scope_get,
             proxy_cmd::scope_set,
+            proxy_cmd::intercept_rules_get,
+            proxy_cmd::intercept_rules_set,
+            proxy_cmd::csrf_rules_get,
+            proxy_cmd::csrf_rules_set,
+            proxy_cmd::csrf_rules_reset_defaults,
+            proxy_cmd::csrf_status,
+            proxy_cmd::csrf_clear_session,
             proxy_cmd::retention_get,
             proxy_cmd::retention_set,
             proxy_cmd::proxy_export_har,
@@ -397,6 +432,8 @@ fn main() {
             recon_cmd::recon_findings_for_run,
             recon_cmd::recon_run_delete,
             proxy_cmd::exchanges_list,
+            proxy_cmd::exchanges_clustered_list,
+            proxy_cmd::cluster_instances,
             proxy_cmd::exchange_get,
             proxy_cmd::intercept_set_mode,
             proxy_cmd::intercept_get_mode,

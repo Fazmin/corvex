@@ -259,7 +259,10 @@ export function AssetDetailView() {
           <ServicesPanel services={services} />
           <StackPanel techs={techs} />
           <RelatedAssetsPanel related={related} />
-          <EndpointsPanel endpoints={endpoints} />
+          <EndpointsPanel
+            endpoints={endpoints}
+            host={selected?.host ?? ""}
+          />
           <FindingsPanel findings={findings} wide />
           <TimelinePanel events={timeline} />
         </div>

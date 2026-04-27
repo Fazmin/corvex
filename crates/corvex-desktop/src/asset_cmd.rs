@@ -361,6 +361,101 @@ pub async fn asset_endpoints(
     Ok(rows.into_iter().map(Into::into).collect())
 }
 
+/// Clustered view of `asset_endpoints` — paths sharing a pattern
+/// (`/api/users/1`, `/api/users/2`, …) collapse into one row keyed by
+/// `/api/users/:id`. Counts are summed across underlying instances.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetEndpointCluster {
+    pub host: String,
+    pub port: u16,
+    pub scheme: String,
+    pub method: String,
+    /// Pattern with `:id`, `:uuid`, `:oid`, `:slug` placeholders.
+    pub pattern: String,
+    /// Number of distinct concrete paths that fold into this pattern.
+    pub instance_count: u32,
+    /// Sum of exchange_count across instances.
+    pub exchange_count: u32,
+    /// Sum of finding_count across instances.
+    pub finding_count: u32,
+    /// Latest status seen across the instances.
+    pub last_status: Option<u16>,
+    pub last_seen_unix: i64,
+    /// Up to 5 sample concrete paths the cluster stands in for, so the
+    /// UI can show "/api/users/1, /api/users/2, +3 more" on hover.
+    pub sample_paths: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn asset_endpoints_clustered(
+    asset_db: State<'_, Arc<AssetDb>>,
+    host: String,
+    port: Option<u16>,
+    limit: Option<usize>,
+) -> AppResult<Vec<AssetEndpointCluster>> {
+    use corvex_proxy::cluster::derive_pattern;
+
+    let host = normalize_host(&host);
+    let lim = limit.unwrap_or(2000).clamp(1, 5000);
+    let asset_db = asset_db.inner().clone();
+    let rows = tauri::async_runtime::spawn_blocking(move || {
+        asset_db.endpoints_for_host(&host, port, lim)
+    })
+    .await
+    .map_err(|e| crate::error::AppError::Other(format!("join: {e}")))?
+    .map_err(|e| crate::error::AppError::Other(format!("endpoints_for_host: {e}")))?;
+
+    // Aggregate by (method, scheme, host, port, pattern). The
+    // BTreeMap key keeps the iteration order deterministic so the UI's
+    // sort behaviour is stable across calls.
+    type Key = (String, String, String, u16, String);
+    let mut acc: BTreeMap<Key, AssetEndpointCluster> = BTreeMap::new();
+    for r in rows {
+        let pattern = derive_pattern(&r.path);
+        let key = (
+            r.method.clone(),
+            r.scheme.clone(),
+            r.host.clone(),
+            r.port,
+            pattern.clone(),
+        );
+        let entry =
+            acc.entry(key).or_insert_with(|| AssetEndpointCluster {
+                host: r.host.clone(),
+                port: r.port,
+                scheme: r.scheme.clone(),
+                method: r.method.clone(),
+                pattern: pattern.clone(),
+                instance_count: 0,
+                exchange_count: 0,
+                finding_count: 0,
+                last_status: None,
+                last_seen_unix: 0,
+                sample_paths: Vec::new(),
+            });
+        entry.instance_count = entry.instance_count.saturating_add(1);
+        entry.exchange_count = entry.exchange_count.saturating_add(r.exchange_count);
+        entry.finding_count = entry.finding_count.saturating_add(r.finding_count);
+        if r.last_seen_unix > entry.last_seen_unix {
+            entry.last_seen_unix = r.last_seen_unix;
+            entry.last_status = r.last_status;
+        }
+        if entry.sample_paths.len() < 5 && !entry.sample_paths.contains(&r.path) {
+            entry.sample_paths.push(r.path);
+        }
+    }
+
+    // Newest, then highest exchange volume — same precedence the
+    // proxy's cluster snapshot uses.
+    let mut out: Vec<AssetEndpointCluster> = acc.into_values().collect();
+    out.sort_by(|a, b| {
+        b.last_seen_unix
+            .cmp(&a.last_seen_unix)
+            .then_with(|| b.exchange_count.cmp(&a.exchange_count))
+    });
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn asset_findings(
     asset_db: State<'_, Arc<AssetDb>>,

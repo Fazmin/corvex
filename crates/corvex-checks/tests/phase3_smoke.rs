@@ -252,6 +252,7 @@ async fn active_open_redirect_detects_sentinel_bounce() {
 
     let ctx = CheckCtx {
         client: client.clone(),
+        csrf: None,
     };
     let findings = registry
         .run_active(&ctx, &exchange, &vec!["open-redirect".to_string()])

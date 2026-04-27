@@ -120,7 +120,7 @@ async fn ssrf_detects_aws_imds_credentials_leak() {
     let addr = spawn_ssrf_upstream(true, false);
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     // The `u` parameter carries a URL-shaped value so the SSRF
     // heuristic considers it worth probing.
@@ -163,7 +163,7 @@ async fn ssrf_detects_loopback_via_default_nginx_page() {
     let addr = spawn_ssrf_upstream(false, true);
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(
         &addr.ip().to_string(),
@@ -197,7 +197,7 @@ async fn ssrf_quiet_when_upstream_blocks_all_probes() {
     let addr = spawn_ssrf_upstream(false, false);
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(
         &addr.ip().to_string(),
@@ -225,7 +225,7 @@ async fn ssrf_skips_params_without_url_shaped_values() {
     let addr = spawn_ssrf_upstream(true, true);
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(&addr.ip().to_string(), addr.port(), "/item?id=42");
     let exchange = synth_exchange(req);

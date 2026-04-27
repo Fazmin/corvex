@@ -105,7 +105,7 @@ async fn boolean_blind_sqli_detects_true_vs_false_diff() {
 
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(&upstream.ip().to_string(), upstream.port(), "/order?id=5");
     let exchange = synth_exchange(req);
@@ -166,7 +166,7 @@ async fn boolean_blind_sqli_quiet_when_response_is_static() {
 
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(&upstream.ip().to_string(), upstream.port(), "/ok?id=5");
     let exchange = synth_exchange(req);
@@ -243,7 +243,7 @@ async fn time_based_sqli_detects_sleep_on_injectable_param() {
 
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(
         &upstream.ip().to_string(),
@@ -300,7 +300,7 @@ async fn time_based_sqli_stays_quiet_on_fast_endpoint() {
 
     let registry = default_registry();
     let client = Arc::new(HttpClient::new(Arc::new(GlobalState::new()), 10));
-    let ctx = CheckCtx { client };
+    let ctx = CheckCtx { client, csrf: None };
 
     let req = core_request(&upstream.ip().to_string(), upstream.port(), "/ok?q=1");
     let exchange = synth_exchange(req);

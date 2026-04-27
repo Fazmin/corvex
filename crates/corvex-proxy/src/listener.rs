@@ -63,6 +63,10 @@ pub(crate) struct ListenerCtx {
     pub captured: Arc<AtomicU64>,
     pub upstream: Arc<HttpClient>,
     pub ws_sink: crate::ws::FrameSink,
+    pub csrf_store: Arc<crate::csrf::CsrfStore>,
+    pub csrf_tx: broadcast::Sender<crate::csrf::CsrfObservation>,
+    pub intercept_rules:
+        Arc<tokio::sync::RwLock<crate::intercept_rules::InterceptRules>>,
 }
 
 /// Bind the listener to `listen` and serve until `cancel` fires. Returns
@@ -199,7 +203,9 @@ async fn handle_plain(
     // noise.
     if scope == ScopeDecision::InScope {
         let mode = *ctx.intercept_mode.read().await;
-        if mode.should_pause_request() {
+        if mode.should_pause_request()
+            && rules_pass_for_request(&ctx, &core_req).await
+        {
             match pause_for_verdict(&ctx, &exchange, &core_req, InterceptPhase::Request).await {
                 Some(Verdict::Forward) => {
                     exchange.intercepted |= InterceptMarks::REQUEST_PAUSED;
@@ -227,6 +233,22 @@ async fn handle_plain(
                     // logged.
                     exchange.intercepted |= InterceptMarks::REQUEST_PAUSED;
                 }
+            }
+        }
+    }
+
+    // CSRF auto-injection: splice fresh tokens into the request from
+    // the latest observed values. Runs after intercept-Edited verdicts
+    // so the user's manual edit is the source of truth — we layer
+    // tokens on top of whatever they sent. Tag the exchange so the UI
+    // shows a `csrf-injected` chip on the Traffic row.
+    {
+        let applied = ctx.csrf_store.apply_to_request(&mut core_req);
+        if !applied.is_empty() {
+            exchange.request = core_req.clone();
+            exchange.size_request = exchange.request.body.len() as u64;
+            if !exchange.tags.iter().any(|t| t == "csrf-injected") {
+                exchange.tags.push("csrf-injected".to_string());
             }
         }
     }
@@ -261,7 +283,9 @@ async fn handle_plain(
             // keeps holding on the response side too.
             if exchange.scope == ScopeDecision::InScope {
                 let mode = *ctx.intercept_mode.read().await;
-                if mode.should_pause_response() {
+                if mode.should_pause_response()
+                    && rules_pass_for_response(&ctx, &core_req, &resp).await
+                {
                     match pause_for_response_verdict(&ctx, &exchange, &core_req, &resp).await
                     {
                         Some(ResponseVerdict::Forward) => {
@@ -292,6 +316,17 @@ async fn handle_plain(
             }
 
             let hyper_resp = build_hyper_response(&resp);
+            // CSRF observation runs against the captured response
+            // before we move it onto the exchange. Newly-captured
+            // values fan out on `csrf_tx` so the desktop status
+            // panel updates without polling.
+            {
+                let observations =
+                    ctx.csrf_store.observe_response(&core_req.host, &resp);
+                for obs in observations {
+                    let _ = ctx.csrf_tx.send(obs);
+                }
+            }
             exchange.response = Some(resp);
             exchange.duration_ms = Some(elapsed_ms);
             exchange.size_response = exchange
@@ -1056,4 +1091,49 @@ async fn pause_for_response_verdict(
             }
         },
     }
+}
+
+async fn rules_pass_for_request(
+    ctx: &ListenerCtx,
+    request: &corvex_core::http::Request,
+) -> bool {
+    let rules = ctx.intercept_rules.read().await;
+    let path = request
+        .uri
+        .split_once('?')
+        .map(|(p, _)| p)
+        .unwrap_or(&request.uri);
+    let match_ctx = crate::intercept_rules::MatchCtx {
+        phase: crate::intercept_rules::Phase::Request,
+        method: &request.method,
+        host: &request.host,
+        path,
+        status: None,
+        request_headers: &request.headers,
+        response_headers: None,
+    };
+    rules.should_pause(&match_ctx)
+}
+
+async fn rules_pass_for_response(
+    ctx: &ListenerCtx,
+    request: &corvex_core::http::Request,
+    response: &CoreResponse,
+) -> bool {
+    let rules = ctx.intercept_rules.read().await;
+    let path = request
+        .uri
+        .split_once('?')
+        .map(|(p, _)| p)
+        .unwrap_or(&request.uri);
+    let match_ctx = crate::intercept_rules::MatchCtx {
+        phase: crate::intercept_rules::Phase::Response,
+        method: &request.method,
+        host: &request.host,
+        path,
+        status: Some(response.status),
+        request_headers: &request.headers,
+        response_headers: Some(&response.headers),
+    };
+    rules.should_pause(&match_ctx)
 }

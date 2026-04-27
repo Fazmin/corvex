@@ -178,7 +178,7 @@ async fn time_request(
     req: &corvex_core::http::request::Request,
 ) -> Option<u128> {
     let start = Instant::now();
-    let _ = ctx.client.send(req).await.ok()?;
+    let _ = ctx.send_with_csrf(req).await.ok()?;
     Some(start.elapsed().as_millis())
 }
 

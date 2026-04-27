@@ -350,6 +350,7 @@ async fn replay_sends_request_via_core_client_and_records_child() {
             base: base.clone(),
             base_id: corvex_proxy::ExchangeId::new(),
             edited_bytes: None,
+            csrf_store: None,
         },
     )
     .await

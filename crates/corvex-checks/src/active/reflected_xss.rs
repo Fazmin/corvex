@@ -42,7 +42,7 @@ impl ActiveCheck for ReflectedXss {
         for (context_name, template) in xss_canary_context_breakers() {
             let payload = template.replace("__CVX_CANARY__", &canary);
             for (param, mutated) in with_param_payload(&target.request, &payload) {
-                let resp = match ctx.client.send(&mutated).await {
+                let resp = match ctx.send_with_csrf(&mutated).await {
                     Ok(r) => r,
                     Err(_) => continue,
                 };

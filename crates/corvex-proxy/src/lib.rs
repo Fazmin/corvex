@@ -17,9 +17,12 @@
 
 pub mod body_store;
 pub mod ca;
+pub mod cluster;
+pub mod csrf;
 pub mod exchange;
 pub mod har;
 pub mod intercept;
+pub mod intercept_rules;
 mod listener;
 pub mod parser;
 pub mod replay;
@@ -30,6 +33,12 @@ mod writer;
 pub mod ws;
 
 pub use ca::{Authority, CaConfig};
+pub use cluster::{ClusterAnomaly, ClusterIndex, EndpointCluster};
+pub use csrf::{CsrfObservation, CsrfRule, CsrfStore, TokenInject, TokenSource};
+pub use intercept_rules::{
+    InterceptRule, InterceptRules, MatchCtx as InterceptMatchCtx, Phase as InterceptRulePhase,
+    PhaseFilter, RuleCondition, RuleKind,
+};
 pub use exchange::{
     Exchange, ExchangeId, ExchangeOrigin, ExchangeSummary, InterceptMarks, ScopeDecision,
     SessionId,
@@ -138,6 +147,26 @@ pub struct ProxyState {
     /// Per-session retention cap. Read by the writer after every
     /// flush; edits from the Settings tab apply on the next flush.
     retention: Arc<RwLock<RetentionPolicy>>,
+    /// Live endpoint-pattern aggregator. Subscribes to the broadcast
+    /// channel; the snapshot is what the Traffic tab's "Group by
+    /// endpoint" view renders. Cleared on every session start so the
+    /// view always reflects the active session.
+    cluster_index: Arc<RwLock<ClusterIndex>>,
+    /// CSRF token store — observed values from responses, injected
+    /// into matching outbound requests. Shared with the listener,
+    /// replay, and the Checks engine so every outbound HTTP path
+    /// gets the same auto-token treatment.
+    csrf_store: Arc<csrf::CsrfStore>,
+    /// Fan-out for newly-observed CSRF token values. Desktop layer
+    /// subscribes and re-emits as `proxy://csrf-observed` so the
+    /// Settings → CSRF status panel updates without polling.
+    csrf_tx: broadcast::Sender<csrf::CsrfObservation>,
+    /// Conditional intercept rules. Layered on top of
+    /// [`InterceptMode`] — when the mode permits a pause, the
+    /// listener consults this rule set to decide whether to
+    /// actually queue the exchange. Edits from the Settings tab
+    /// take effect on the next request without restarting.
+    intercept_rules: Arc<RwLock<intercept_rules::InterceptRules>>,
 }
 
 struct RunningSession {
@@ -151,6 +180,42 @@ impl ProxyState {
     pub fn new(authority: Arc<Authority>, db: Arc<ProxyDb>) -> Self {
         let (tx, _) = broadcast::channel(1024);
         let (ws_tx, _) = broadcast::channel(1024);
+        let (csrf_tx, _) = broadcast::channel(256);
+        // Hydrate persisted rules; fall back to bundled defaults when
+        // the table is empty (first run after upgrade) or unreadable.
+        let initial_rules = match db.load_csrf_rules() {
+            Ok(rules) if !rules.is_empty() => rules,
+            Ok(_) => {
+                let defaults = csrf::default_rules();
+                if let Err(e) = db.save_csrf_rules(&defaults) {
+                    tracing::warn!(
+                        target: "proxy",
+                        "could not seed default CSRF rules: {e}"
+                    );
+                }
+                defaults
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "proxy",
+                    "load_csrf_rules failed ({e}); falling back to bundled defaults"
+                );
+                csrf::default_rules()
+            }
+        };
+        // Hydrate persisted intercept rules. Empty / failing load
+        // falls back to the empty set so the listener behaves like
+        // mode-only intercept (the pre-Phase-3 baseline).
+        let initial_intercept_rules = match db.load_intercept_rules() {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    target: "proxy",
+                    "load_intercept_rules failed ({e}); starting empty"
+                );
+                intercept_rules::InterceptRules::empty()
+            }
+        };
         Self {
             authority,
             db,
@@ -162,7 +227,85 @@ impl ProxyState {
             tx,
             ws_tx,
             retention: Arc::new(RwLock::new(RetentionPolicy::default())),
+            cluster_index: Arc::new(RwLock::new(ClusterIndex::new())),
+            csrf_store: Arc::new(csrf::CsrfStore::new(initial_rules)),
+            csrf_tx,
+            intercept_rules: Arc::new(RwLock::new(initial_intercept_rules)),
         }
+    }
+
+    /// Snapshot the active intercept-rule set. Cheap — clones the
+    /// inner Vec; the listener takes a read lock on every pause
+    /// decision but never holds it across an `await`.
+    pub async fn intercept_rules_snapshot(&self) -> intercept_rules::InterceptRules {
+        self.intercept_rules.read().await.clone()
+    }
+
+    /// Replace the active intercept-rule set, persisting to SQLite.
+    /// Subsequent listener pause checks see the new rules
+    /// immediately (no listener restart).
+    pub async fn set_intercept_rules(
+        &self,
+        rules: intercept_rules::InterceptRules,
+    ) -> anyhow::Result<()> {
+        self.db.save_intercept_rules(&rules)?;
+        *self.intercept_rules.write().await = rules;
+        Ok(())
+    }
+
+    /// Shared handle to the live rule set. Passed to the listener
+    /// context so the pause path can read without round-tripping
+    /// through the state's async lock.
+    pub fn intercept_rules_handle(
+        &self,
+    ) -> Arc<RwLock<intercept_rules::InterceptRules>> {
+        self.intercept_rules.clone()
+    }
+
+    /// Live CSRF token store. Shared with the listener, replay, and
+    /// active checks — anything that builds an outbound HTTP request
+    /// can call `apply_to_request` to splice in fresh tokens.
+    pub fn csrf_store(&self) -> Arc<csrf::CsrfStore> {
+        self.csrf_store.clone()
+    }
+
+    pub fn csrf_rules_snapshot(&self) -> Vec<csrf::CsrfRule> {
+        self.csrf_store.rules_snapshot()
+    }
+
+    pub fn csrf_observations_snapshot(&self) -> Vec<csrf::CsrfObservation> {
+        self.csrf_store.observations_snapshot()
+    }
+
+    /// Replace the active CSRF rule set, persisting to SQLite. The
+    /// store wipes observations belonging to deleted rules so the UI
+    /// status panel doesn't show ghost entries.
+    pub fn set_csrf_rules(&self, rules: Vec<csrf::CsrfRule>) -> anyhow::Result<()> {
+        self.db.save_csrf_rules(&rules)?;
+        self.csrf_store.replace_rules(rules);
+        Ok(())
+    }
+
+    pub fn clear_csrf_observations(&self) {
+        self.csrf_store.clear_observations();
+    }
+
+    pub fn subscribe_csrf_observations(
+        &self,
+    ) -> broadcast::Receiver<csrf::CsrfObservation> {
+        self.csrf_tx.subscribe()
+    }
+
+    /// Snapshot of the live endpoint-pattern clusters for a given
+    /// session. Returns an empty Vec when the requested session is not
+    /// the active one — the index only retains data for the live
+    /// session, by design.
+    pub async fn cluster_snapshot(&self, session: &SessionId) -> Vec<EndpointCluster> {
+        let active = self.session_id();
+        if active.as_ref() != Some(session) {
+            return Vec::new();
+        }
+        self.cluster_index.read().await.snapshot()
     }
 
     /// Current retention policy snapshot. Cheap — the policy is a
@@ -310,8 +453,39 @@ impl ProxyState {
             config.note.as_deref(),
         )?;
 
+        // Reset the cluster index so the new session's "Group by
+        // endpoint" view starts clean — we never want patterns from a
+        // previous session to bleed in.
+        self.cluster_index.write().await.clear();
+
         let cancel = CancellationToken::new();
         let captured = Arc::new(AtomicU64::new(0));
+
+        // Spawn the cluster-index drain. Subscribes to the broadcast
+        // *before* the listener starts so we don't miss the first few
+        // exchanges. Exits when the session is cancelled.
+        {
+            let index = self.cluster_index.clone();
+            let mut rx = self.tx.subscribe();
+            let task_cancel = cancel.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = task_cancel.cancelled() => return,
+                        recv = rx.recv() => match recv {
+                            Ok(ex) => {
+                                index.write().await.record(&ex);
+                            }
+                            // Lagging — skip ahead. Missing a handful of
+                            // exchanges only loses fidelity in cluster
+                            // counts; the next flush re-stabilises.
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                        }
+                    }
+                }
+            });
+        }
 
         let (writer, _writer_handle) = ExchangeWriter::spawn(
             self.db.clone(),
@@ -329,6 +503,9 @@ impl ProxyState {
             captured: captured.clone(),
             upstream: self.upstream.clone(),
             ws_sink: self.ws_frame_sink(),
+            csrf_store: self.csrf_store.clone(),
+            csrf_tx: self.csrf_tx.clone(),
+            intercept_rules: self.intercept_rules.clone(),
         });
 
         let listen = config.listen;
@@ -369,6 +546,9 @@ impl ProxyState {
                 "proxy session stopped"
             );
         }
+        // Empty the cluster snapshot so the UI doesn't show patterns
+        // from a stopped session as if they were live.
+        self.cluster_index.write().await.clear();
         Ok(())
     }
 }
