@@ -34,7 +34,12 @@ installable application:
    Authority, per-session SQLite history, request *and* response
    interception, WebSocket frame capture, scope rules, retention
    policy, HAR export, OpenAPI / Postman spec import, and full replay
-   (Burp/mitmproxy-class workflow).
+   (Burp/mitmproxy-class workflow). Traffic auto-clusters by endpoint
+   pattern (`/api/users/:id`) with anomaly badges; an automatic CSRF
+   token store extracts and re-injects tokens across browse / replay /
+   active-checks / fuzz; and conditional intercept rules
+   (host / path / method / status / content-type / header) replace the
+   blunt off/request/response/both switch.
 8. A **Checks engine** that continuously evaluates proxy traffic
    against the OWASP Top 10 v2025 taxonomy with 6 passive and 7 coded
    active checks (plus an umbrella active-Nuclei runner and per-template
@@ -220,7 +225,10 @@ row opens the detail view; high-finding hosts are colour-flagged.
      with category colouring and per-detection path counts.
   4. **Endpoints** — `(method, path)` pairs derived from proxy
      traffic, sorted by request volume, with last status and
-     finding count per row.
+     finding count per row. A **[Flat] / [Clustered]** toggle
+     (persisted to `localStorage`) re-aggregates rows over endpoint
+     patterns (e.g. `/api/users/:id`) using the same cluster engine
+     that powers Traffic clustering.
   5. **Findings** — deduplicated security findings by
      `(check_id, port, path, title)` with severity filters and
      occurrence counts. CVE rows expand to Exploit-DB hits.
@@ -320,6 +328,10 @@ banner, and a live results table. Each subdomain row carries three
 cross-tool actions:
 
 - **Add to Proxy scope** — append to the active session's include list.
+- **Pause** — append an Include intercept rule (HostGlob, request
+  phase) so the next first-contact request to the discovered subdomain
+  is queued for inspection. Symmetric counterpart of *Add to Proxy
+  scope* — Scope admits, Pause queues for review.
 - **Send to Checks** — inject a synthetic exchange (same pipeline as
   OpenAPI import) so passive checks can fire against the host.
 - **Send to Fuzzer** — seed the Fuzzing view with `https://{host}/`.
@@ -353,7 +365,14 @@ user launch an active scan directly from this view with the right
 `sqli_level`, `sqli_risk`, `sqli_techniques` (BEUST), `sqli_dbms`,
 `sqli_time_delay`, `tamper` chain, and `sqli_enumerate` list, and
 accepts seed URLs forwarded from Proxy ("Send to Fuzzer") or Recon
-("Send to Fuzzer") rows.
+("Send to Fuzzer") rows. Cluster-derived seeds (Traffic → cluster
+row → Send to Fuzzer) carry the pattern URL plus
+`InjectionPoint::PathSegment(usize)` hints so per-segment fuzzing
+can target the parameterised slots; the seed banner shows the
+cluster context (member count, sample paths). Runner consumption of
+the path-segment hints is wired up to the `FuzzTarget::from_pattern_url`
+boundary; full per-segment injection in the active runner is a
+follow-up (see §10).
 
 ### 4.9 Intercept (proxy + replay + checks)
 
@@ -364,33 +383,53 @@ seeds the active session from an OpenAPI 3 JSON or Postman v2.1
 collection.
 
 - **Traffic** — Live list of HTTP/HTTPS exchanges captured by the
-  embedded MITM proxy. Each row shows method, scheme, host:port, path,
-  status, size, duration, scope decision (`in`/`out`/`excluded`),
-  origin (browser, replay, check, imported, recon-seed), and tags
-  (`websocket`, `ws-extension`, `body-truncated`, …). An `AssetLink`
-  icon next to the host pivots straight to the asset view. Clicking
-  a row expands an in-place detail strip with IDs, req/res size, MIME,
-  scope chip, and three cross-tool actions — **Send to Replay**,
-  **Send to Checks**, and **Send to Fuzzer** (seeds the Active Fuzzing
-  form with the captured URL and opens the Fuzzing view). WebSocket
-  upgrades show a `ws` badge; expanding the row reveals a live frame
-  list (opcode, direction, FIN flag, sequence, text/binary preview)
-  fed by a `proxy://ws-frame` broadcast. Request / response bodies
-  follow a two-tier cap: 512 KB inline in SQLite, anything bigger
-  spills to a blob file under `proxy/bodies/`; a 32 MB hard cap per
-  side triggers a `body-truncated` tag.
+  embedded MITM proxy. A **[Flat] / [Group by endpoint]** chip at the
+  top (state in `localStorage`) switches between the per-request view
+  and a **clustered view** that collapses URL siblings (`/api/users/1`,
+  `/api/users/2`, …) into a single `/api/users/:id` row. The
+  `derive_pattern` heuristic recognises numeric IDs, UUIDs, MongoDB
+  ObjectIDs, and slug-shaped segments while preserving alpha words and
+  numeric-stem filenames. Cluster rows carry **anomaly badges** for
+  four classes — `AuthMismatch` (mixed authenticated/anonymous), 
+  `StatusOutlier` (one status code dominates, others are rare),
+  `SizeOutlier` (response body sits outside the cluster's running
+  Welford variance band), and `RateLimited` (429s appearing) — and
+  lazy-load member instances on expand. Each row (flat or cluster)
+  shows method, scheme, host:port, path, status, size, duration, scope
+  decision (`in`/`out`/`excluded`), origin (browser, replay, check,
+  imported, recon-seed), and tags (`websocket`, `ws-extension`,
+  `body-truncated`, `csrf-injected`, …). An `AssetLink` icon next to
+  the host pivots straight to the asset view. Clicking a row expands
+  an in-place detail strip with IDs, req/res size, MIME, scope chip,
+  and three cross-tool actions — **Send to Replay**, **Send to
+  Checks**, and **Send to Fuzzer** (seeds the Active Fuzzing form with
+  the captured URL and opens the Fuzzing view); cluster rows forward
+  the pattern URL plus path-segment injection hints. WebSocket upgrades
+  show a `ws` badge; expanding the row reveals a live frame list
+  (opcode, direction, FIN flag, sequence, text/binary preview) fed by
+  a `proxy://ws-frame` broadcast. Request / response bodies follow a
+  two-tier cap: 512 KB inline in SQLite, anything bigger spills to a
+  blob file under `proxy/bodies/`; a 32 MB hard cap per side triggers
+  a `body-truncated` tag. Cluster anomalies that flip on for the first
+  time also emit one Finding per `(method, host, port, pattern, kind)`
+  to the shared findings store via `check_bridge::attach_cluster_anomalies`.
 - **Intercept** — Queue of requests *and* responses paused by the
-  user's intercept mode (`off` / `request` / `response` / `both`).
-  Each pending item can be **Forwarded**, **Edited and forwarded**
-  (raw bytes replaced), or **Dropped**. Subscribes to
-  `proxy://intercept-pending` events for zero-poll updates, with a
-  5-minute auto-forward safety timeout so a forgotten pause can't hang
-  the browser.
+  user's intercept mode (`off` / `request` / `response` / `both`),
+  optionally narrowed by the **conditional intercept rules** configured
+  in Settings → Intercept rules. A `⚠ N rules active` chip next to the
+  mode selector surfaces when rules are in play. Each pending item can
+  be **Forwarded**, **Edited and forwarded** (raw bytes replaced), or
+  **Dropped**. Subscribes to `proxy://intercept-pending` events for
+  zero-poll updates, with a 5-minute auto-forward safety timeout so a
+  forgotten pause can't hang the browser.
 - **Replay** — Pick a captured exchange, optionally mutate its raw
   request bytes, and re-send through the same upstream client. The
   replayed exchange is written back to the session DB under origin
   `Replay{parent}` so replays stack alongside the original request in
-  Traffic.
+  Traffic. The toolbar carries an **Apply CSRF** checkbox (default on)
+  that can be flipped off to deliberately reproduce a token-mismatch
+  failure; with it on, the proxy's CSRF store auto-injects the
+  freshest matching token before the request leaves.
 - **Checks** — Library of passive + active checks grouped by OWASP
   Top 10 v2025 category (version, release date, and description
   sourced from the active `top10.yaml` taxonomy; a banner at the top
@@ -409,9 +448,13 @@ collection.
   Recon) plus one or more active check IDs and clicks Run; findings
   stream in through `proxy://scan-finding` events and get persisted in
   the shared SQLite DB. Passive checks run automatically on every
-  in-scope exchange via `check_bridge.rs`. CVE-bearing findings expand
-  to show Exploit-DB hits.
-- **Settings** — Seven-section guided setup:
+  in-scope exchange via `check_bridge.rs`. Every coded active check
+  (Reflected XSS, Open Redirect, the four SQLi variants, SSRF,
+  Hidden-Parameter Discovery) routes its probes through the CSRF
+  store's `send_with_csrf` helper so checks don't 419 against
+  CSRF-protected endpoints. CVE-bearing findings expand to show
+  Exploit-DB hits.
+- **Settings** — Nine-section guided setup:
   1. **Overview** — ordered checklist (CA → Browser → Verify) with
      deep links to each sub-section.
   2. **Certificate authority** — one-click **Export CA as PEM**
@@ -428,15 +471,48 @@ collection.
      exclude always wins. Stored in the proxy DB via `scope_set` /
      `scope_get` and hydrated into the listener at startup. Recon's
      "Add to Proxy scope" action writes through this same API.
-  5. **Retention** — configurable ring buffer `max_exchanges_per_session`
+  5. **Intercept rules** — conditional `{ kind, phase, conditions[],
+     enabled }` rule list that narrows what the off/request/response/
+     both mode selector pauses. Conditions: `HostGlob`, `PathRegex`,
+     `MethodIn`, `ContentTypeContains`, `StatusRange`, `HasHeader`
+     (with optional value regex). Conditions AND inside a rule, OR
+     across rules of the same kind; **exclude wins**. Empty rule list
+     reverts to mode-only behaviour. Malformed regex is rejected at
+     Save time and **fails closed** (a malformed Include rule never
+     fires, so it can't silently widen scope). Four bundled preset
+     chips append common configurations: *Skip static assets*, *Only
+     mutating requests*, *Only auth endpoints*, *Only error responses*.
+     Edits take effect on the next request — no listener restart.
+     Persisted in the new `proxy_intercept_rules` table; conditions
+     are stored as a tagged-enum JSON blob so future condition kinds
+     don't need a schema migration.
+  6. **CSRF tokens** — full editor for the CSRF rule store with a live
+     status panel (rule | host | truncated value | observed-ago).
+     Each rule pairs a `TokenSource` (`HtmlInput`, `MetaTag`,
+     `JsonPath`, `SetCookie`, `ResponseHeader`) with a `TokenInject`
+     (`FormField`, `JsonField`, `Header`, `Cookie`); the proxy
+     observes responses, harvests the token, and re-injects it into
+     subsequent matching requests so browsing, replay, active checks,
+     and the fuzzer don't 419 on token expiry. JSON-injecting into a
+     form-encoded body refuses to corrupt the body; cookie-injecting
+     preserves siblings on the existing `Cookie` header; JSON
+     injection creates the parent key if the JSON pointer doesn't
+     resolve. Six rules ship as bundled defaults on first run
+     (Laravel `_token`, Rails `authenticity_token` + meta tag,
+     ASP.NET `__RequestVerificationToken`, Django
+     `csrfmiddlewaretoken`, Angular `XSRF-TOKEN` cookie). The status
+     panel subscribes to `proxy://csrf-observed` for zero-poll
+     updates. Successful injections tag the affected exchange with
+     `csrf-injected`. Persisted in the new `proxy_csrf_rules` table.
+  7. **Retention** — configurable ring buffer `max_exchanges_per_session`
      (presets 1k / 5k / 20k / 100k / unlimited, default 5,000). On
      every ~250 ms flush the writer evicts oldest rows plus their
      dependent WebSocket frames and scan findings; the cap is
      per-session (each Start / Stop cycle gets its own budget).
      Persisted via `retention_set` / `retention_get`.
-  6. **Verify** — smoke-test checklist (open an HTTP then an HTTPS
+  8. **Verify** — smoke-test checklist (open an HTTP then an HTTPS
      page, confirm Traffic rows appear, body visible).
-  7. **Troubleshooting** — common failure modes (CA not trusted,
+  9. **Troubleshooting** — common failure modes (CA not trusted,
      HSTS pins, certificate pinning, proxy bypassed).
 
 ### 4.10 SCA (Software Composition Analysis)
@@ -526,7 +602,7 @@ highlighting.
 
 ## 5. Backend surface (Tauri commands)
 
-Every user action in the UI funnels through one of the following 65
+Every user action in the UI funnels through one of the following 74
 commands (registered in `main.rs` and defined in `commands.rs`,
 `proxy_cmd.rs`, `asset_cmd.rs`, and `recon_cmd.rs`). The rest is
 rendering.
@@ -576,6 +652,7 @@ rendering.
 | `asset_findings` | Deduplicated findings by `(check_id, port, path, title)` with severity sort and occurrence count. |
 | `asset_related` | Three relationship sets — same JARM, same registrable suffix, same /24 network. |
 | `asset_timeline` | Interleaved event log (probe / exchange / finding / recon / scan), newest first, with deep links. |
+| `asset_endpoints_clustered` | Re-aggregates `asset_endpoints` over endpoint patterns (`/api/users/:id`) for the asset Endpoints panel's `[Clustered]` toggle. |
 
 ### Proxy (lifecycle, scope, retention, IO)
 
@@ -594,10 +671,22 @@ rendering.
 | Command | What it does |
 | --- | --- |
 | `exchanges_list` / `exchange_get` | Query the per-session exchange store. `exchange_get` returns a 1 MB-per-side preview plus full req/res size so the UI can show a "truncated" indicator. |
+| `exchanges_clustered_list` | Pattern-clustered roll-up of the session's exchanges, with one row per `(method, host, port, pattern)` plus running anomaly badges (`AuthMismatch`, `StatusOutlier`, `SizeOutlier`, `RateLimited`). Backs the Traffic tab's *Group by endpoint* view. |
+| `cluster_instances` | Lazy-load the member exchanges of a cluster row by re-deriving the pattern over `exchanges_list` results. |
 | `intercept_set_mode` / `intercept_get_mode` / `intercept_pending_list` / `intercept_resolve` / `intercept_drop_all` | Intercept queue control (applies to both request and response phases). |
+| `intercept_rules_get` / `intercept_rules_set` | Conditional intercept-rule CRUD. Rules narrow what the current intercept mode pauses on; conditions are AND-ed inside a rule, OR-ed across rules of the same kind, and exclude wins. Regex conditions are validated up-front; malformed rules are rejected at Save time. |
 | `replay_send` | Re-send a stored request with optional raw-byte edit. The result is persisted as a new exchange under origin `Replay{parent}` and broadcast. |
 | `checks_list` / `findings_for_exchange` / `findings_for_session` / `checks_run` | Checks engine descriptors, per-exchange and per-session findings, on-demand active check runs. Descriptor rows carry their resolved OWASP category label + description from the active `top10.yaml`. |
 | `owasp_taxonomy_info` | Version, release, source, and full category list for the active `top10.yaml`. |
+
+### CSRF token store
+
+| Command | What it does |
+| --- | --- |
+| `csrf_rules_get` / `csrf_rules_set` | CRUD for the CSRF rule list — each rule pairs a `TokenSource` (`HtmlInput` / `MetaTag` / `JsonPath` / `SetCookie` / `ResponseHeader`) with a `TokenInject` (`FormField` / `JsonField` / `Header` / `Cookie`). |
+| `csrf_rules_reset_defaults` | Restore the six bundled defaults (Laravel `_token`, Rails `authenticity_token` form + meta, ASP.NET `__RequestVerificationToken`, Django `csrfmiddlewaretoken`, Angular `XSRF-TOKEN` cookie). |
+| `csrf_status` | Snapshot of the live token store — per `(rule, host)` it returns the latest observed value (truncated for display) and how long ago it was seen. |
+| `csrf_clear_session` | Drop all observed tokens for the current session (rules are kept). Useful after logging in as a different user. |
 
 ### Exploit-DB
 
@@ -624,7 +713,8 @@ rendering.
 - `proxy://exchange-new` — every captured HTTP exchange (summary).
 - `proxy://ws-frame` — every captured WebSocket frame (exchange id, sequence, direction, opcode, FIN flag, base64 payload).
 - `proxy://intercept-pending` — new item parked on the intercept queue (request or response phase).
-- `proxy://scan-finding` — passive or active Check finding for a captured exchange.
+- `proxy://scan-finding` — passive or active Check finding for a captured exchange (also fires for cluster anomaly findings the first time each `(method, host, port, pattern, kind)` flag flips on).
+- `proxy://csrf-observed` — fresh CSRF token harvested from a response (rule id, host, truncated value, observed-at). Drives the Settings → CSRF tokens live status panel.
 - `exploitdb://progress` — Exploit-DB sync stages (`start`, `download`, `up_to_date`, `commit_lookup`, `parse`, `done`).
 - `nuclei://progress` — Nuclei tier-2 download progress (when extras download is in flight).
 - `log://line` — every `tracing` event the engine emits (level, target, message).
@@ -641,7 +731,7 @@ refreshes on a slow 2 s cadence.)
 
 | Path (platform-resolved via `app_data_dir`) | Contents |
 | --- | --- |
-| `history.sqlite` | Scan history table; proxy sessions, exchanges, WebSocket frames, scope rules, retention setting, intercept mode, key/value settings, findings; recon runs and recon findings (`recon_runs` + `recon_findings`, FK cascade). WAL mode so every engine shares it safely. |
+| `history.sqlite` | Scan history table; proxy sessions, exchanges, WebSocket frames, scope rules, retention setting, intercept mode, key/value settings, findings; recon runs and recon findings (`recon_runs` + `recon_findings`, FK cascade); CSRF rules (`proxy_csrf_rules`); conditional intercept rules (`proxy_intercept_rules`, with conditions stored as a tagged-enum JSON blob to avoid future schema migrations). WAL mode so every engine shares it safely. |
 | `exploitdb.sqlite` | Exploit-DB snapshot — `exploits`, `exploit_cves`, `exploitdb_meta` tables. Seeded from a bundled snapshot on first launch and upgraded on app updates unless the user has run their own sync. Refreshable via the `exploitdb_update` command. |
 | `proxy/ca/ca.cert.pem` + `proxy/ca/ca.key.pem` | Locally-generated Certificate Authority for HTTPS MITM. Regenerated on first proxy start if missing. |
 | `proxy/bodies/<exchange-id>.{req,res}.bin` | Large request / response bodies that exceed the 512 KB inline cap are spilled here (up to the 32 MB per-side hard cap). Evicted alongside the parent exchange when retention trims. |
@@ -763,7 +853,43 @@ CVE row expands to show Exploit-DB hits — verified rows on top, a
 app. No vulndb = check silently disabled; run **Update VulnDB** once
 from the Databases view to light it up.
 
-### 8.13 "Pivot through everything we know about this host."
+### 8.13 "Find an IDOR in /api/users/:id without scrolling 800 rows."
+
+Intercept → Traffic → flip the chip to **Group by endpoint** → spot the
+`/api/users/:id` cluster with an `AuthMismatch` or `StatusOutlier`
+badge → expand the cluster, eyeball the differing instances → click
+**Send to Fuzzer** on the cluster row. The Active Fuzzing form opens
+with the pattern URL pre-filled and a seed banner showing the cluster
+context plus the `PathSegment(usize)` injection hints — fuzz the `:id`
+slot directly without hand-crafting per-segment positions. (Note: the
+runner consumes the path-segment hints at the boundary; full
+per-segment active-fuzz coverage is a follow-up — see §10.)
+
+### 8.14 "Replay this CSRF-protected POST without getting a 419."
+
+Intercept → Start → log into the target app in your browser. The CSRF
+store auto-observes Laravel `_token`, Rails `authenticity_token`,
+ASP.NET, Django, Angular, or any custom rule you've added — confirm
+in **Settings → CSRF tokens** that the live status panel shows a
+fresh observation. Pick the failing POST in Traffic → Send to Replay
+→ leave **Apply CSRF** ticked → Send. The newest matching token is
+swapped in before the request leaves and the exchange comes back
+tagged `csrf-injected`. Active checks and the fuzzer route through
+the same store, so SQLi / XSS / SSRF probes against the same endpoint
+won't 419 either.
+
+### 8.15 "Pause on first contact when a new subdomain comes online."
+
+Recon → Run a recon job → on a row of interest click **Pause** (the
+fourth row action). An Include intercept rule for that host
+(HostGlob, request phase) is appended to **Settings → Intercept
+rules**; the Intercept tab gains a `⚠ N rules active` chip. The next
+time anything in your browser session touches that subdomain, the
+request is queued in the Intercept tab for inspection — perfect for
+catching whatever auth flow / hidden header the new host uses on
+first contact. Drop the rule when you're done.
+
+### 8.16 "Pivot through everything we know about this host."
 
 Anywhere you see a crosshair `AssetLink` icon (Findings, Traffic, Recon
 results, Probing rows, History) — click it. The Asset detail view
@@ -874,3 +1000,25 @@ place.
   exploit (results are cached on disk afterwards).
 - The proxy listener-status banner refreshes on a 2 s polling cadence
   (the rest of the proxy UI is event-driven).
+- **Traffic clustering** — the `derive_pattern` heuristic is a segment
+  classifier (`:id` / `:uuid` / `:oid` / `:slug`), not a learned model;
+  unusual route shapes will under- or over-cluster. Anomaly badges
+  (`AuthMismatch`, `StatusOutlier`, `SizeOutlier`, `RateLimited`) are
+  *signals*, not proofs — treat them as triage prompts.
+- **Path-segment fuzzing** is half-wired in v1: clusters surface
+  `InjectionPoint::PathSegment(usize)` hints all the way to the
+  `FuzzTarget::from_pattern_url` boundary and the Active Fuzz Runner
+  shows the cluster seed banner, but the active runner does not yet
+  iterate per-segment payloads — full per-segment injection in the
+  runner is a follow-up.
+- **CSRF rule shape** — form-field injection refuses to corrupt
+  JSON bodies and vice-versa, and only the body content-types the
+  rule's `TokenInject` is configured for are touched (multipart
+  upload bodies, for instance, need a header- or cookie-shaped
+  inject rule rather than form-field). Rules are global to the
+  session; per-route overrides are not modelled in v1.
+- **Conditional intercept rules** narrow what *pauses*, not what
+  the proxy *captures*. Use Scope rules to control what's captured
+  in the first place; intercept rules sit on top of the
+  off/request/response/both mode selector and decide which captured
+  exchanges are queued for inspection.
