@@ -16,9 +16,12 @@ git status
 git pull --ff-only
 
 # 2. refresh bundled datasets if this is a real release
+#    Linux / macOS / Git Bash:
 bash scripts/refresh-exploitdb-bundle.sh
 bash scripts/refresh-nuclei-bundle.sh
 bash scripts/refresh-wappalyzer.sh
+#    Windows (PowerShell ports + single-file orchestrator):
+scripts\refresh-all-bundles.cmd
 git add program/databases/ && git commit -m "chore: refresh bundled datasets for release"
 
 # 3. bump version if needed (see "When to bump" below)
@@ -160,11 +163,41 @@ These scripts pull fresh upstream data and commit a deterministic
 snapshot under `program/databases/`. They require network access
 and may take a few minutes.
 
+**Linux / macOS / Git Bash:**
+
 ```bash
 bash scripts/refresh-exploitdb-bundle.sh   # Exploit-DB index (~12 MB)
 bash scripts/refresh-nuclei-bundle.sh      # Nuclei critical/high/medium + kev
 bash scripts/refresh-wappalyzer.sh         # Wappalyzer fingerprints
 ```
+
+**Windows (PowerShell):** native ports of all three live alongside
+the `.sh` files, plus a single-file orchestrator that runs them in
+sequence with a per-step elapsed-time summary.
+
+```cmd
+REM Run all three (recommended). The .cmd wrapper picks pwsh 7+ when
+REM available, falls back to Windows PowerShell 5.1, and dodges the
+REM execution-policy prompt:
+scripts\refresh-all-bundles.cmd
+
+REM Or run an individual port directly:
+pwsh -File scripts\refresh-exploitdb-bundle.ps1
+pwsh -File scripts\refresh-nuclei-bundle.ps1
+pwsh -File scripts\refresh-wappalyzer.ps1
+
+REM Pin specific upstream refs:
+scripts\refresh-all-bundles.cmd -NucleiTag v9.9.0 -WappalyzerRef main
+
+REM Continue past a step that fails (default is to stop):
+scripts\refresh-all-bundles.cmd -ContinueOnError
+```
+
+The PowerShell ports require the same external dependencies as the
+bash versions: `git`, `cargo`, and (for the Nuclei step) Python with
+`pyyaml` (`pip install pyyaml`). They emit timestamped phase markers
+and per-step elapsed-time lines so you can see progress during the
+multi-minute cargo build / template scan / cargo test phases.
 
 Each produces a `MANIFEST.toml` recording the upstream commit SHA
 and refresh timestamp — commit the full output tree, not just the

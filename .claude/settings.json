@@ -17,7 +17,10 @@
       "Bash(PERL=\"C:/Strawberry/perl/bin/perl.exe\" cargo check --workspace)",
       "Bash(PERL=\"C:/Strawberry/perl/bin/perl.exe\" cargo test --package corvex-core --lib)",
       "Bash(xargs grep *)",
-      "Bash(cargo tauri *)"
+      "Bash(cargo tauri *)",
+      "PowerShell($files = @\\('scripts\\\\refresh-exploitdb-bundle.ps1','scripts\\\\refresh-nuclei-bundle.ps1','scripts\\\\refresh-wappalyzer.ps1','scripts\\\\refresh-all-bundles.ps1'\\); foreach \\($f in $files\\) { $tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile\\($f, [ref]$tokens, [ref]$errors\\) | Out-Null; if \\($errors -and $errors.Count -gt 0\\) { Write-Host \"FAIL $f\" -ForegroundColor Red; $errors | ForEach-Object { Write-Host \\(\"  {0}\" -f $_\\) } } else { Write-Host \"OK   $f\" } })",
+      "PowerShell($tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile\\('scripts\\\\refresh-nuclei-bundle.ps1', [ref]$tokens, [ref]$errors\\) | Out-Null; if \\($errors -and $errors.Count -gt 0\\) { $errors | ForEach-Object { Write-Host $_ } } else { Write-Host 'OK' })",
+      "PowerShell($tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile\\('scripts\\\\refresh-all-bundles.ps1', [ref]$tokens, [ref]$errors\\) | Out-Null; if \\($errors -and $errors.Count -gt 0\\) { $errors | ForEach-Object { Write-Host $_ } } else { Write-Host 'OK' })"
     ]
   }
 }

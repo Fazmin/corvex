@@ -1,14 +1,13 @@
 # Wappalyzer upstream — HTTPArchive/wappalyzer
 
 - **Source**: https://github.com/HTTPArchive/wappalyzer.git
-- **Pinned ref**: `main` (commit `2553279e1c7c`)
-- **Refreshed**: 2026-04-21
+- **Pinned ref**: `main` (commit `a38aeaf709d6`)
+- **Refreshed**: 2026-04-27
 
 The upstream `LICENSE` is reproduced verbatim below. The corvex
 bundle redistributes the technology data under its terms.
 
 ---
-
 GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
