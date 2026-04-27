@@ -191,6 +191,15 @@ scripts\refresh-all-bundles.cmd -NucleiTag v9.9.0 -WappalyzerRef main
 
 REM Continue past a step that fails (default is to stop):
 scripts\refresh-all-bundles.cmd -ContinueOnError
+
+REM Also bundle the NVD + EPSS vulndb snapshot (5-30 min, network-heavy).
+REM Without this, the released binary ships with an empty CVE database
+REM and Databases > SCA/VulnDB shows 0 CVEs until the user clicks
+REM "Update database".
+scripts\refresh-all-bundles.cmd -IncludeVulnDb -NvdApiKey %NVD_API_KEY%
+
+REM Or build just the vulndb snapshot directly (incremental on re-run):
+pwsh -File scripts\build-vulndb-snapshot.ps1 -ApiKey %NVD_API_KEY%
 ```
 
 The PowerShell ports require the same external dependencies as the
@@ -198,6 +207,17 @@ bash versions: `git`, `cargo`, and (for the Nuclei step) Python with
 `pyyaml` (`pip install pyyaml`). They emit timestamped phase markers
 and per-step elapsed-time lines so you can see progress during the
 multi-minute cargo build / template scan / cargo test phases.
+
+**About the vulndb snapshot** (`program/vulndb/snapshot.db.gz`):
+the corvex-desktop binary embeds it at compile time via `include_bytes!`,
+so the snapshot must exist *before* `cargo build --release` /
+`cargo tauri build`. If it's missing, the build embeds an empty
+placeholder and the running app reports 0 CVEs until the user
+manually fetches via SCA → Update. Re-run the snapshot build (it's
+incremental on subsequent runs) before any release that's meant to
+ship with current CVE coverage. Get a free NVD API key at
+<https://nvd.nist.gov/developers/request-an-api-key> — without one
+NVD throttles you to 10 req/min.
 
 Each produces a `MANIFEST.toml` recording the upstream commit SHA
 and refresh timestamp — commit the full output tree, not just the
@@ -308,6 +328,13 @@ The installer ships:
   (critical/high/medium + KEV, pinned via `MANIFEST.toml`).
 - `program/databases/exploitdb/exploitdb.sqlite` +
   `MANIFEST.toml` — the Exploit-DB CSV index snapshot.
+- `program/vulndb/snapshot.db.gz` — gzip-compressed SQLite of NVD +
+  EPSS data (when present; embedded into the binary at build time
+  via `include_bytes!`). Without this file the shipped binary has an
+  empty CVE database and the Databases → SCA/VulnDB view shows 0
+  CVEs until the user clicks "Update database". Build it before
+  cutting a release with [scripts/build-vulndb-snapshot.ps1](scripts/build-vulndb-snapshot.ps1)
+  (Windows) / [scripts/build-vulndb-snapshot.sh](scripts/build-vulndb-snapshot.sh) (Linux/macOS).
 - `program/corvex.conf.default` — default config.
 - `THIRD_PARTY_LICENSES.md` — attribution for all bundled data.
 
@@ -318,7 +345,8 @@ Not shipped, fetched on demand by the running app into the user's
   gitlab, cached under `<app_data_dir>/exploitdb/cache/`).
 - Tier-2 Nuclei extras (downloaded via Databases → Nuclei templates
   → Expand coverage).
-- NVD / EPSS VulnDB snapshot (downloaded via SCA → Update).
+- Incremental NVD / EPSS deltas (downloaded via SCA → Update on top
+  of the embedded snapshot).
 
 ---
 

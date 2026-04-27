@@ -20,6 +20,21 @@
 .PARAMETER WappalyzerRef
     Optional Wappalyzer git ref. Defaults to 'main'.
 
+.PARAMETER IncludeVulnDb
+    Also build the embedded NVD + EPSS snapshot via vulndb-builder. Off
+    by default - this step takes 5-30 minutes and is network-heavy, so
+    it doesn't belong in every iteration. Run it before cutting a real
+    release so the binary ships with up-to-date CVE data.
+
+.PARAMETER NvdApiKey
+    NVD API key for the vulndb step. Without one NVD throttles to
+    10 req/min; with one, 100 req/min. Falls back to NVD_API_KEY env
+    var. Ignored unless -IncludeVulnDb is set.
+
+.PARAMETER VulnDbFull
+    Force a full vulndb rebuild instead of incremental. Ignored unless
+    -IncludeVulnDb is set.
+
 .PARAMETER ContinueOnError
     Run remaining steps even if an earlier one fails. Default is to
     stop at the first failure.
@@ -29,12 +44,18 @@
 
 .EXAMPLE
     pwsh -File scripts\refresh-all-bundles.ps1 -NucleiTag v9.9.0
+
+.EXAMPLE
+    pwsh -File scripts\refresh-all-bundles.ps1 -IncludeVulnDb -NvdApiKey $env:NVD_API_KEY
 #>
 
 [CmdletBinding()]
 param(
     [string]$NucleiTag,
     [string]$WappalyzerRef = 'main',
+    [switch]$IncludeVulnDb,
+    [string]$NvdApiKey,
+    [switch]$VulnDbFull,
     [switch]$ContinueOnError
 )
 
@@ -53,6 +74,17 @@ $jobs = @(
     [pscustomobject]@{ Name = 'nuclei';     Script = 'refresh-nuclei-bundle.ps1';     Args = $nucleiArgs },
     [pscustomobject]@{ Name = 'wappalyzer'; Script = 'refresh-wappalyzer.ps1';        Args = @{ Ref = $WappalyzerRef } }
 )
+
+if ($IncludeVulnDb) {
+    $vulndbArgs = @{}
+    if ($NvdApiKey) { $vulndbArgs.ApiKey = $NvdApiKey }
+    if ($VulnDbFull) { $vulndbArgs.Full = $true }
+    $jobs += [pscustomobject]@{
+        Name   = 'vulndb'
+        Script = 'build-vulndb-snapshot.ps1'
+        Args   = $vulndbArgs
+    }
+}
 
 $bar = '=' * 70
 
