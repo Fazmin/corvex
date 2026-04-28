@@ -1,0 +1,5 @@
+FIXTURE
+# Replace this file with the upstream PortSwigger/BChecks commit SHA when real
+# BCheck content is vendored. Until then, the *.bcheck files in this directory
+# are hand-crafted fixtures that exercise the corvex-rules-builder Burp parser
+# end-to-end without committing third-party content.

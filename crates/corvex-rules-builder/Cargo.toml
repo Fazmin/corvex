@@ -1,0 +1,21 @@
+[package]
+name = "corvex-rules-builder"
+version.workspace = true
+edition.workspace = true
+description = "Standalone tool that ingests rules from Nikto, OWASP ZAP, and Burp Suite into a unified rules.sqlite catalog"
+
+[[bin]]
+name = "corvex-rules-builder"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+csv.workspace = true
+rusqlite.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+time.workspace = true
+walkdir.workspace = true

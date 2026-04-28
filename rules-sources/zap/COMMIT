@@ -1,0 +1,6 @@
+FIXTURE
+# Replace this file with the upstream zaproxy/zap-extensions commit SHA when
+# real ZAP rules are vendored. Until then, the *.json files in this directory
+# are hand-crafted fixtures that exercise the corvex-rules-builder ZAP parser
+# end-to-end so the ingestion pipeline can be validated without committing
+# third-party content.

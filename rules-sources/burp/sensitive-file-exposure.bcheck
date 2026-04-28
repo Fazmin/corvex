@@ -1,0 +1,20 @@
+metadata:
+    language: v2-beta
+    name: "Sensitive file exposure (.env)"
+    description: "Detects exposure of a .env-style file containing what looks like environment secrets."
+    author: "corvex fixtures"
+    tags: "info-leak", "active"
+
+given host then
+    send request called probe:
+        method: "GET"
+        path: "/.env"
+
+    if {probe.response.status_code} is "200" and
+       {probe.response.body} matches "(?m)^(DB_PASSWORD|SECRET_KEY|API_KEY|AWS_SECRET_ACCESS_KEY)=" then
+        report issue:
+            severity: critical
+            confidence: firm
+            detail: "A .env file containing what appears to be application secrets was returned."
+            remediation: "Remove the file from the document root and rotate any exposed credentials."
+    end if

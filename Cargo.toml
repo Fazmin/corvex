@@ -11,6 +11,7 @@ members = [
     "crates/corvex-checks",
     "crates/corvex-desktop",
     "crates/vulndb-builder",
+    "crates/corvex-rules-builder",
 ]
 
 [workspace.package]

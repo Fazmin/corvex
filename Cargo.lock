@@ -865,6 +865,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "corvex-rules-builder"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "csv",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "time",
+ "tracing",
+ "tracing-subscriber",
+ "walkdir",
+]
+
+[[package]]
 name = "corvex-sonar"
 version = "0.1.0"
 dependencies = [

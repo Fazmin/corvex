@@ -1,0 +1,15 @@
+metadata:
+    language: v2-beta
+    name: "Directory listing enabled"
+    description: "Detects that a directory on the target server is configured to list its contents publicly."
+    author: "corvex fixtures"
+    tags: "misconfig", "passive"
+
+given response then
+    if {latest.response.body} matches "(?i)<title>Index of /" then
+        report issue:
+            severity: medium
+            confidence: firm
+            detail: "Directory listing is enabled on this path."
+            remediation: "Disable directory listing in the web-server configuration."
+    end if
