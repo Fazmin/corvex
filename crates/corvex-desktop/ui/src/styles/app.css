@@ -2218,12 +2218,6 @@ button[disabled] {
   background: linear-gradient(135deg, #a855f7, #ec4899);
 }
 
-.theme-preview-system span:nth-child(1) { background: #f7f7fb; }
-.theme-preview-system span:nth-child(2) { background: #15151d; }
-.theme-preview-system span:nth-child(3) {
-  background: linear-gradient(135deg, #a855f7, #ec4899);
-}
-
 .font-preview {
   height: 36px;
   display: flex;

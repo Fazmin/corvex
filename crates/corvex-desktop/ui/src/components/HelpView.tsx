@@ -421,7 +421,7 @@ export function HelpView() {
 
           <h4>Settings</h4>
           <p>
-            Theme (system / light / dark), font size (small → xlarge), reset
+            Theme (light / dark), font size (small → xlarge), reset
             to defaults, and a button to re-trigger the welcome tour on next
             app launch. Probing configuration (scan-mode default, JARM toggle,
             additional probe files) lives on the <strong>Probing</strong>{" "}

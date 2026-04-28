@@ -8,8 +8,8 @@ import {
   type ReactNode,
 } from "react";
 
-export type ThemePref = "light" | "dark" | "system";
-export type EffectiveTheme = "light" | "dark";
+export type ThemePref = "light" | "dark";
+export type EffectiveTheme = ThemePref;
 
 interface ThemeContextShape {
   pref: ThemePref;
@@ -23,40 +23,20 @@ const STORAGE_KEY = "corvexTheme";
 
 function readPref(): ThemePref {
   const v = localStorage.getItem(STORAGE_KEY);
-  if (v === "light" || v === "dark" || v === "system") return v;
-  return "system";
-}
-
-function systemIsDark(): boolean {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-function resolve(pref: ThemePref): EffectiveTheme {
-  if (pref === "system") return systemIsDark() ? "dark" : "light";
-  return pref;
+  if (v === "light" || v === "dark") return v;
+  // First run: seed from the OS preference, but lock the type to light/dark.
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [pref, setPrefState] = useState<ThemePref>(() => readPref());
-  const [effective, setEffective] = useState<EffectiveTheme>(() => resolve(readPref()));
 
-  // Apply effective theme to <html data-theme="…">
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", effective);
-  }, [effective]);
-
-  // Watch for OS theme changes while pref === "system".
-  useEffect(() => {
-    if (pref !== "system") return;
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => setEffective(systemIsDark() ? "dark" : "light");
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
+    document.documentElement.setAttribute("data-theme", pref);
   }, [pref]);
 
   const setPref = useCallback((p: ThemePref) => {
     setPrefState(p);
-    setEffective(resolve(p));
     try {
       localStorage.setItem(STORAGE_KEY, p);
     } catch (_) {
@@ -65,14 +45,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const cycle = useCallback(() => {
-    const order: ThemePref[] = ["system", "light", "dark"];
-    const next = order[(order.indexOf(pref) + 1) % order.length];
-    setPref(next);
+    setPref(pref === "dark" ? "light" : "dark");
   }, [pref, setPref]);
 
   const value = useMemo<ThemeContextShape>(
-    () => ({ pref, effective, cycle, setPref }),
-    [pref, effective, cycle, setPref]
+    () => ({ pref, effective: pref, cycle, setPref }),
+    [pref, cycle, setPref]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

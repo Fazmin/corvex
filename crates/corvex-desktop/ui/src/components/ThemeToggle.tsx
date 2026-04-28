@@ -1,25 +1,24 @@
 import { useTheme } from "../theme";
 
-const ICONS: Record<string, string> = {
-  system: "🖥",
+const ICONS = {
   light: "☀",
   dark: "☾",
-};
+} as const;
 
-const LABELS: Record<string, string> = {
-  system: "System",
+const LABELS = {
   light: "Light",
   dark: "Dark",
-};
+} as const;
 
 export function ThemeToggle() {
   const { pref, cycle } = useTheme();
+  const next = pref === "dark" ? "light" : "dark";
   return (
     <button
       className="theme-toggle theme-toggle-icon-only"
       onClick={cycle}
-      title={`Theme: ${LABELS[pref]} (click to cycle)`}
-      aria-label={`Theme: ${LABELS[pref]} (click to cycle)`}
+      title={`Theme: ${LABELS[pref]} (click for ${LABELS[next]})`}
+      aria-label={`Theme: ${LABELS[pref]} (click for ${LABELS[next]})`}
     >
       <span aria-hidden>{ICONS[pref]}</span>
     </button>

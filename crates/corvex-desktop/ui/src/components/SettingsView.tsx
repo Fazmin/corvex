@@ -3,7 +3,6 @@ import { useSettings, FONT_SIZE_LABELS, type FontSize } from "../settings";
 import { resetTour } from "./OnboardingTour";
 
 const THEMES: { value: ThemePref; label: string; hint: string }[] = [
-  { value: "system", label: "System", hint: "Follow your OS color scheme" },
   { value: "light", label: "Light", hint: "Always use the light palette" },
   { value: "dark", label: "Dark", hint: "Always use the dark palette" },
 ];
