@@ -1066,13 +1066,19 @@ rules-sources/burp/COMMIT
 rules-sources/burp/**/*.bcheck              # 263 BCheck files
 
 .cargo/config.toml                          # RUST_MIN_STACK=16MB
+
+rules.sqlite                                # built catalog, tracked in git
+                                            # so fresh clones get a working
+                                            # unified-scanner path without
+                                            # running the builder first
 ```
 
 ### Modified
 
 ```
 Cargo.toml                                  # workspace members + deps
-.gitignore                                  # /rules.sqlite ignored
+.gitignore                                  # tracks /rules.sqlite, ignores
+                                            # only its in-flight side files
 crates/corvex-core/src/lib.rs               # pub mod matcher
 crates/corvex-core/src/scan.rs              # ScanCtx.rule_store
 crates/corvex-core/src/cli.rs               # --rules-only + --legacy-only
@@ -1132,8 +1138,18 @@ If neither location holds the file, the binary logs a debug message and
 proceeds without it (legacy `TestsPlugin` keeps running). This makes the
 file optional for development and easy to swap during testing.
 
-The file is **excluded** from the repo (see `.gitignore`); it is a build
-artefact regenerated from `rules-sources/` whenever needed.
+The file is **tracked in git** at the repo root (`/rules.sqlite`). Fresh
+clones get a working unified-scanner path immediately without needing to
+run the builder first. The canonical workflow:
+
+1. Edit `rules-sources/` (vendor a new ZAP commit, edit a Burp BCheck,
+   improve `lower::lower_*`, etc.).
+2. `cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite`
+3. Commit the regenerated `rules.sqlite` alongside whatever source change
+   provoked the rebuild.
+
+SQLite's in-flight side files (`-journal`, `-wal`, `-shm`) stay
+gitignored — only the finished catalog should land in git.
 
 **For `cargo tauri dev` testing,** the desktop process's exe lives at
 `target/debug/corvex-desktop.exe`, so dropping a copy of `rules.sqlite`
