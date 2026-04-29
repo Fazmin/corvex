@@ -245,6 +245,11 @@ impl ScanParams {
             merge_reports: None,
             diff_reports: None,
             generate_config: None,
+            // Unified rules cutover flags — desktop uses the default
+            // side-by-side path; the legacy/rules-only toggles are
+            // CLI-only knobs for parity validation.
+            rules_only: false,
+            legacy_only: false,
         }
     }
 }
