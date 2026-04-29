@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::event_sink::TauriEventSink;
-use crate::history::{HistoryDb, HistoryEntry};
+use crate::history::{HistoryDb, HistoryEntry, ScanFindingRow};
 use crate::params::ScanParams;
 use crate::probe_state::{ProbeRegistry, RunningProbe};
 use crate::probe_store::{PendingOpenPort, ProbeStore};
@@ -351,11 +351,20 @@ pub async fn scan_cancel(
     Ok(registry.cancel(uuid).await)
 }
 
+/// Returned by `scan_start`. The frontend uses `scan_id` to subscribe
+/// to per-scan events and `history_id` to flip the persistence flag
+/// when the user clicks "Save scan".
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanStartHandle {
+    pub scan_id: String,
+    pub history_id: Option<i64>,
+}
+
 #[tauri::command]
 pub async fn scan_start(
     app: AppHandle,
     params: ScanParams,
-) -> AppResult<String> {
+) -> AppResult<ScanStartHandle> {
     // Capture a serialized form of the params before we move them into
     // the Cli struct so we can persist it in the history DB.
     let params_json = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
@@ -611,7 +620,10 @@ pub async fn scan_start(
         registry.remove(scan_id).await;
     });
 
-    Ok(scan_id.to_string())
+    Ok(ScanStartHandle {
+        scan_id: scan_id.to_string(),
+        history_id,
+    })
 }
 
 // ----- History commands ----------------------------------------------------
@@ -638,6 +650,25 @@ pub async fn history_delete(
 ) -> AppResult<usize> {
     db.delete(id)
         .map_err(|e| AppError::Other(format!("history.delete: {e}")))
+}
+
+#[tauri::command]
+pub async fn history_set_saved(
+    db: State<'_, Arc<HistoryDb>>,
+    id: i64,
+    saved: bool,
+) -> AppResult<usize> {
+    db.set_saved(id, saved)
+        .map_err(|e| AppError::Other(format!("history.set_saved: {e}")))
+}
+
+#[tauri::command]
+pub async fn history_findings(
+    db: State<'_, Arc<HistoryDb>>,
+    id: i64,
+) -> AppResult<Vec<ScanFindingRow>> {
+    db.list_findings(id)
+        .map_err(|e| AppError::Other(format!("history.findings: {e}")))
 }
 
 // ===== Standalone service-probing =====================================

@@ -2,6 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import type { FindingPayload, SeverityLevel } from "../api";
 import { ExploitHits } from "./ExploitHits";
 import { AssetLink } from "./asset/AssetLink";
+import { extractStatusCodes } from "../util/httpStatus";
 
 type FilterMode = "all" | "signature" | "active" | "fingerprint";
 type SeverityFilter = "all" | SeverityLevel;
@@ -177,6 +178,16 @@ interface Props {
    *  FindingsTable instances (dashboard vs. fuzzing view) keep their
    *  own filter state instead of silently inheriting each other's. */
   storageNamespace?: string;
+  /** When provided, a "Save scan" button appears in the toolbar. The
+   *  caller owns the actual persistence call (history_set_saved); this
+   *  component only fires the click. */
+  onSaveScan?: () => void;
+  /** True after the user has saved this scan — flips the button to
+   *  "Saved ✓" and disables it. */
+  scanSaved?: boolean;
+  /** True while the save call is in flight — disables the button to
+   *  prevent double-clicks. */
+  savingScan?: boolean;
 }
 
 export function FindingsTable({
@@ -185,6 +196,9 @@ export function FindingsTable({
   onSevFilterChange,
   hideSeverityChips = false,
   storageNamespace,
+  onSaveScan,
+  scanSaved = false,
+  savingScan = false,
 }: Props) {
   const FILTER_KEY = nsKey(FILTER_KEY_BASE, storageNamespace);
   const SEV_FILTER_KEY = nsKey(SEV_FILTER_KEY_BASE, storageNamespace);
@@ -361,6 +375,23 @@ export function FindingsTable({
           >
             Export JSON
           </button>
+          {onSaveScan && (
+            <button
+              type="button"
+              className={`chip${scanSaved ? " active" : ""}`}
+              onClick={onSaveScan}
+              disabled={scanSaved || savingScan}
+              title={
+                scanSaved
+                  ? "Scan saved — visit the History view to revisit it later"
+                  : savingScan
+                  ? "Saving…"
+                  : "Save this scan to history so you can revisit it later"
+              }
+            >
+              {scanSaved ? "Saved ✓" : savingScan ? "Saving…" : "Save scan"}
+            </button>
+          )}
         </div>
       </div>
       <div className="filter-chips filter-chips-combined">
@@ -599,7 +630,10 @@ function FindingRow({ finding, isOpen, onToggle }: RowProps) {
                   <span className="badge">{finding.plugin}</span>
                 </dd>
                 <dt>Message</dt>
-                <dd className="break">{finding.message}</dd>
+                <dd className="break">
+                  {finding.message}
+                  <HttpStatusGlossary message={finding.message} />
+                </dd>
                 {finding.cve && (
                   <>
                     <dt>CVE</dt>
@@ -668,5 +702,21 @@ function FindingRow({ finding, isOpen, onToggle }: RowProps) {
         </tr>
       )}
     </>
+  );
+}
+
+function HttpStatusGlossary({ message }: { message: string }) {
+  const codes = useMemo(() => extractStatusCodes(message), [message]);
+  if (codes.length === 0) return null;
+  return (
+    <ul className="http-status-glossary">
+      {codes.map((c) => (
+        <li key={c.code}>
+          <span className="http-status-code">{c.code}</span>
+          <span className="http-status-title">{c.title}</span>
+          <span className="http-status-summary">— {c.summary}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

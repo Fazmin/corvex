@@ -386,6 +386,8 @@ fn main() {
             commands::history_list,
             commands::history_clear,
             commands::history_delete,
+            commands::history_set_saved,
+            commands::history_findings,
             commands::vulndb_summary,
             commands::vulndb_update,
             commands::sonar_summary,

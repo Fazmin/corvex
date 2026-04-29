@@ -173,8 +173,16 @@ export function versionInfo(): Promise<VersionInfo> {
   return invoke<VersionInfo>("version_info");
 }
 
-export function startScan(params: ScanParams): Promise<string> {
-  return invoke<string>("scan_start", { params });
+/** Result of `scan_start`. `scan_id` is the runtime UUID used to scope
+ *  per-scan events; `history_id` is the SQLite row id used to flip the
+ *  saved flag when the user clicks "Save scan". */
+export interface ScanStartHandle {
+  scan_id: string;
+  history_id: number | null;
+}
+
+export function startScan(params: ScanParams): Promise<ScanStartHandle> {
+  return invoke<ScanStartHandle>("scan_start", { params });
 }
 
 export function cancelScan(id: string): Promise<boolean> {
@@ -486,6 +494,10 @@ export interface HistoryEntry {
   total_requests: number;
   total_findings: number;
   total_errors: number;
+  /** True once the user has explicitly saved this scan. Unsaved scans
+   *  are visible only while their status is "running"; on next launch
+   *  they are purged. */
+  saved: boolean;
 }
 
 export function historyList(limit?: number): Promise<HistoryEntry[]> {
@@ -498,6 +510,14 @@ export function historyClear(): Promise<number> {
 
 export function historyDelete(id: number): Promise<number> {
   return invoke<number>("history_delete", { id });
+}
+
+export function historySetSaved(id: number, saved: boolean): Promise<number> {
+  return invoke<number>("history_set_saved", { id, saved });
+}
+
+export function historyFindings(id: number): Promise<FindingPayload[]> {
+  return invoke<FindingPayload[]>("history_findings", { id });
 }
 
 // --- Proxy and Checks ----------------------------------------------------

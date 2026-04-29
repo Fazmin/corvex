@@ -92,7 +92,8 @@ export function ScaView() {
       // the engine doesn't try to DNS-resolve a bare "local" (strict
       // on Windows, error 11001) and skip the mark before the SCA
       // plugin's on_start ever runs.
-      const id = await startScan({ host: "127.0.0.1", ...params } as any);
+      const handle = await startScan({ host: "127.0.0.1", ...params } as any);
+      const id = handle.scan_id;
       setScanId(id);
       const batcher = createRafBatcher<FindingPayload>((batch) => {
         setFindings((prev) => [...prev, ...batch]);

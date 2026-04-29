@@ -1133,6 +1133,43 @@ button.browse-btn:active {
   border: 1px solid var(--border-soft);
 }
 
+.finding-detail .http-status-glossary {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.finding-detail .http-status-glossary li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  line-height: 1.4;
+}
+
+.finding-detail .http-status-code {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 2.5em;
+}
+
+.finding-detail .http-status-title {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.finding-detail .http-status-summary {
+  color: var(--muted);
+}
+
 .finding-detail .ref-chip {
   display: inline-block;
   padding: 3px 10px;
@@ -1150,6 +1187,28 @@ button.browse-btn:active {
   color: var(--muted);
   padding: 24px 12px;
   white-space: normal;
+}
+
+/* HistoryView's expanded row hosts a nested FindingsTable. Reuse the
+   detail-row backdrop but loosen the left padding (the parent table
+   has no checkbox / severity column to align under) and let the
+   nested table breathe. */
+.history-detail {
+  padding: 12px 12px 14px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--panel-alt);
+}
+
+.history-detail .panel.results {
+  margin: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.history-detail .empty {
+  color: var(--muted);
+  padding: 12px 4px;
 }
 
 /* ---------- Findings filter chips ---------- */

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelScan,
   dbSummary,
+  historySetSaved,
   onDone,
   onFinding,
   interceptRulesGet,
@@ -120,6 +121,12 @@ export default function App() {
     });
   }, []);
   const [scanId, setScanId] = useState<string | null>(null);
+  // history.sqlite row id for the current/most-recent scan. The "Save
+  // scan" button on the FindingsTable toolbar uses this to flip the
+  // `saved` flag — without it the scan is purged on next launch.
+  const [historyId, setHistoryId] = useState<number | null>(null);
+  const [scanSaved, setScanSaved] = useState(false);
+  const [savingScan, setSavingScan] = useState(false);
   const [running, setRunning] = useState(false);
   // Distinguishes a Web-scan run from a pure Fuzzing run so the
   // dashboard, sidebar pulse and history "kind" labels reflect what
@@ -337,8 +344,12 @@ export default function App() {
         `→ starting ${source === "fuzz" ? "fuzz" : "scan"} against ${params.host}${params.active ? " [active]" : ""}`,
       );
       try {
-        const id = await startScan(params);
+        const handle = await startScan(params);
+        const id = handle.scan_id;
         setScanId(id);
+        setHistoryId(handle.history_id);
+        setScanSaved(false);
+        setSavingScan(false);
         setRunning(true);
         appendLog(`✓ scan id ${id}`);
         // A new row is in the history DB now — refresh the History
@@ -418,6 +429,23 @@ export default function App() {
     appendLog(ok ? "✓ cancel requested" : "? scan not found");
   }, [scanId, appendLog]);
 
+  const handleSaveScan = useCallback(async () => {
+    if (historyId == null || scanSaved || savingScan) return;
+    setSavingScan(true);
+    try {
+      await historySetSaved(historyId, true);
+      setScanSaved(true);
+      setHistoryRefresh((n) => n + 1);
+      pushToast("success", "Scan saved to history");
+      appendLog("✓ scan saved to history");
+    } catch (err) {
+      appendLog(`✗ failed to save scan: ${err}`);
+      pushToast("error", `Failed to save scan: ${err}`);
+    } finally {
+      setSavingScan(false);
+    }
+  }, [historyId, scanSaved, savingScan, appendLog, pushToast]);
+
   const handleRerun = useCallback(
     (params: ScanParams) => {
       setView("dashboard");
@@ -433,6 +461,9 @@ export default function App() {
     if (running) return; // don't wipe an in-flight scan's state
     cleanupListeners();
     setScanId(null);
+    setHistoryId(null);
+    setScanSaved(false);
+    setSavingScan(false);
     setFindings([]);
     setStats(null);
     appendLog("→ ready for a new scan");
@@ -640,6 +671,13 @@ export default function App() {
                         sevFilter={dashSevFilter}
                         onSevFilterChange={setDashSevFilter}
                         hideSeverityChips
+                        onSaveScan={
+                          historyId != null && scanSource === "web"
+                            ? handleSaveScan
+                            : undefined
+                        }
+                        scanSaved={scanSaved}
+                        savingScan={savingScan}
                       />
                     </div>
                     {logVisible && (
