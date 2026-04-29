@@ -2061,3 +2061,177 @@ fn civil(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d, h, mi, s)
 }
+
+/* ====================================================================== */
+/* Unified rules catalog (rules.sqlite — Phase 1 + 2 work)                 */
+/* ====================================================================== */
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RulesSourceCounts {
+    pub source_tool: String,
+    pub ingested: u64,
+    pub lowered: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RulesSeverityCount {
+    pub source_tool: String,
+    pub severity: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct RulesSummary {
+    /// Absolute path the catalog was loaded from. Empty when no rules.sqlite
+    /// was found (the desktop falls back to legacy-only behaviour silently).
+    pub path: String,
+    /// Whether a `rules.sqlite` was found and opened successfully.
+    pub loaded: bool,
+    /// Schema version stamped by `corvex-rules-builder`.
+    pub schema_version: Option<String>,
+    /// Builder run timestamp (ISO-8601 UTC).
+    pub build_ts: Option<String>,
+    /// Pinned upstream commit SHAs.
+    pub nikto_commit: Option<String>,
+    pub zap_commit: Option<String>,
+    pub burp_commit: Option<String>,
+    /// Per-source ingest + executable counts.
+    pub by_source: Vec<RulesSourceCounts>,
+    /// Per-(source, severity) count.
+    pub by_severity: Vec<RulesSeverityCount>,
+    /// Number of rules whose JSON columns failed `json_valid()` (must be 0
+    /// in healthy catalogs).
+    pub invalid_json_rows: u64,
+    /// Total executable rules across all sources (those with non-NULL
+    /// `match_spec_json`).
+    pub total_executable: u64,
+    /// Total ingested rules across all sources.
+    pub total_ingested: u64,
+}
+
+#[tauri::command]
+pub async fn rules_summary() -> AppResult<RulesSummary> {
+    use rusqlite::{Connection, OpenFlags};
+
+    let mut summary = RulesSummary::default();
+    let candidates = [
+        std::env::current_dir()
+            .ok()
+            .map(|p| p.join("rules.sqlite")),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.join("rules.sqlite"))),
+    ];
+    let path = match candidates.into_iter().flatten().find(|p| p.exists()) {
+        Some(p) => p,
+        None => return Ok(summary),
+    };
+    summary.path = path.display().to_string();
+
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = Connection::open_with_flags(&path, flags)
+        .map_err(|e| AppError::Other(format!("open {}: {e}", path.display())))?;
+
+    // Smoke-check the schema is what we expect.
+    if let Err(e) = conn.prepare("SELECT 1 FROM rules LIMIT 1") {
+        return Err(AppError::Other(format!(
+            "rules.sqlite at {} missing `rules` table: {e}",
+            path.display()
+        )));
+    }
+    summary.loaded = true;
+
+    // Per-source ingested + lowered counts.
+    let mut stmt = conn
+        .prepare(
+            "SELECT source_tool,
+                    COUNT(*) AS ingested,
+                    SUM(CASE WHEN match_spec_json IS NOT NULL THEN 1 ELSE 0 END) AS lowered
+               FROM rules
+              WHERE enabled = 1
+           GROUP BY source_tool
+           ORDER BY source_tool",
+        )
+        .map_err(|e| AppError::Other(format!("prepare counts: {e}")))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(RulesSourceCounts {
+                source_tool: r.get(0)?,
+                ingested: r.get::<_, i64>(1)? as u64,
+                lowered: r.get::<_, i64>(2)? as u64,
+            })
+        })
+        .map_err(|e| AppError::Other(format!("query counts: {e}")))?;
+    for row in rows {
+        let row = row.map_err(|e| AppError::Other(format!("row: {e}")))?;
+        summary.total_ingested += row.ingested;
+        summary.total_executable += row.lowered;
+        summary.by_source.push(row);
+    }
+
+    // Per-(source, severity) breakdown.
+    let mut stmt = conn
+        .prepare(
+            "SELECT source_tool, severity, COUNT(*)
+               FROM rules
+              WHERE enabled = 1
+           GROUP BY source_tool, severity
+           ORDER BY source_tool,
+                    CASE severity
+                      WHEN 'critical' THEN 0
+                      WHEN 'high'     THEN 1
+                      WHEN 'medium'   THEN 2
+                      WHEN 'low'      THEN 3
+                      WHEN 'info'     THEN 4
+                      ELSE 5 END",
+        )
+        .map_err(|e| AppError::Other(format!("prepare severity: {e}")))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(RulesSeverityCount {
+                source_tool: r.get(0)?,
+                severity: r.get(1)?,
+                count: r.get::<_, i64>(2)? as u64,
+            })
+        })
+        .map_err(|e| AppError::Other(format!("query severity: {e}")))?;
+    for row in rows {
+        summary
+            .by_severity
+            .push(row.map_err(|e| AppError::Other(format!("row: {e}")))?);
+    }
+
+    // JSON-validity sanity check.
+    summary.invalid_json_rows = conn
+        .query_row(
+            "SELECT COUNT(*) FROM rules
+              WHERE json_valid(refs_json) = 0
+                 OR json_valid(payloads_json) = 0
+                 OR json_valid(detection_json) = 0
+                 OR json_valid(source_meta_json) = 0",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n as u64)
+        .unwrap_or(0);
+
+    // Build metadata.
+    if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM rules_meta") {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        }) {
+            for row in rows.flatten() {
+                match row.0.as_str() {
+                    "schema_version" => summary.schema_version = Some(row.1),
+                    "build_ts" => summary.build_ts = Some(row.1),
+                    "nikto_commit" => summary.nikto_commit = Some(row.1),
+                    "zap_commit" => summary.zap_commit = Some(row.1),
+                    "burp_commit" => summary.burp_commit = Some(row.1),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(summary)
+}

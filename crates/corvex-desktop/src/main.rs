@@ -450,6 +450,7 @@ fn main() {
             commands::exploitdb_by_cve,
             commands::exploitdb_update,
             commands::exploitdb_fetch_source,
+            commands::rules_summary,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

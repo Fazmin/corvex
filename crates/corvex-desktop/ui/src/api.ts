@@ -1206,6 +1206,45 @@ export function exploitdbFetchSource(edbId: number): Promise<ExploitSource> {
   return invoke<ExploitSource>("exploitdb_fetch_source", { edbId });
 }
 
+// ---- Unified rules catalog (rules.sqlite) ---------------------------------
+
+export interface RulesSourceCounts {
+  source_tool: string;
+  ingested: number;
+  lowered: number;
+}
+
+export interface RulesSeverityCount {
+  source_tool: string;
+  severity: string;
+  count: number;
+}
+
+export interface RulesSummary {
+  /** Absolute path the catalog was loaded from. Empty when no rules.sqlite
+   *  was found (the desktop falls back to legacy-only behaviour silently). */
+  path: string;
+  /** Whether a rules.sqlite was found and opened successfully. */
+  loaded: boolean;
+  schema_version: string | null;
+  build_ts: string | null;
+  nikto_commit: string | null;
+  zap_commit: string | null;
+  burp_commit: string | null;
+  by_source: RulesSourceCounts[];
+  by_severity: RulesSeverityCount[];
+  /** Number of rules with malformed JSON columns. Healthy catalogs report 0. */
+  invalid_json_rows: number;
+  /** Total rules with non-NULL match_spec_json (i.e. executable). */
+  total_executable: number;
+  /** Total rules ingested across all sources. */
+  total_ingested: number;
+}
+
+export function rulesSummary(): Promise<RulesSummary> {
+  return invoke<RulesSummary>("rules_summary");
+}
+
 // ---- Assets (target-centered ecosystem view) -------------------------------
 //
 // One host = one asset. The asset_* commands aggregate across the proxy,

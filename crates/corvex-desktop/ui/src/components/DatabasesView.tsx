@@ -6,12 +6,14 @@ import {
   nucleiExtrasDownload,
   nucleiExtrasRemove,
   nucleiSummary,
+  rulesSummary,
   sonarSummary,
   vulndbSummary,
   wappalyzerSummary,
   type DbSummary,
   type ExploitDbSummary,
   type NucleiSummary,
+  type RulesSummary,
   type SonarSummary,
   type VulnDbInfo,
   type WappalyzerSummary,
@@ -40,7 +42,8 @@ type DbTab =
   | "fuzzing"
   | "nuclei"
   | "fingerprints"
-  | "exploits";
+  | "exploits"
+  | "rules";
 
 const TABS: { key: DbTab; label: string }[] = [
   { key: "web", label: "Web signatures" },
@@ -50,6 +53,7 @@ const TABS: { key: DbTab; label: string }[] = [
   { key: "nuclei", label: "Nuclei templates" },
   { key: "fingerprints", label: "Fingerprints (Wappalyzer)" },
   { key: "exploits", label: "Exploit-DB" },
+  { key: "rules", label: "Unified rules" },
 ];
 
 interface Props {
@@ -124,6 +128,7 @@ export function DatabasesView({ onNavigate }: Props) {
       {tab === "nuclei" && <NucleiTab onNavigate={onNavigate} />}
       {tab === "fingerprints" && <FingerprintsTab onNavigate={onNavigate} />}
       {tab === "exploits" && <ExploitDbTab />}
+      {tab === "rules" && <RulesTab />}
     </div>
   );
 }
@@ -1241,5 +1246,268 @@ function ViewLink({
         {label}
       </button>
     </div>
+  );
+}
+
+/* ====================================================================== */
+/* Tab 8 — Unified rules catalog (rules.sqlite)                            */
+/* ====================================================================== */
+
+function RulesTab() {
+  const [summary, setSummary] = useState<RulesSummary | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    rulesSummary()
+      .then((s) => {
+        setSummary(s);
+        setErr(null);
+      })
+      .catch((e: unknown) => {
+        setErr(
+          typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
+        );
+      });
+  }, []);
+
+  if (err) {
+    return (
+      <div className="empty">Failed to load rules.sqlite summary: {err}</div>
+    );
+  }
+  if (!summary) return <div className="empty">Loading…</div>;
+
+  if (!summary.loaded) {
+    return (
+      <>
+        <div className="sub" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+          The unified rules catalog (<code>rules.sqlite</code>) consolidates
+          checks from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>, and{" "}
+          <strong>Burp Suite BChecks</strong> into one queryable SQLite file
+          alongside the binary. Findings from this catalog are emitted by
+          <code> RulesPlugin</code> at scan time.
+        </div>
+        <div className="empty" style={{ padding: 16 }}>
+          No <code>rules.sqlite</code> was found in the working directory or
+          executable directory. Build it from the repo with:
+          <pre
+            style={{
+              marginTop: 8,
+              padding: 8,
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              fontSize: "calc(var(--font-base) - 1px)",
+            }}
+          >
+            cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite
+          </pre>
+          The desktop falls back to the legacy bincode <code>db_tests</code>{" "}
+          path silently when this file is absent.
+        </div>
+      </>
+    );
+  }
+
+  const totalLowered = summary.total_executable;
+  const totalIngested = summary.total_ingested;
+  const lowerPct =
+    totalIngested > 0
+      ? ((totalLowered / totalIngested) * 100).toFixed(1)
+      : "0.0";
+
+  const cells: Cell[] = [
+    {
+      label: "Total rules ingested",
+      value: totalIngested,
+      hint: "Rules parsed from rules-sources/{nikto,zap,burp}/ and persisted into rules.sqlite.",
+    },
+    {
+      label: "Total executable",
+      value: `${totalLowered} (${lowerPct}%)`,
+      hint: "Rules with non-NULL match_spec_json — these can fire via RulesPlugin at scan time.",
+    },
+    {
+      label: "Schema version",
+      value: summary.schema_version ?? "—",
+      hint: "rules.sqlite schema. v2 added the match_spec_json column for runtime execution.",
+    },
+    {
+      label: "Built (UTC)",
+      value: summary.build_ts
+        ? summary.build_ts.replace("T", " ").replace(/\..*Z$/, " UTC")
+        : "—",
+      hint: "When corvex-rules-builder produced this catalog.",
+    },
+    {
+      label: "Invalid JSON rows",
+      value: summary.invalid_json_rows,
+      hint: "Rows whose JSON columns failed json_valid(). Healthy catalogs report 0.",
+    },
+    {
+      label: "Path",
+      value: summary.path
+        ? summary.path.length > 48
+          ? "…" + summary.path.slice(-46)
+          : summary.path
+        : "—",
+      hint: "Absolute path the catalog was loaded from.",
+    },
+  ];
+
+  return (
+    <>
+      <div className="sub" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+        The unified rules catalog (<code>rules.sqlite</code>) consolidates
+        checks from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>, and{" "}
+        <strong>Burp Suite BChecks</strong>. <code>RulesPlugin</code> reads
+        the executable subset at scan time. By default the desktop runs in
+        side-by-side mode (legacy <code>TestsPlugin</code> owns Nikto;{" "}
+        <code>RulesPlugin</code> owns ZAP+Burp); the CLI flag{" "}
+        <code>--rules-only</code> flips ownership for parity validation.
+      </div>
+
+      <div className="info-grid">
+        {cells.map((c) => (
+          <InfoCell key={c.label} cell={c} />
+        ))}
+      </div>
+
+      <h3
+        style={{
+          marginTop: 16,
+          marginBottom: 8,
+          fontSize: "var(--font-base)",
+        }}
+      >
+        Per-source coverage
+      </h3>
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontSize: "calc(var(--font-base) - 1px)",
+        }}
+      >
+        <thead>
+          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
+              Source
+            </th>
+            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
+              Ingested
+            </th>
+            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
+              Executable
+            </th>
+            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
+              Coverage
+            </th>
+            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
+              Upstream commit
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {summary.by_source.map((src) => {
+            const commit =
+              src.source_tool === "nikto"
+                ? summary.nikto_commit
+                : src.source_tool === "zap"
+                ? summary.zap_commit
+                : src.source_tool === "burp"
+                ? summary.burp_commit
+                : null;
+            const pct =
+              src.ingested > 0
+                ? ((src.lowered / src.ingested) * 100).toFixed(1)
+                : "0.0";
+            return (
+              <tr
+                key={src.source_tool}
+                style={{ borderBottom: "1px solid var(--border)" }}
+              >
+                <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
+                  {src.source_tool}
+                </td>
+                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                  {src.ingested.toLocaleString()}
+                </td>
+                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                  {src.lowered.toLocaleString()}
+                </td>
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    textAlign: "right",
+                    color: "var(--muted)",
+                  }}
+                >
+                  {pct}%
+                </td>
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    color: "var(--muted)",
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {commit ? commit.slice(0, 10) : "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      <h3
+        style={{
+          marginTop: 16,
+          marginBottom: 8,
+          fontSize: "var(--font-base)",
+        }}
+      >
+        Severity distribution
+      </h3>
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontSize: "calc(var(--font-base) - 1px)",
+        }}
+      >
+        <thead>
+          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
+              Source
+            </th>
+            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
+              Severity
+            </th>
+            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
+              Count
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {summary.by_severity.map((row, i) => (
+            <tr
+              key={`${row.source_tool}-${row.severity}-${i}`}
+              style={{ borderBottom: "1px solid var(--border)" }}
+            >
+              <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
+                {row.source_tool}
+              </td>
+              <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
+                {row.severity}
+              </td>
+              <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                {row.count.toLocaleString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
