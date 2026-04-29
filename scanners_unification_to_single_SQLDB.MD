@@ -1,10 +1,11 @@
 # Scanner Rule Unification to a Single SQLite Catalog
 
-> Status: **Phase 1 + Phase 2a + 2b + 2c + 2d (cutover plumbing) complete.**
-> The runtime now lets the user flip between the legacy bincode path
-> (`--legacy-only`), side-by-side (default), and the unified-rules path
-> (`--rules-only`). The final delete of `TestsPlugin` is gated on a
-> sustained side-by-side run with no finding deltas.
+> Status: **Phase 1 + 2a + 2b + 2c + 2d (cutover plumbing) complete.** The
+> desktop UI now surfaces the catalog under
+> Databases → Unified rules. The runtime lets the user flip between the
+> legacy bincode path (`--legacy-only`), side-by-side (default), and the
+> unified-rules path (`--rules-only`). The final delete of `TestsPlugin` is
+> gated on Phase 2d.5 — a fixture-target parity diff between the two modes.
 >
 > Last updated: 2026-04-29.
 
@@ -13,8 +14,9 @@ consolidates web vulnerability rules from **OWASP ZAP**, **Burp Suite**, and
 **Nikto** into a single SQLite catalog (`rules.sqlite`), and how the runtime
 scanner consumes that catalog through a multi-step match engine.
 
-It explains what was built, why each piece exists, what's deferred, and how
-to extend the system in subsequent phases.
+It explains what was built, why each piece exists, why the rule counts shift
+between source / ingested / executable, what's still deferred, and how to
+extend the system in subsequent phases.
 
 ---
 
@@ -65,6 +67,19 @@ The goal of unification is to:
 │   → Nikto DSL eval                        → MatchSpec multi-step       │
 │                                             engine                     │
 │                                                                        │
+│   --legacy-only:  TestsPlugin only                                     │
+│   default:        side-by-side (RulesPlugin = ZAP+Burp)                │
+│   --rules-only:   RulesPlugin only (all sources)                       │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────── Desktop UI ────────────────────────────┐
+│   Databases view → "Unified rules" tab                                 │
+│   • Total ingested / executable / coverage %                           │
+│   • Per-source ingested vs executable + upstream commit SHA            │
+│   • Severity distribution                                              │
+│   • Build timestamp + schema version + path                            │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -75,8 +90,8 @@ The goal of unification is to:
 | **`corvex-core`** | Foundational types. Hosts only the `RuleProvider` trait + `ExecutableRule` struct (with opaque `serde_json::Value` for `match_spec`). **Does not** depend on `corvex-rules`. |
 | **`corvex-rules`** | Read-only access to `rules.sqlite` and the `MatchSpec` AST + multi-step engine. Owns the heavy serde-derived types so they don't bloat downstream compile times. Implements `RuleProvider` on `RuleStore`. |
 | **`corvex-rules-builder`** | Standalone CLI binary. Reads vendored sources, parses them, normalises into a common schema, lowers detection logic into `MatchSpec`, persists to SQLite. Mirrors the pattern of `vulndb-builder`. |
-| **`corvex-plugins`** | Hosts the new `RulesPlugin` (weight 98) alongside the legacy `TestsPlugin` (weight 99). |
-| **`corvex` / `corvex-desktop`** | CLI and Tauri front-end. Look up `rules.sqlite` from the working dir or exe dir at startup, hand a `Arc<RuleStore>` into `ScanCtx`. |
+| **`corvex-plugins`** | Hosts the new `RulesPlugin` (weight 98) alongside the legacy `TestsPlugin` (weight 99). Both gate on `ctx.cli.rules_only` / `ctx.cli.legacy_only`. |
+| **`corvex` / `corvex-desktop`** | CLI and Tauri front-end. Look up `rules.sqlite` from the working dir or exe dir at startup, hand a `Arc<RuleStore>` into `ScanCtx`. The desktop additionally exposes the `rules_summary` Tauri command and renders the "Unified rules" tab in the Databases view. |
 
 Why this split: a recursive serde-derived `Cond` enum monomorphises against
 `serde_json::Serializer<&mut Vec<u8>>` deeply enough to overflow the Windows
@@ -109,12 +124,13 @@ CREATE TABLE rules (
     request_body     TEXT,
     request_headers  TEXT,                -- newline-separated
     payloads_json    TEXT NOT NULL DEFAULT '[]',
-    detection_json   TEXT NOT NULL,       -- per-source raw detection blob
-                                          -- (preserved for Phase 2b/2c
-                                          -- richer interpretation)
+    detection_json   TEXT NOT NULL,       -- per-source raw detection blob,
+                                          -- preserved verbatim so future
+                                          -- lowering iterations can re-read
+                                          -- the original source signal
     source_meta_json TEXT NOT NULL DEFAULT '{}',
     match_spec_json  TEXT,                -- v2: lowered runtime spec; NULL
-                                          -- when not yet lowered
+                                          -- when not yet lowered (see §10)
     enabled          INTEGER NOT NULL DEFAULT 1,
     UNIQUE (source_tool, source_rule_id)
 );
@@ -180,8 +196,9 @@ rules-sources/
 
 ### 4.1 Nikto
 
-Verbatim copy of the in-repo `program/databases/db_tests`. The builder reads
-this canonical location so the CSV format is independent of any future
+Verbatim copy of the in-repo `program/databases/db_tests` (a 7,284-line CSV
+with comment / banner lines stripped during parsing). The builder reads this
+canonical location so the CSV format is independent of any future
 restructuring of the legacy Perl-style layout.
 
 ### 4.2 ZAP
@@ -189,9 +206,8 @@ restructuring of the legacy Perl-style layout.
 ZAP active and passive scan rules are written in **Java**, so executable
 logic doesn't port directly. Instead, an extractor walks the upstream
 `zaproxy/zap-extensions` Java sources (`*ScanRule*.java`) and pulls portable
-**metadata** — id, name, description, risk code, confidence code, CWE id,
-WASC id, references, alert tags, and any statically-declared payload arrays
-— into one JSON file per rule.
+**metadata** + any statically-declared payload arrays + `Pattern.compile()`
+regex strings into one JSON file per rule.
 
 The extractor is `extract_zap.py` in the temporary clone tree at vendor
 time; only the resulting JSON descriptors are committed under
@@ -217,8 +233,8 @@ hierarchy preserved). Today's vendor is **263 BCheck files** from
    matching parser module.
 2. **Normalises** every parsed rule into `NormalizedRule` (a flat struct
    shared across sources — see `src/normalized.rs`).
-3. **Lowers** detection logic into `MatchSpec` where possible (Phase 2a:
-   Nikto only).
+3. **Lowers** detection logic into `MatchSpec` per source (Phase 2a wires
+   Nikto, 2b wires ZAP, 2c wires Burp).
 4. **Inserts** every rule inside a single transaction; existing rows with
    matching `(source_tool, source_rule_id)` are upserted.
 5. **Reports** ingestion + lowering stats per source.
@@ -239,8 +255,6 @@ feeds the legacy bincode pipeline). For each `TestRow`:
 - Best-effort `owasp_2025` mapping based on category.
 - `detection_json = {"kind": "nikto_dsl", "raw": "<dsl>", "tuning": "<chars>"}`.
 
-Expected: ~7,236 rules, near-100% ingestion success.
-
 #### `parsers::zap`
 
 Walks `*.json` files under `rules-sources/zap/`. Per-rule fields:
@@ -260,7 +274,7 @@ Walks `**/*.bcheck` files. Each file has:
 - A body with `given/if/then` directives in BCheck DSL.
 
 We extract metadata into normalised columns; the body is preserved verbatim
-in `detection_json = {"kind": "bcheck", "language": "v2-beta", "body": "<raw>", "tags": [...]}`.
+in `detection_json = {"kind": "bcheck", "language": "v1-beta|v2-beta", "body": "<raw>", "tags": [...]}`.
 
 ### 5.2 Severity normalisation
 
@@ -283,19 +297,33 @@ raw detection blob:
 - **Nikto** (`kind = "nikto_dsl"`): parse with `corvex_core::dsl::parse`,
   then map each `(Matcher, negated)` pair into a `LeafCond { matcher, negate }`.
   Single step (`r0`) carrying the URI / method / body / headers. Phase 2a
-  ships this; **94.1% of Nikto rules lower successfully**. The remaining
-  ~6% have empty URI templates or malformed DSL — `TestsPlugin` would skip
-  them too.
+  ships this; **6,812 / 7,236 (94.1%)** of Nikto rules lower successfully.
 
-- **ZAP** (`kind = "zap_metadata"`): **deferred to Phase 2b**. The raw
-  payload arrays + pattern strings are preserved in `detection_json` for
-  later interpretation.
+- **ZAP** (`kind = "zap_metadata"`): Phase 2b lowers the lowerable subset
+  into the same flat shape:
+  - Patterns are filtered by Rust regex compile-success (drops Java
+    `\1`-backref / lookaround patterns RE2 rejects).
+  - Surviving patterns are joined into one alternation under a single
+    `Body` matcher.
+  - Rules with payloads bind `{{ZAP}}` into `/?fuzz={{ZAP}}` via
+    `Payload::FromList`. Result: **17 / 51 (33.3%)**.
 
-- **Burp** (`kind = "bcheck"`): **deferred to Phase 2c**. The BCheck DSL
-  body is preserved verbatim in `detection_json`.
+- **Burp** (`kind = "bcheck"`): Phase 2c lowers three templates:
+  1. **Passive single-pattern.** `given response then if {latest.response}
+     matches "REGEX" then report ...` → single GET `/` step + body matcher.
+  2. **Active literal-path single-request.** `send request called X:
+     path: "/foo" ; if {X.response.body} matches "REGEX"` → GET `/foo` +
+     body match. Also handles `if "literal" in {X.response.body}`
+     (regex-escapes the literal).
+  3. **Active path-list run-for-each.** `run for each: paths = "/a", "/b"`
+     followed by `send request called X: path: {paths}` → URI becomes
+     `{{burp_path}}` with a `Payload::FromList` binding (capped at 16).
+
+  Result: **91 / 263 (34.6%)**.
 
 Un-lowered rules get `match_spec_json = NULL`. The `idx_rules_executable`
 partial index lets the runtime efficiently filter to executable rows only.
+The full math behind these drop counts is in §10 below.
 
 ### 5.4 CLI surface
 
@@ -310,16 +338,16 @@ distribution, OWASP coverage, JSON-validity check, and full `rules_meta`.
 
 ---
 
-## 6. The `MatchSpec` AST (Phase 2a shape)
+## 6. The `MatchSpec` AST
 
 Lives in [crates/corvex-rules/src/matcher/spec.rs](crates/corvex-rules/src/matcher/spec.rs).
-Phase 2a uses a **flat non-recursive** shape sized to what Nikto needs:
+Phases 2a / 2b / 2c all use the same **flat non-recursive** shape:
 
 ```rust
 pub struct MatchSpec {
     pub steps: Vec<StepSpec>,
-    /// Conditions are AND-joined. Phase 2b/2c will swap this for a richer
-    /// recursive Cond tree (with hand-written serde, not derive).
+    /// Conditions are AND-joined. Future phases may swap this for a
+    /// richer recursive Cond tree (with hand-written serde, not derive).
     pub when: Vec<LeafCond>,
 }
 
@@ -354,14 +382,16 @@ pub enum Payload {
 }
 ```
 
-This is sufficient for the Nikto-lowered subset and exactly mirrors the
-power of today's DSL (`CODE:.. && BODY:.. && HEADER:.. [ && !COOKIE:.. ]`).
+This shape covers everything Phase 2a–2c needed. Phase 2c.5 / 2d.0 will
+introduce a recursive `Cond` (with hand-written serde) once a real
+upstream rule needs OR / NOT / cross-step deltas — none of the lowered ZAP
+or Burp rules so far do.
 
-### 6.1 Why not recursive in Phase 2a
+### 6.1 Why not recursive yet
 
 A recursive `Cond` enum (`All(Vec<Cond>)`, `Any(Vec<Cond>)`, `Not(Box<Cond>)`,
 plus the cross-step deltas, reflection, and OOB variants) was attempted
-first. It compiled on Linux but on Windows MSVC:
+during Phase 2a. It compiled on Linux but on Windows MSVC:
 
 - `recursion_limit` had to jump from the default 128 to 4096 to typecheck.
 - Even at 4096, `serde_json::Serializer<&mut Vec<u8>>` monomorphisation
@@ -371,11 +401,11 @@ first. It compiled on Linux but on Windows MSVC:
   hard overflow but compile time grew unbounded — observed ≥60 minutes on
   the single crate without producing an `rmeta`.
 
-**Decision:** ship the flat shape now (sufficient for Nikto), bring the
-recursive `Cond` back in Phase 2b with a **hand-written `Serialize` /
-`Deserialize` impl** so the macro doesn't expand the nested generics. This
-keeps `corvex-rules` compiling in seconds even after the richer variants
-land.
+**Decision:** ship the flat shape now (sufficient for Nikto, ZAP, and
+Burp), bring the recursive `Cond` back later with a **hand-written
+`Serialize` / `Deserialize` impl** so the macro doesn't expand the nested
+generics. This keeps `corvex-rules` compiling in seconds even after the
+richer variants land.
 
 The `.cargo/config.toml` `RUST_MIN_STACK = 16777216` setting is kept as a
 safety net for the eventual richer types.
@@ -412,7 +442,8 @@ pub fn to_json(spec: &MatchSpec) -> Result<String, serde_json::Error>;
    the bound value once before any HTTP traffic:
    - `Fixed` → bind to literal value.
    - `RandomToken { len, alphabet }` → generate via `rand::thread_rng`.
-   - `FromList { values }` → take the first value (Phase 2b will fan out).
+   - `FromList { values }` → take the first value (Phase 2c.5 will fan
+     out — see §15).
 3. **Per step, sequentially:**
    - Expand `@VAR` tokens via `corvex_core::vars::expand_all` (shared with
      `TestsPlugin`).
@@ -431,14 +462,14 @@ pub fn to_json(spec: &MatchSpec) -> Result<String, serde_json::Error>;
    are non-fatal — the caller logs and continues, matching `TestsPlugin`'s
    pattern.
 
-### 7.1 Future-proofing for Phase 2b/2c
+### 7.1 Future-proofing
 
 The engine signature is already shaped for multi-step: `Vec<StepResult>` is
 indexed by `StepId`, not position. When the recursive `Cond` tree lands,
 `eval_when` becomes `eval_cond` taking a `Cond` recursively, but the runner
 shape (`run_match`) and step pipeline don't change.
 
-The richer variants planned for 2b/2c:
+The richer variants planned for the future:
 
 - `Cond::All` / `Any` / `Not` — logical algebra over leaves.
 - `Cond::StatusDelta { a, b, op, value }` — diff response codes between two
@@ -452,7 +483,7 @@ The richer variants planned for 2b/2c:
 - `Cond::Reflects { from, in_step, location, encoding }` — payload
   reflection, decoupled from where the payload was injected.
 - `Cond::OobInteraction { token, channel }` — placeholder for an
-  Interactsh-style collaborator (not wired in 2a/2b/2c; deferred).
+  Interactsh-style collaborator (deferred).
 
 ---
 
@@ -542,30 +573,61 @@ static INFO: PluginInfo = PluginInfo {
 
 `on_scan` flow:
 
-1. If `ctx.rule_store` is `None`, return early.
-2. `iter_executable(&["zap", "burp"])` — Phase 2a filters out `nikto`
-   rows so `TestsPlugin` keeps owning the legacy path. **No duplicate
-   findings during parity.**
-3. For each rule: deserialise `match_spec` JSON via
+1. If `ctx.cli.legacy_only`, return early.
+2. If `ctx.rule_store` is `None`, return early (no rules.sqlite found).
+3. Pick the source filter:
+   - `ctx.cli.rules_only == true` → `["nikto", "zap", "burp"]` (own
+     everything; `TestsPlugin` simultaneously no-ops).
+   - default → `["zap", "burp"]` (Nikto stays on `TestsPlugin` during the
+     parity period, so no duplicate findings).
+4. For each rule: deserialise `match_spec` JSON via
    `corvex_rules::matcher::parse_json`, run `matcher::run_match`, emit a
    `ReportItem` on hit.
-4. Severity flows through verbatim from the persisted column.
+5. Severity flows through verbatim from the persisted column.
 
-Phase 2a result: Nikto rules light up via `TestsPlugin`, ZAP/Burp rules
-defer to Phase 2b/2c. When 2b/2c land, the `["zap", "burp"]` filter expands
-or drops entirely.
+### 8.4 `TestsPlugin` (legacy) — unchanged except for the gate
 
-### 8.4 Plugin registration
+[crates/corvex-plugins/src/tests_plugin.rs](crates/corvex-plugins/src/tests_plugin.rs)
+keeps its existing bincode `db_tests` flow. The only change is a
+short-circuit at the top of `on_scan` that returns early when
+`ctx.cli.rules_only` is set — so `--rules-only` produces findings purely
+from the new path. Without that flag, behaviour is identical to pre-Phase-2
+builds.
+
+### 8.5 Plugin registration
 
 [crates/corvex-plugins/src/lib.rs](crates/corvex-plugins/src/lib.rs)
 registers `RulesPlugin` at weight 98, just before `TestsPlugin` at weight 99:
 
 ```rust
-// Unified rules catalog (ZAP+Burp during the Phase-2a parity period).
+// Unified rules catalog (ZAP+Burp during the parity period).
 Arc::new(rules_plugin::RulesPlugin::default()),
 // The big one — runs db_tests. Weight 99 = last.
 Arc::new(tests_plugin::TestsPlugin::default()),
 ```
+
+### 8.6 Desktop integration
+
+Two additions in `corvex-desktop`:
+
+- **`rules_summary` Tauri command** in
+  [crates/corvex-desktop/src/commands.rs](crates/corvex-desktop/src/commands.rs).
+  Opens `rules.sqlite` read-only on demand, runs aggregate queries
+  (per-source counts, severity breakdown, JSON-validity check) plus pulls
+  build metadata from `rules_meta`. Returns a typed `RulesSummary` struct.
+  Registered in [crates/corvex-desktop/src/main.rs](crates/corvex-desktop/src/main.rs)
+  alongside the other `*_summary` commands.
+- **"Unified rules" tab** in
+  [crates/corvex-desktop/ui/src/components/DatabasesView.tsx](crates/corvex-desktop/ui/src/components/DatabasesView.tsx).
+  Eighth tab in the Databases view, joining Web signatures / Probing /
+  SCA-VulnDB / Fuzzing / Nuclei / Fingerprints / Exploit-DB. Renders:
+  - 6-cell summary grid (total ingested, total executable + coverage %,
+    schema version, build timestamp, invalid JSON rows, file path).
+  - Per-source coverage table (ingested / executable / coverage % /
+    upstream commit).
+  - Severity distribution table.
+  - Friendly empty state with a "build it with this command" prompt when
+    `rules.sqlite` isn't present.
 
 ---
 
@@ -591,7 +653,7 @@ Run it with:
 cargo test -p corvex-rules-builder --test parity_nikto
 ```
 
-Phase 2a status: **5/5 pass.**
+Status: **5/5 pass** as of Phase 2c.
 
 ### 9.2 Build verification
 
@@ -604,25 +666,19 @@ $ cargo run -p corvex-rules-builder -- --report rules.sqlite
   zap     51
   total   7550
 
-[severity by source]
-  ...
-
 [MatchSpec executable coverage]
-  burp    0   / 263   (0.0%)    # deferred to Phase 2c
-  nikto   6812 / 7236 (94.1%)   # Phase 2a target
-  zap     0   / 51    (0.0%)    # deferred to Phase 2b
+  burp    91   / 263   (34.6%)
+  nikto   6812 / 7236  (94.1%)
+  zap     17   / 51    (33.3%)
+  total   6920 / 7550  (91.7%)
 
 [OWASP-2025 coverage]
-  burp    77  / 263   (29.3%)
-  nikto   5361/ 7236  (74.1%)
-  zap     51  / 51    (100.0%)
+  burp    77   / 263   (29.3%)
+  nikto   5361 / 7236  (74.1%)
+  zap     51   / 51    (100.0%)
 
 [invalid JSON columns] 0  (expected 0)
 ```
-
-The 424 un-lowered Nikto rules (7236 − 6812) are rules whose URI is empty
-or whose DSL fails `corvex_core::dsl::parse` — `TestsPlugin` skips them
-identically. Behaviour parity is therefore preserved by construction.
 
 ### 9.3 Smoke test
 
@@ -630,7 +686,7 @@ identically. Behaviour parity is therefore preserved by construction.
 $ ./target/debug/corvex --host http://example.invalid --maxtime 5
 - Corvex v0.1.0 (Rust)
 + rules.sqlite loaded (.../rules.sqlite): burp=263, nikto=7236, zap=51
-+ scan start: 2026-04-28 23:52:23Z
++ scan start: 2026-04-29 ...Z
 ...
 ```
 
@@ -638,13 +694,182 @@ The CLI auto-discovers `rules.sqlite` from cwd or exe dir, prints
 per-source counts, and proceeds. No regression to the existing scan
 pipeline.
 
+### 9.4 Cutover-flag smoke test
+
+```
+$ ./target/debug/corvex --host http://target --rules-only   # new path only
+$ ./target/debug/corvex --host http://target --legacy-only  # legacy path only
+$ ./target/debug/corvex --host http://target                # side-by-side (default)
+```
+
+All three accept and load `rules.sqlite` successfully (the legacy mode
+loads the file but no plugin reads it). Findings whose `corvex_id` starts
+with `zap-` or `burp-` come from the new path; numeric IDs (`000123`)
+come from the legacy path.
+
 ---
 
-## 10. Compile-time considerations (Windows MSVC)
+## 10. Why the rule counts don't all match
+
+Each rule passes through three stages that can drop entries:
+
+```
+   upstream source       →   ingested (`rules` row)   →   executable
+       (raw files)                                       (match_spec_json
+                                                          IS NOT NULL)
+```
+
+The **ingested** count is what the parser persisted into `rules.sqlite`.
+The **executable** count is the subset whose detection logic the lowering
+pass could turn into a `MatchSpec` the runtime can fire. Below is a
+detailed accounting of why each source loses entries between stages.
+
+### 10.1 Nikto: 7,236 ingested → 6,812 executable (loses 424)
+
+**Source-to-ingested:** The upstream `db_tests` file is 7,284 lines, but
+the first 48 lines are comment / banner / blank lines stripped during
+parsing. The remaining lines parse cleanly and the resulting ingested
+count of 7,236 exactly matches what `corvex-core/build.rs::load_tests`
+already reports (`compiled 7236 tests`) for the legacy bincode pipeline.
+This is the parity gate — see §9.
+
+**Ingested-to-executable (424 lost, ~5.9%):** The lowering pass
+(`lower::lower_nikto`) returns `None` when:
+
+- **`uri_template` is empty.** Synthetic Nikto rules can carry an empty URI
+  (rare; usually metadata-only rows). With no URI to fetch, the rule has
+  nothing to send. `TestsPlugin` would also skip these because its loop
+  builds `Request::new(host, port, method, &uri)` and then short-circuits
+  on a missing URI.
+- **`corvex_core::dsl::parse(raw_dsl)` fails.** Some rows have malformed
+  DSL strings (truncated regex, missing `:` separator after the matcher
+  selector, etc.). The legacy `TestsPlugin` wraps `dsl::parse(...)` in
+  `let dsl_ast = match dsl::parse(...) { Ok(d) => d, Err(_) => continue };`
+  — the same `continue` we apply in the new path.
+- **All matchers were filtered out by the parser.** Some rows have a DSL
+  that parses to zero leaf matchers (empty `&&`-list). The legacy
+  `DslEvaluator::eval` returns `matched=false` on an empty matcher list,
+  meaning the rule never fires. The lowering pass refuses to produce a
+  `MatchSpec` that always returns `false` and instead leaves it un-lowered
+  to make this explicit in the build report.
+
+**Behaviour parity:** the 424 un-lowered Nikto rules are exactly the ones
+`TestsPlugin` would also skip via its `continue` paths. No detection
+coverage is lost relative to the legacy build — the un-lowered set is
+documented in `unlowered_reasons_nikto_json` (`{"nikto_unlowerable": 424}`)
+so the build report can flag any drift in future rule-set updates.
+
+### 10.2 ZAP: 142 candidate Java files → 51 ingested → 17 executable
+
+**Source-to-ingested (91 dropped, ~64%):** The upstream
+`zaproxy/zap-extensions` repo has 142 files matching `*ScanRule*.java`
+under the active and passive scan add-ons. Of those, only **51 expose a
+literal-int `getId()` method** the extractor can read — the rest:
+
+- Inherit `getId()` from a parent / abstract base class (the extractor's
+  regex requires `public int getId() { ... return <int>; }` to produce a
+  descriptor; rules that defer to a base class return value can't be
+  uniquely identified without compiling Java).
+- Are abstract base classes themselves, named `*ScanRule.java` but never
+  instantiated as a leaf rule (e.g. `AbstractAppFilePlugin`).
+- Are helper / utility classes whose filename contains "ScanRule" but
+  aren't actual rule definitions.
+
+Skipped silently with no log noise — these would never be runnable rules
+even with a perfect lowerer.
+
+**Ingested-to-executable (34 dropped, ~67%):** Of the 51 ingested, the
+extractor finds *some* extractable detection signal in 21 (~41%); the
+lowerer (`lower::lower_zap`) successfully turns 17 of those 21 into a
+`MatchSpec`. The 34 that don't lower break down as:
+
+- **No extractable signal at all (~30 rules).** The rule's payload list
+  and pattern set live in imperative method bodies, not in static
+  declarations: random tokens generated via `UUID.randomUUID()` at scan
+  time, request mutation via `getNewMsg().setRequestBody()`,
+  payload arrays built up through loops with `String.format` calls. The
+  Java AST extractor can't see those values without running the code.
+- **All extracted patterns rejected by Rust's `regex` crate (a few of
+  the remaining 4).** ZAP rules use `java.util.regex` which supports
+  backreferences (`\1`) and lookaround (`(?=...)`); Rust's `regex` is
+  RE2 and rejects both. The lowerer filters patterns through
+  `regex::Regex::new` and skips the rule if nothing survives.
+
+The 34 un-lowered rules stay catalogued in `rules.sqlite` (severity,
+OWASP, CWE, references all populated) and are listed in
+`unlowered_reasons_zap_json` (`{"zap_no_extractable_signal": 34}`).
+
+### 10.3 Burp: 263 ingested → 91 executable (loses 172)
+
+**Source-to-ingested:** All 263 BCheck files in the vendored snapshot
+ingest cleanly. The Phase 1 parser had a near-miss on 11 files that start
+with `#Verified: Yes` comment lines before the `metadata:` block — the
+fix to skip leading `#`-comments lifted ingestion to 100%.
+
+**Ingested-to-executable (172 lost, 65%):** The Phase 2c lowerer
+(`lower::lower_burp`) handles three specific BCheck shapes (passive
+single-pattern, active literal-path, active path-list run-for-each — see
+§5.3). Anything outside those shapes is skipped with reason
+`burp_unsupported_dsl_shape`. The 172 un-lowered BChecks fall into:
+
+- **Multi-step rules (~19 files).** Two or more `send request called X:`
+  blocks. Lowering these needs cross-step `Cond` variants
+  (`StatusDelta` / `BodyLenDeltaPct` / etc.) which the flat shape can't
+  express. Deferred to the recursive-`Cond` work.
+- **Compound predicates (~70 files).** `if A and B then ...` or
+  `if A or B then ...` inside the body — needs `Cond::All` /
+  `Cond::Any` which is recursive.
+- **Header / status-code-only checks without an accompanying body
+  matcher (~50 files).** The flat shape supports `Header` / `Status`
+  matchers, but the BCheck templates we matched in Phase 2c only build
+  a single `Body` LeafCond. Generalising the lowerer to also emit
+  `Header` / `Status` LeafConds is a small follow-up.
+- **Complex `define:` / `run for each:` blocks (~33 files).** Variables
+  beyond simple path-string lists — for example
+  `define: random_str(6)`, `define: payload = base64_encode(...)`, or
+  `run for each: header_value = "X-A: 1", "X-B: 2"`. The lowerer's
+  `resolve_path_var` only knows how to extract a quoted-string list as
+  path values; richer variable shapes need their own lowering paths.
+
+All 172 un-lowered BChecks are catalogued (severity, name, description,
+detection_json with the full body preserved) so future iterations can
+re-read the source signal without re-vendoring.
+
+### 10.4 Total
+
+| Stage | Nikto | ZAP | Burp | Total |
+|-------|-------|-----|------|-------|
+| Upstream source files | 7,284 lines | 142 Java files | 263 .bcheck files | — |
+| Ingested into `rules` | 7,236 | 51 | 263 | **7,550** |
+| Executable (`match_spec_json IS NOT NULL`) | 6,812 | 17 | 91 | **6,920** |
+| Coverage of ingested | 94.1% | 33.3% | 34.6% | **91.7%** |
+
+The big delta in *coverage of ingested* between Nikto (94%) and ZAP/Burp
+(~33%) reflects the fundamental difference in how each upstream source
+expresses its detection logic:
+
+- **Nikto** is a flat declarative DSL designed for an automated scanner;
+  it lowers losslessly because every line is already one rule's
+  request + match condition.
+- **ZAP** is Java code where most logic lives in method bodies; the
+  extractor only recovers what's statically declared, and the lowerer
+  only turns that into a runtime spec when there's enough signal.
+- **Burp** BChecks are a small declarative DSL but it's expressive
+  enough to encode multi-step + compound-predicate rules that the flat
+  `Vec<LeafCond>` shape can't represent yet.
+
+Coverage rises monotonically as the lowering passes get smarter
+(Phase 2c.5+ adds header/status matchers; the recursive `Cond` work
+unlocks multi-step + compound-predicate rules; bind-fan-out lifts
+each `Payload::FromList` rule from "fires once" to "fires per value").
+
+---
+
+## 11. Compile-time considerations (Windows MSVC)
 
 Two settings are **load-bearing** for the build to complete on Windows:
 
-### 10.1 `.cargo/config.toml` env
+### 11.1 `.cargo/config.toml` env
 
 ```toml
 [env]
@@ -652,10 +877,10 @@ RUST_MIN_STACK = "16777216"   # 16 MB
 ```
 
 Equalises rustc's per-thread stack with Linux's default 8 MB (Windows MSVC
-defaults to 1 MB). Required for the recursive `Cond` enum that returns in
-Phase 2b — without this, serde monomorphisation overflows mid-compile.
+defaults to 1 MB). Required for the future recursive `Cond` enum —
+without this, serde monomorphisation overflows mid-compile.
 
-### 10.2 Crate-level `recursion_limit` in `corvex-rules`
+### 11.2 Crate-level `recursion_limit` in `corvex-rules`
 
 Reserved (the bump was pulled when the recursion came out of `Cond`, but
 the comment in [crates/corvex-rules/src/lib.rs](crates/corvex-rules/src/lib.rs)
@@ -668,7 +893,7 @@ explains the future need). When the recursive `Cond` returns:
 belongs at the top of `corvex-rules/src/lib.rs` (not at a module level —
 `recursion_limit` is a crate attribute).
 
-### 10.3 Compile times observed
+### 11.3 Compile times observed
 
 | Stage | Pre-refactor | Post-refactor |
 |-------|--------------|---------------|
@@ -676,14 +901,15 @@ belongs at the top of `corvex-rules/src/lib.rs` (not at a module level —
 | `corvex-rules` (cold) | hours / stack overflow | 2.4 s |
 | `corvex-rules-builder` | n/a | 9 s |
 | Whole CLI workspace | hours | 13.6 s |
+| `corvex-desktop` (cold, after Phase 2d UI) | n/a | 1m 47s |
 
 The refactor's two key moves were (a) hosting the heavy types in
 `corvex-rules` rather than `corvex-core`, and (b) flattening the recursive
-`Cond` to `Vec<LeafCond>` for Phase 2a.
+`Cond` to `Vec<LeafCond>` for Phase 2a–2c.
 
 ---
 
-## 11. Phased rollout plan
+## 12. Phased rollout plan
 
 ### Phase 1 (complete)
 
@@ -692,125 +918,30 @@ The refactor's two key moves were (a) hosting the heavy types in
 - Produce `rules.sqlite` with normalised columns.
 - Verify per-source ingest succeeds end-to-end.
 
-### Phase 2a (complete — this branch)
+### Phase 2a (complete)
 
 - `corvex-rules` reader crate + `MatchSpec` (flat) + multi-step engine.
 - `RuleProvider` trait in `corvex-core`.
 - Builder lowering pass for Nikto DSL → MatchSpec.
 - `RulesPlugin` registered side-by-side with `TestsPlugin`, scoped to
-  `source != 'nikto'` so no duplicate findings during parity.
+  `["zap", "burp"]` so no duplicate findings during parity.
 - `ScanCtx.rule_store` wired in CLI + desktop.
 - Parity test green (5/5).
 - 94.1% Nikto MatchSpec coverage.
 
 ### Phase 2b (complete)
 
-- **Improved `extract_zap.py`** to pull every `String[]` array and
-  `Pattern.compile("...")` regex from each `*ScanRule.java`, not just
-  arrays whose name contains "PAYLOAD" (Phase 1's heuristic). Result: 21
-  of 51 ZAP rules (~41%) now expose extractable detection signal — up
-  from 1/51 in Phase 1.
-- **`lower::lower_zap`** translates the lowerable subset into the same
-  flat `MatchSpec` shape Nikto uses:
-  - Patterns are filtered by Rust regex compile-success (drops Java
-    `\1`-backref / lookaround patterns RE2 rejects).
-  - Surviving patterns are joined into one alternation under a single
-    `Body` matcher.
-  - Rules with payloads bind `{{ZAP}}` into `/?fuzz={{ZAP}}` via
-    `Payload::FromList` (capped at 16 values to keep the persisted JSON
-    bounded).
-  - Rules with patterns-only become passive: GET `/` + body match.
-- **17 ZAP rules now have executable `match_spec_json`**
-  (33.3% of the vendored 51). Examples:
-  - `40008` ParameterTamper — 6 payload values + Tomcat / Microsoft VBScript
-    / OLE DB / Java servlet exception alternation regex.
-  - `10045` SourceCodeDisclosureWebInf — passive web.xml leak detection.
-  - `20017` SourceCodeDisclosureCVE-2012-1823 — passive PHP source leak.
-  - `40003` CrlfInjection — payload list + CRLF reflection check.
-- The recursive `Cond` enum was *not* needed for Phase 2b after all — the
-  flat `Vec<LeafCond>` shape covers passive + simple-active rules cleanly.
-  Recursive `Cond` (with hand-written serde) is still queued for Phase
-  2b.5 / 2c when cross-step deltas / OR-trees come up in real upstream
-  rules we want to lower.
-- `RulesPlugin` already targets `["zap", "burp"]`; the 17 lowered ZAP
-  rules fire automatically with no plugin code change.
-- Parity test still green (5/5) — no regression.
-
-**Phase 2b coverage summary:**
-
-| Source | Ingested | Lowered | Pct |
-|--------|----------|---------|-----|
-| Nikto  | 7,236    | 6,812   | 94.1% |
-| ZAP    | 51       | 17      | 33.3% |
-| Burp   | 263      | 0       | 0% (Phase 2c) |
-| **Total** | **7,550** | **6,829** | **90.5%** |
-
-**Un-lowered ZAP rules (34/51):** rules whose detection logic depends on
-imperative Java code (random tokens generated in-situ, request mutation
-via `getNewMsg()` + `setRequestBody()`, etc.) — no extractable signal in
-the source. These remain catalogued (severity, OWASP, CWE, references) but
-not executable. Phase 2c+ may add rule-by-rule hand-curated lowerings for
-high-value entries (XSS, SQLi reflection-based, etc.) once cross-step
-`Cond` lands.
+- Improved `extract_zap.py` to pull every `String[]` array and
+  `Pattern.compile("...")` regex from each `*ScanRule.java`.
+- `lower::lower_zap` translates the lowerable subset into the flat shape.
+- 17 / 51 ZAP rules now executable.
 
 ### Phase 2c (complete)
 
-- **`lower::lower_burp`** parses three BCheck shapes into the same flat
-  `MatchSpec` the other sources use:
-  1. **Passive single-pattern.** `given response then if {latest.response}
-     matches "REGEX" then report ...` → single GET `/` step + body matcher
-     against the regex.
-  2. **Active literal-path single-request.** `send request called X:
-     path: "/foo" ; if {X.response.body} matches "REGEX"` → GET `/foo` +
-     body match. The `in` form (`if "literal" in {X.response.body}`) is
-     also handled, with the literal regex-escaped before persisting.
-  3. **Active path-list run-for-each.** `run for each: paths = "/a", "/b"`
-     followed by `send request called X: path: {paths}` → URI becomes
-     `{{burp_path}}` with a `Payload::FromList` binding (capped at 16
-     paths). Phase-2a runner takes the first value only; full per-path
-     fan-out lands in Phase 2c.5.
-- BCheck rules with multi-step `send`s, compound predicates (`and` / `or`
-  inside `if`), header/status-code-only checks without an accompanying
-  body matcher, or `define:` blocks beyond simple path lists are skipped
-  with reason `burp_unsupported_dsl_shape`. They remain catalogued (with
-  detection_json preserved) for Phase 2c.5.
-- **91 BCheck rules now have executable `match_spec_json`** (34.6% of
-  the vendored 263). Examples:
-  - `bcheck-leaked-aws-token` — passive scan for `AKIA[0-9A-Z]{16}` in any
-    response body.
-  - `bcheck-exposed-git-directory` — GET `{{burp_path}}` against
-    `[/.git/config, /.git/config~]` with body match `\[core\]`.
-  - `bcheck-Cookie-SameSite-Disabled` — passive `(?i)(SameSite=None)`.
-  - `bcheck-jsMapFile`, `bcheck-detectRateLimiter`, `bcheck-client_secret`,
-    `bcheck-gitlab-ci-discovery`, …
-- The recursive `Cond` enum still wasn't needed — none of the lowered
-  BChecks required OR/NOT or cross-step deltas. The flat
-  `Vec<LeafCond>` shape continues to cover everything Phase 2 has
-  shipped. Recursive `Cond` (with hand-written serde) stays queued for
-  whenever a high-value rule needs it.
-- Parity test (5/5) still green. No regressions.
-
-**End-of-Phase 2c coverage summary:**
-
-| Source | Ingested | Lowered | Pct |
-|--------|----------|---------|-----|
-| Nikto  | 7,236    | 6,812   | 94.1% |
-| ZAP    | 51       | 17      | 33.3% |
-| Burp   | 263      | 91      | 34.6% |
-| **Total** | **7,550** | **6,920** | **91.7%** |
-
-### Future (post-Phase 2c)
-
-- **Phase 2c.5 / 2d.0 — fan-out + recursion.**
-  - Bind-fan-out: `Payload::FromList` runs the step once per value rather
-    than just the first. Needed for active fuzzing where each payload is
-    its own request.
-  - Recursive `Cond` with hand-written serde impls when a real upstream
-    rule needs OR / NOT trees or cross-step deltas.
-  - Per-host serialisation for time-based rules (`ElapsedDeltaMs` cond)
-    so concurrent scans don't false-positive the timing oracle.
-  - Header / status-code matchers in BCheck lowering, increasing the
-    Burp coverage past the body-only template.
+- `lower::lower_burp` parses three BCheck templates: passive
+  single-pattern, active literal-path single-request, active path-list
+  run-for-each.
+- 91 / 263 BCheck rules now executable.
 
 ### Phase 2d (cutover plumbing — complete)
 
@@ -827,8 +958,12 @@ high-value entries (XSS, SQLi reflection-based, etc.) once cross-step
 - **Both plugins read `ctx.cli.rules_only` / `ctx.cli.legacy_only`** at
   the top of `on_scan`. No registry or weight changes; the flags toggle
   behaviour at scan time.
-- **CLI smoke test passed:** both flags accept cleanly and the rules
-  store still loads regardless of which path is selected.
+- **Desktop UI: "Unified rules" tab** in
+  [crates/corvex-desktop/ui/src/components/DatabasesView.tsx](crates/corvex-desktop/ui/src/components/DatabasesView.tsx).
+  Backed by the new `rules_summary` Tauri command. Renders coverage
+  cells, per-source table with upstream commit SHAs, severity
+  distribution, and a friendly empty state with the build instructions
+  when no `rules.sqlite` is present.
 
 ### Phase 2d.5 (cutover validation — next)
 
@@ -845,6 +980,10 @@ high-value entries (XSS, SQLi reflection-based, etc.) once cross-step
 - Once green for one release cycle, **flip the default**: change
   `RulesPlugin`'s default source filter to `["nikto", "zap", "burp"]`
   and make `TestsPlugin` no-op unless `--legacy-only` is set.
+- **Bind fan-out** lift: `Payload::FromList` runs the step once per
+  value rather than just the first. Required for active fuzzing where
+  each payload value should produce its own request and potentially
+  its own finding.
 
 ### Phase 2e (delete legacy)
 
@@ -865,17 +1004,27 @@ high-value entries (XSS, SQLi reflection-based, etc.) once cross-step
 
 ### Future (not in current roadmap)
 
-- OOB collaborator service (Interactsh-style) so `Cond::OobInteraction`
-  becomes executable.
-- Fan-out `Payload::FromList` semantics that emit a finding per value.
-- ZAP regex flavour translation (java.util.regex → Rust's RE2 — backref /
-  lookaround removal).
-- BCheck "v2-beta" full DSL coverage including arbitrary `define:` /
+- **Recursive `Cond` enum** with hand-written serde impls for ZAP / Burp
+  rules that need OR / NOT trees or cross-step deltas. Will lift Burp
+  multi-step + compound-predicate coverage and unlock proper SQLi
+  reflection / time-based ZAP rules.
+- **OOB collaborator service** (Interactsh-style) so
+  `Cond::OobInteraction` becomes executable.
+- **ZAP regex flavour translation** (java.util.regex → Rust's RE2):
+  rewriting backref / lookaround patterns to RE2-compatible forms so a
+  larger ZAP subset survives the regex-compile filter.
+- **BCheck "v2-beta" full DSL coverage** including arbitrary `define:` /
   `run for each:` blocks beyond simple path lists.
+- **Header / status-code matchers in BCheck lowering**, increasing the
+  Burp coverage past the body-only template.
+- **Desktop UI: rebuild button** on the Rules tab that invokes
+  `corvex-rules-builder` (mirroring the Exploit-DB Re-sync button), and
+  a checkbox in the Web Scan form to set `--rules-only` / `--legacy-only`
+  from the GUI.
 
 ---
 
-## 12. Files of interest
+## 13. Files of interest
 
 ### Created
 
@@ -896,6 +1045,7 @@ crates/corvex-rules-builder/src/schema.rs
 crates/corvex-rules-builder/src/writer.rs
 crates/corvex-rules-builder/src/report.rs
 crates/corvex-rules-builder/src/lower.rs    # detection_json -> MatchSpec
+                                            # (Nikto + ZAP + Burp passes)
 crates/corvex-rules-builder/src/parsers/mod.rs
 crates/corvex-rules-builder/src/parsers/nikto.rs
 crates/corvex-rules-builder/src/parsers/zap.rs
@@ -911,9 +1061,9 @@ rules-sources/                              # vendored upstream content
 rules-sources/VENDOR.md
 rules-sources/nikto/db_tests
 rules-sources/zap/COMMIT
-rules-sources/zap/*.json
+rules-sources/zap/*.json                    # 51 rule descriptors
 rules-sources/burp/COMMIT
-rules-sources/burp/**/*.bcheck
+rules-sources/burp/**/*.bcheck              # 263 BCheck files
 
 .cargo/config.toml                          # RUST_MIN_STACK=16MB
 ```
@@ -925,19 +1075,25 @@ Cargo.toml                                  # workspace members + deps
 .gitignore                                  # /rules.sqlite ignored
 crates/corvex-core/src/lib.rs               # pub mod matcher
 crates/corvex-core/src/scan.rs              # ScanCtx.rule_store
+crates/corvex-core/src/cli.rs               # --rules-only + --legacy-only
+crates/corvex-plugins/src/tests_plugin.rs   # ctx.cli.rules_only gate
 crates/corvex/Cargo.toml                    # depends on corvex-rules
 crates/corvex/src/main.rs                   # rule_store loading
 crates/corvex-desktop/Cargo.toml            # depends on corvex-rules
-crates/corvex-desktop/src/commands.rs       # rule_store loading
+crates/corvex-desktop/src/commands.rs       # rule_store loading +
+                                            # rules_summary command
+crates/corvex-desktop/src/main.rs           # invoke_handler registers
+                                            # rules_summary
+crates/corvex-desktop/ui/src/api.ts         # RulesSummary types +
+                                            # rulesSummary() wrapper
+crates/corvex-desktop/ui/src/components/DatabasesView.tsx
+                                            # "Unified rules" tab
 crates/corvex-plugins/Cargo.toml            # depends on corvex-rules
 crates/corvex-plugins/src/lib.rs            # register RulesPlugin
 ```
 
 ### Untouched
 
-- `crates/corvex-plugins/src/tests_plugin.rs` — the legacy Nikto runner
-  keeps working unchanged. The Phase 2d cutover is the only PR that
-  touches it.
 - `crates/corvex-core/build.rs` — the bincode `databases.bin` pipeline
   remains in place during Phase 2.
 - `crates/corvex-core/src/db/types.rs` — `TestRow` and friends are
@@ -946,9 +1102,9 @@ crates/corvex-plugins/src/lib.rs            # register RulesPlugin
 
 ---
 
-## 13. Operational notes
+## 14. Operational notes
 
-### 13.1 Building `rules.sqlite`
+### 14.1 Building `rules.sqlite`
 
 ```
 cargo run -p corvex-rules-builder -- \
@@ -965,7 +1121,7 @@ cargo run -p corvex-rules-builder -- \
     --filter-source zap
 ```
 
-### 13.2 `rules.sqlite` location at runtime
+### 14.2 `rules.sqlite` location at runtime
 
 The CLI and desktop binaries look for `rules.sqlite` in:
 
@@ -979,7 +1135,21 @@ file optional for development and easy to swap during testing.
 The file is **excluded** from the repo (see `.gitignore`); it is a build
 artefact regenerated from `rules-sources/` whenever needed.
 
-### 13.3 Refreshing vendored sources
+**For `cargo tauri dev` testing,** the desktop process's exe lives at
+`target/debug/corvex-desktop.exe`, so dropping a copy of `rules.sqlite`
+next to it ensures the catalog loads regardless of which working directory
+the user launches the dev tooling from:
+
+```
+cp rules.sqlite target/debug/rules.sqlite
+```
+
+The repo-root copy and the `target/debug/` copy can coexist; the cwd
+candidate is checked first, so when launched from the repo root the
+top-level copy wins. When launched from elsewhere (an IDE deep-link,
+another terminal pane, etc.) the exe-dir fallback succeeds.
+
+### 14.3 Refreshing vendored sources
 
 ```
 # Burp BChecks:
@@ -1002,9 +1172,10 @@ git -C zap-extensions rev-parse HEAD > rules-sources/zap/COMMIT
 ```
 
 After refreshing, rerun the builder and the parity test. Update the
-`MatchSpec executable coverage` numbers in this doc if they materially shift.
+`MatchSpec executable coverage` numbers in this doc and §10 if they
+materially shift.
 
-### 13.4 Adding a new rule source
+### 14.4 Adding a new rule source
 
 1. Create `crates/corvex-rules-builder/src/parsers/<name>.rs` returning
    `(Vec<NormalizedRule>, ParseStats)`.
@@ -1017,38 +1188,69 @@ After refreshing, rerun the builder and the parity test. Update the
    `rules-sources/VENDOR.md`.
 5. Decide whether to lower into `MatchSpec` now or defer; if deferring,
    `lower::try_lower` returns `Ok(None)` for that source.
-6. Update `RulesPlugin` if you want the new source to fire in the side-by-
-   side period.
+6. Update `RulesPlugin`'s default source filter if you want the new source
+   to fire in the side-by-side period.
+
+### 14.5 Verifying the unified path is active
+
+For the CLI:
+
+```
+RUST_LOG=info,tests_plugin=debug,rules_plugin=debug \
+  ./target/debug/corvex --host http://target --rules-only
+
+# Look for: "rules_plugin: running N rules from unified store"
+```
+
+For the desktop, open Databases → **Unified rules** tab. The 6-cell summary
+shows live counts off whichever `rules.sqlite` was loaded; the per-source
+table shows ingested vs executable per source with the upstream commit
+short-SHA next to each. If the tab shows a "build it with this command"
+empty state, no `rules.sqlite` was found in cwd or exe-dir.
+
+Findings emitted via `RulesPlugin` carry a `corvex_id` of the form
+`<source>-<rule_id>`:
+
+- `nikto-000123` (only when `--rules-only` is set)
+- `zap-40008`
+- `burp-bcheck-leaked-aws-token`
+
+Findings from the legacy `TestsPlugin` carry the bare numeric Nikto ID
+(e.g. `000123`).
 
 ---
 
-## 14. Known limitations
+## 15. Known limitations
 
-- **Phase 2a only fires Nikto rules through the new path (and only does so
-  internally — `RulesPlugin` filters out `nikto` until the cutover).** ZAP
-  and Burp rules are catalogued but not executed yet.
-- **Time-based detection isn't usable yet.** When `Cond::ElapsedDeltaMs`
-  returns in Phase 2b, it will need a per-host serialisation guard so
-  concurrent scans don't blow up the timing oracle. Not a problem in 2a
-  because the flat shape doesn't include cross-step deltas.
+- **Phase 2d.5 hasn't run yet.** Until the fixture-target parity test
+  passes, `--rules-only` is opt-in and the default stays side-by-side.
+  Nothing forces the legacy path to retire.
+- **Bind fan-out is not wired.** `Payload::FromList` runs the step once
+  with the first value — meaningful for active fuzzing rules where each
+  payload should produce its own request. Phase 2d.5 deliverable.
 - **OOB-dependent rules are skipped.** The `OobInteraction` slot is
-  designed but not implemented; an Interactsh-style collaborator service is
-  a separate effort.
-- **ZAP rules that require Java helpers don't port.** The extractor pulls
-  metadata only. Rules whose detection logic relies on jericho-html DOM
-  parsing, ZAP's `HtmlParameter` form parser, or session-aware login flows
-  will likely never lower cleanly.
-- **ZAP regex flavour mismatch.** ZAP uses `java.util.regex` with
-  backreferences and lookaround; Rust's `regex` crate is RE2. Phase 2b's
-  ZAP lowering will need to fail-skip rules that use unsupported regex
-  constructs (estimated 10–20% of ZAP active rules).
-- **BCheck JS-snippet rules.** A subset of BChecks embed JavaScript
-  expressions inside `if` blocks. Phase 2c will skip-and-log those
-  declaratively rather than implementing a JS interpreter.
-- **No fan-out yet.** `Payload::FromList` takes the first value only in
-  Phase 2a. Real fan-out (one fetch per value) lands in Phase 2b — it
-  changes the cardinality of `run_match`'s return value (one
-  `Vec<MatchHit>` per call instead of `Option<MatchHit>`).
+  designed but not implemented; an Interactsh-style collaborator service
+  is a separate effort.
+- **ZAP rules that require Java helpers don't port** (~30 rules out of 51
+  ingested). Logic relying on jericho-html DOM parsing, ZAP's
+  `HtmlParameter` form parser, session-aware login flows, or runtime
+  payload generation can't be expressed without compiling Java. Section 10
+  has the full breakdown.
+- **ZAP regex flavour mismatch.** A small number of ZAP rules' patterns
+  use backreferences or lookaround that the Rust `regex` crate (RE2)
+  rejects. The lowerer filters these via `regex::Regex::new` and skips
+  the rule if nothing survives. Future work: rewrite a subset of these
+  patterns into RE2-compatible forms.
+- **BCheck rules with multi-step / compound predicates / complex `define:`
+  blocks (~172 of 263) need richer matcher support** — recursive `Cond`,
+  cross-step deltas, header/status matchers in the lowerer. Section 10
+  has the breakdown by reason.
+- **Recursive `Cond` deferred.** None of the lowered rules so far have
+  needed it, but it's the unblocker for cross-step ZAP / Burp rules.
+  Bringing it back will use hand-written `Serialize` / `Deserialize`
+  impls (not derive) so `corvex-rules` keeps compiling fast on Windows
+  MSVC.
+- **No fan-out yet.** See bind fan-out above.
 - **Windows MSVC** is the target most stressed by the recursive serde
   derive. Linux builds run faster end-to-end. The `.cargo/config.toml`
   `RUST_MIN_STACK` setting is required for both, but matters more on
@@ -1056,17 +1258,24 @@ After refreshing, rerun the builder and the parity test. Update the
 
 ---
 
-## 15. Questions worth asking before extending
+## 16. Questions worth asking before extending
 
 - Should `match_spec_json` bake in a schema-version field too, so older
   `corvex-rules` builds reject newer formats cleanly? (Current: implicit
   via `rules_meta.schema_version`.)
-- Should the desktop UI gain a "Rules" view that surfaces `rules.sqlite`'s
-  contents (filter by source / severity / OWASP, click-through to source
-  rule)? Phase 2d is a natural moment to add it.
-- For Phase 2d cutover: do we want a CLI flag (`--rules-source=sqlite|bincode`)
+- ✅ ~~Should the desktop UI gain a "Rules" view?~~ — answered in Phase 2d:
+  shipped as a tab in the existing Databases view rather than a top-level
+  sidebar entry, since the data is read-only.
+- For Phase 2e cutover: do we want a CLI flag (`--rules-source=sqlite|bincode`)
   during the soak period, or commit to a hard switch? Hard switch is
-  cleaner if the parity test is exhaustive enough.
-- Should the embedded rules.sqlite ship via `include_bytes!` (preserving
-  the single-binary promise), or as a sibling file extracted on first run
-  (mirroring the gzipped vulndb pattern)? Phase 2d decision.
+  cleaner once the parity test is exhaustive enough; the existing
+  `--legacy-only` keeps the bincode path callable post-cutover for
+  bisecting any regression.
+- Should the embedded rules.sqlite eventually ship via `include_bytes!`
+  (preserving the single-binary promise), or stay as a sibling file
+  extracted on first run (mirroring the gzipped vulndb pattern)? Phase 2e
+  decision; today the file is always external and discovered at startup.
+- For a "Rebuild rules" button on the Rules tab — same UX as Exploit-DB's
+  Re-sync — should it shell out to `corvex-rules-builder` or call into the
+  builder library in-process? In-process is cleaner but requires turning
+  the builder's `main.rs` driver code into a re-usable `lib.rs` first.
