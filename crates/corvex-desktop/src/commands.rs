@@ -496,21 +496,11 @@ pub async fn scan_start(
         None
     };
 
-    // Optional unified rules catalog. Same lookup as the CLI: cwd then exe
-    // dir. Missing or unreadable files log a warning and fall through.
+    // Unified rules catalog. Lookup order is: cwd → exe-dir → embedded
+    // blob extracted to app_data_dir. Missing or unreadable files log a
+    // warning and fall through to legacy behaviour.
     let rule_store: Option<Arc<dyn corvex_core::matcher::RuleProvider>> = {
-        let candidates = [
-            std::env::current_dir()
-                .ok()
-                .map(|p| p.join("rules.sqlite")),
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.join("rules.sqlite"))),
-        ];
-        let path = candidates
-            .into_iter()
-            .flatten()
-            .find(|p| p.exists());
+        let path = crate::rules_embed::resolve_rules_path();
         match path {
             Some(p) => match corvex_rules::RuleStore::open(&p) {
                 Ok(store) => {
@@ -2114,15 +2104,7 @@ pub async fn rules_summary() -> AppResult<RulesSummary> {
     use rusqlite::{Connection, OpenFlags};
 
     let mut summary = RulesSummary::default();
-    let candidates = [
-        std::env::current_dir()
-            .ok()
-            .map(|p| p.join("rules.sqlite")),
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.join("rules.sqlite"))),
-    ];
-    let path = match candidates.into_iter().flatten().find(|p| p.exists()) {
+    let path = match crate::rules_embed::resolve_rules_path() {
         Some(p) => p,
         None => return Ok(summary),
     };

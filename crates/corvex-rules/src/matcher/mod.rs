@@ -12,5 +12,10 @@
 pub mod engine;
 pub mod spec;
 
-pub use engine::{eval_when, parse_json, run_match, to_json, EvalError, MatchHit, StepResult};
-pub use spec::{Alphabet, LeafCond, MatchSpec, Matcher, Payload, StepId, StepSpec, VarRef};
+pub use engine::{
+    eval_cond, eval_when, parse_json, run_match, to_json, EvalError, MatchHit, StepResult,
+};
+pub use spec::{
+    Alphabet, CondGraph, CondNode, DiffMode, LeafCond, MatchSpec, Matcher, NumOp, Payload, StepId,
+    StepSpec, VarRef,
+};

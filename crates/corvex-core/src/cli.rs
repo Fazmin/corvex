@@ -455,19 +455,31 @@ pub struct Cli {
     pub diff_reports: Option<String>,
 
     // ---- Phase 2d cutover flags ----------------------------------------------
+    //
+    // After Phase 2d.0, the default is **SQLite-only**: RulesPlugin owns
+    // every source (Nikto + ZAP + Burp) and TestsPlugin no-ops. The two
+    // escape hatches below recover the older behaviour for anyone bisecting
+    // a regression or running a parity comparison.
 
-    /// Run scan via the unified rules.sqlite path only. Disables the legacy
-    /// TestsPlugin (bincode db_tests) and widens RulesPlugin's source filter
-    /// to include all sources (Nikto + ZAP + Burp). Use this to validate the
-    /// new path against a target you've already baselined.
+    /// Run scan via the unified rules.sqlite path only. This is the default
+    /// behaviour as of Phase 2d.0; the flag is kept as an explicit alias so
+    /// scripts written during the Phase-2c soak period keep working.
     #[arg(long = "rules-only", default_value_t = false)]
     pub rules_only: bool,
 
     /// Run scan via the legacy TestsPlugin only. Disables RulesPlugin so
     /// behaviour exactly matches pre-Phase-2 builds. Use this as the parity
-    /// baseline for `--rules-only` comparisons.
+    /// baseline if a `--rules-only` (default) run is missing an expected
+    /// finding.
     #[arg(long = "legacy-only", default_value_t = false)]
     pub legacy_only: bool,
+
+    /// Run both plugins side-by-side: TestsPlugin handles Nikto, RulesPlugin
+    /// handles ZAP+Burp. Useful for spotting parity regressions on a real
+    /// target without two separate scan runs. Was the default during the
+    /// Phase-2a–2c.3 soak period; opt-in now.
+    #[arg(long = "side-by-side", default_value_t = false)]
+    pub side_by_side: bool,
 
     // ---- Config generation flags ---------------------------------------------
 

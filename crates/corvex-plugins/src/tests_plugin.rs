@@ -58,14 +58,15 @@ impl Plugin for TestsPlugin {
     }
 
     async fn on_scan(&self, ctx: &ScanCtx, mark: Arc<Mutex<Mark>>) -> Result<()> {
-        // Phase 2d cutover: when the user asks the unified path to own
-        // Nikto, this plugin steps aside. The mirror flag --legacy-only
-        // would force this plugin to run regardless and is the implicit
-        // default already, so it doesn't need a check here.
-        if ctx.cli.rules_only {
+        // Phase 2d.0+ default: SQLite owns Nikto. This plugin only fires
+        // under `--legacy-only` (full pre-Phase-2 baseline) or
+        // `--side-by-side` (parity-comparison run with both plugins active).
+        // Without either flag we step aside so RulesPlugin handles
+        // everything from the unified catalog.
+        if !ctx.cli.legacy_only && !ctx.cli.side_by_side {
             tracing::debug!(
                 target: "tests_plugin",
-                "--rules-only set; skipping (RulesPlugin owns the Nikto path)"
+                "default mode (rules.sqlite owns Nikto); skipping legacy bincode path"
             );
             return Ok(());
         }

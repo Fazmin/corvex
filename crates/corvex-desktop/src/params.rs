@@ -246,10 +246,13 @@ impl ScanParams {
             diff_reports: None,
             generate_config: None,
             // Unified rules cutover flags — desktop uses the default
-            // side-by-side path; the legacy/rules-only toggles are
-            // CLI-only knobs for parity validation.
+            // (rules-only) path; the legacy / side-by-side toggles are
+            // CLI-only knobs for parity validation. Leaving all three
+            // false picks up the post-Phase-2d.0 default behaviour
+            // (RulesPlugin owns every source, TestsPlugin no-ops).
             rules_only: false,
             legacy_only: false,
+            side_by_side: false,
         }
     }
 }

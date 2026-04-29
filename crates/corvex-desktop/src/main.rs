@@ -22,6 +22,7 @@ mod proxy_cmd;
 mod recon_cmd;
 mod recon_state;
 mod recon_store;
+mod rules_embed;
 mod scan_state;
 
 use std::sync::Arc;

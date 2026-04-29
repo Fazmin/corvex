@@ -1,11 +1,15 @@
 # Scanner Rule Unification to a Single SQLite Catalog
 
-> Status: **Phase 1 + 2a + 2b + 2c + 2d (cutover plumbing) complete.** The
-> desktop UI now surfaces the catalog under
-> Databases → Unified rules. The runtime lets the user flip between the
-> legacy bincode path (`--legacy-only`), side-by-side (default), and the
-> unified-rules path (`--rules-only`). The final delete of `TestsPlugin` is
-> gated on Phase 2d.5 — a fixture-target parity diff between the two modes.
+> Status: **Phase 1 + 2a + 2b + 2c + 2c.1 + 2c.2 + 2c.3 + 2d + 2d.0 (default
+> flip + embed rules.sqlite into the desktop binary) complete.** Total
+> executable rule coverage is **6,950 / 7,550 (92.1%)**. The desktop
+> binary now ships `rules.sqlite` embedded via `include_bytes!`
+> (~7.3 MB, +7.6 MB binary growth) and extracts it to `app_data_dir` on
+> first launch. The default scan path is now **SQLite-only**: `corvex
+> --host X` (or any desktop scan) uses RulesPlugin against all sources;
+> TestsPlugin only fires under `--legacy-only` or `--side-by-side`.
+> Phase 2d.5 (fixture-target parity diff) is the remaining gating step
+> before Phase 2e (delete legacy).
 >
 > Last updated: 2026-04-29.
 
@@ -308,18 +312,27 @@ raw detection blob:
   - Rules with payloads bind `{{ZAP}}` into `/?fuzz={{ZAP}}` via
     `Payload::FromList`. Result: **17 / 51 (33.3%)**.
 
-- **Burp** (`kind = "bcheck"`): Phase 2c lowers three templates:
-  1. **Passive single-pattern.** `given response then if {latest.response}
-     matches "REGEX" then report ...` → single GET `/` step + body matcher.
+- **Burp** (`kind = "bcheck"`): Phase 2c lowers three templates;
+  Phase 2c.1 widens predicate coverage from body-only to all four
+  matcher kinds:
+  1. **Passive single- or multi-predicate.** `given response then if
+     {latest.response[.body|.status_code|.headers/Name]} OP "VALUE" then
+     report ...` → single GET `/` step + one or more LeafConds AND-joined.
   2. **Active literal-path single-request.** `send request called X:
-     path: "/foo" ; if {X.response.body} matches "REGEX"` → GET `/foo` +
-     body match. Also handles `if "literal" in {X.response.body}`
-     (regex-escapes the literal).
+     path: "/foo" ; if {X.response.body} matches "REGEX" ...` →
+     GET `/foo` + LeafConds. Status / header / body / cookie predicates
+     all extracted; nested `if` blocks flatten to AND.
   3. **Active path-list run-for-each.** `run for each: paths = "/a", "/b"`
      followed by `send request called X: path: {paths}` → URI becomes
      `{{burp_path}}` with a `Payload::FromList` binding (capped at 16).
 
-  Result: **91 / 263 (34.6%)**.
+  Each `if` line is parsed independently for the four predicate forms:
+  `{S} matches "R"` (regex), `{S} is "V"` (equality, anchored regex),
+  `{S} contains "V"` (substring, regex-escaped), and `"V" in {S}` (the
+  inverted-syntax substring form). Compound predicates (`if A and B`,
+  `if A or B`) are still skipped — they need the recursive `Cond`.
+
+  Result: **106 / 263 (40.3%)** — up from 91 in Phase 2c via Phase 2c.1.
 
 Un-lowered rules get `match_spec_json = NULL`. The `idx_rules_executable`
 partial index lets the runtime efficiently filter to executable rows only.
@@ -341,14 +354,34 @@ distribution, OWASP coverage, JSON-validity check, and full `rules_meta`.
 ## 6. The `MatchSpec` AST
 
 Lives in [crates/corvex-rules/src/matcher/spec.rs](crates/corvex-rules/src/matcher/spec.rs).
-Phases 2a / 2b / 2c all use the same **flat non-recursive** shape:
+Two complementary representations live side-by-side:
 
 ```rust
 pub struct MatchSpec {
     pub steps: Vec<StepSpec>,
-    /// Conditions are AND-joined. Future phases may swap this for a
-    /// richer recursive Cond tree (with hand-written serde, not derive).
+    /// Phase 2a–2c.1: flat AND-joined leaves. Cheap and covers the bulk
+    /// of every source's lowered rules.
     pub when: Vec<LeafCond>,
+    /// Phase 2c.2+: arena-encoded recursive boolean tree for compound
+    /// predicates (`if A and B`, `if A or B`, future cross-step deltas).
+    /// Optional; absent for simple rules. Runtime AND-joins the verdict
+    /// of `when` and `when_cond` so a rule can layer recursive logic on
+    /// top of a flat list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_cond: Option<CondGraph>,
+}
+
+pub struct CondGraph {
+    pub root: u32,
+    pub nodes: Vec<CondNode>,
+}
+
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CondNode {
+    Leaf(LeafCond),
+    All { children: Vec<u32> },   // indices into CondGraph.nodes
+    Any { children: Vec<u32> },
+    Not { child: u32 },
 }
 
 pub struct StepSpec {
@@ -387,28 +420,34 @@ introduce a recursive `Cond` (with hand-written serde) once a real
 upstream rule needs OR / NOT / cross-step deltas — none of the lowered ZAP
 or Burp rules so far do.
 
-### 6.1 Why not recursive yet
+### 6.1 Why arena-encoded instead of self-referential
 
-A recursive `Cond` enum (`All(Vec<Cond>)`, `Any(Vec<Cond>)`, `Not(Box<Cond>)`,
-plus the cross-step deltas, reflection, and OOB variants) was attempted
-during Phase 2a. It compiled on Linux but on Windows MSVC:
+A direct recursive enum (`All(Vec<Cond>)`, `Any(Vec<Cond>)`,
+`Not(Box<Cond>)`) was attempted during Phase 2a. It compiled on Linux but
+on Windows MSVC:
 
 - `recursion_limit` had to jump from the default 128 to 4096 to typecheck.
 - Even at 4096, `serde_json::Serializer<&mut Vec<u8>>` monomorphisation
-  through the recursive `Cond` overflowed the default 1 MB rustc thread
+  through the recursive type overflowed the default 1 MB rustc thread
   stack (`STATUS_STACK_OVERFLOW` exit `0xc00000fd`).
 - Bumping `RUST_MIN_STACK` to 16 MB via `.cargo/config.toml` lifted the
   hard overflow but compile time grew unbounded — observed ≥60 minutes on
   the single crate without producing an `rmeta`.
 
-**Decision:** ship the flat shape now (sufficient for Nikto, ZAP, and
-Burp), bring the recursive `Cond` back later with a **hand-written
-`Serialize` / `Deserialize` impl** so the macro doesn't expand the nested
-generics. This keeps `corvex-rules` compiling in seconds even after the
-richer variants land.
+**Phase 2c.2 fix:** encode the recursion *in the data* (children are
+`u32` indices into a `Vec<CondNode>`) rather than *in the type*
+(`Box<Cond>` / `Vec<Cond>`). The `CondNode` enum is non-self-referential,
+so serde's derive macro stops at one level and monomorphisation against
+`serde_json::Serializer<&mut Vec<u8>>` stays bounded. `corvex-rules`
+compiles in **2.4 s cold / 3.3 s with the new types**, identical to the
+flat-shape baseline. Hand-written serde impls were not needed.
+
+Tree walks at runtime use a 256-deep recursion guard in `eval_cond`
+(`COND_RECURSION_GUARD`); cycles or pathologically deep graphs short-circuit
+to `false` rather than blowing the runtime stack.
 
 The `.cargo/config.toml` `RUST_MIN_STACK = 16777216` setting is kept as a
-safety net for the eventual richer types.
+safety net for any future genuinely-recursive types we might add.
 
 ---
 
@@ -667,10 +706,10 @@ $ cargo run -p corvex-rules-builder -- --report rules.sqlite
   total   7550
 
 [MatchSpec executable coverage]
-  burp    91   / 263   (34.6%)
+  burp    121  / 263   (46.0%)
   nikto   6812 / 7236  (94.1%)
   zap     17   / 51    (33.3%)
-  total   6920 / 7550  (91.7%)
+  total   6950 / 7550  (92.1%)
 
 [OWASP-2025 coverage]
   burp    77   / 263   (29.3%)
@@ -799,37 +838,48 @@ The 34 un-lowered rules stay catalogued in `rules.sqlite` (severity,
 OWASP, CWE, references all populated) and are listed in
 `unlowered_reasons_zap_json` (`{"zap_no_extractable_signal": 34}`).
 
-### 10.3 Burp: 263 ingested → 91 executable (loses 172)
+### 10.3 Burp: 263 ingested → 121 executable (loses 142)
 
 **Source-to-ingested:** All 263 BCheck files in the vendored snapshot
 ingest cleanly. The Phase 1 parser had a near-miss on 11 files that start
 with `#Verified: Yes` comment lines before the `metadata:` block — the
 fix to skip leading `#`-comments lifted ingestion to 100%.
 
-**Ingested-to-executable (172 lost, 65%):** The Phase 2c lowerer
-(`lower::lower_burp`) handles three specific BCheck shapes (passive
-single-pattern, active literal-path, active path-list run-for-each — see
-§5.3). Anything outside those shapes is skipped with reason
-`burp_unsupported_dsl_shape`. The 172 un-lowered BChecks fall into:
+**Ingested-to-executable (142 lost, 54%):** Phase 2c.3 widened the
+lowerer to handle multi-step BChecks too (every send becomes its own
+`StepSpec`; predicates AND-join across steps via leaf retargeting).
+The lowerer now covers:
 
-- **Multi-step rules (~19 files).** Two or more `send request called X:`
-  blocks. Lowering these needs cross-step `Cond` variants
-  (`StatusDelta` / `BodyLenDeltaPct` / etc.) which the flat shape can't
-  express. Deferred to the recursive-`Cond` work.
-- **Compound predicates (~70 files).** `if A and B then ...` or
-  `if A or B then ...` inside the body — needs `Cond::All` /
-  `Cond::Any` which is recursive.
-- **Header / status-code-only checks without an accompanying body
-  matcher (~50 files).** The flat shape supports `Header` / `Status`
-  matchers, but the BCheck templates we matched in Phase 2c only build
-  a single `Body` LeafCond. Generalising the lowerer to also emit
-  `Header` / `Status` LeafConds is a small follow-up.
-- **Complex `define:` / `run for each:` blocks (~33 files).** Variables
+- Passive single- or multi-predicate rules (Phase 2c).
+- Active literal-path single-request (Phase 2c).
+- Active path-list run-for-each (Phase 2c).
+- Compound `if A and B` / `if A or B` predicates lowered into
+  `CondGraph` sub-trees (Phase 2c.2).
+- Multi-step rules with independent per-step predicates (Phase 2c.3).
+
+The 142 still-un-lowered BChecks now fall into:
+
+- **Mixed `and`/`or` compound rules (~50 files).** The recogniser
+  refuses to lower these without explicit operator precedence —
+  recognising precedence cleanly would require a real expression
+  parser. A small extension that handles parentheses would lift most
+  of them; left for a future iteration.
+- **Complex `define:` / `run for each:` blocks (~50 files).** Variables
   beyond simple path-string lists — for example
-  `define: random_str(6)`, `define: payload = base64_encode(...)`, or
+  `define: random_str(6)`, `define: payload = base64_encode(...)`,
   `run for each: header_value = "X-A: 1", "X-B: 2"`. The lowerer's
-  `resolve_path_var` only knows how to extract a quoted-string list as
-  path values; richer variable shapes need their own lowering paths.
+  `resolve_path_var` only handles quoted-string lists as path values;
+  richer variable shapes need their own lowering paths.
+- **Multi-step rules with cross-step semantics (~14 files).** Rules
+  using `differs from` / `is the same as` / `{OTHER.response.X}` —
+  these need explicit mappings to `CondNode::HeaderDiff`,
+  `BodyLenDeltaPct Ne 0`, or similar. The cross-step variants exist
+  in the engine; only the lowerer pass that recognises these BCheck
+  idioms is missing.
+- **Other (~28 files).** BCheck JS-snippet rules, rules whose `if`
+  predicates target unusual subjects (`{base.url}`, `{base.path}`,
+  `{base.host}`), and a handful of edge cases the four-subject
+  scanner doesn't recognise.
 
 All 172 un-lowered BChecks are catalogued (severity, name, description,
 detection_json with the full body preserved) so future iterations can
@@ -841,8 +891,8 @@ re-read the source signal without re-vendoring.
 |-------|-------|-----|------|-------|
 | Upstream source files | 7,284 lines | 142 Java files | 263 .bcheck files | — |
 | Ingested into `rules` | 7,236 | 51 | 263 | **7,550** |
-| Executable (`match_spec_json IS NOT NULL`) | 6,812 | 17 | 91 | **6,920** |
-| Coverage of ingested | 94.1% | 33.3% | 34.6% | **91.7%** |
+| Executable (`match_spec_json IS NOT NULL`) | 6,812 | 17 | 121 | **6,950** |
+| Coverage of ingested | 94.1% | 33.3% | 46.0% | **92.1%** |
 
 The big delta in *coverage of ingested* between Nikto (94%) and ZAP/Burp
 (~33%) reflects the fundamental difference in how each upstream source
@@ -941,29 +991,217 @@ The refactor's two key moves were (a) hosting the heavy types in
 - `lower::lower_burp` parses three BCheck templates: passive
   single-pattern, active literal-path single-request, active path-list
   run-for-each.
-- 91 / 263 BCheck rules now executable.
+- 91 / 263 BCheck rules now executable (body-matcher only).
+
+### Phase 2c.1 (complete) — widen predicate coverage
+
+- Refactored the BCheck lowerer to emit one `LeafCond` per supported
+  predicate kind (`Status` / `Body` / `Header` / `Cookie`). Previously
+  only `Body` was wired.
+- Added recognisers for `{S} is "V"` (equality), `{S} contains "V"`
+  (substring), and `{S.headers/NAME}` predicates alongside the existing
+  `{S} matches "R"` and `"V" in {S}`.
+- Multiple non-compound `if` lines on one rule AND-join automatically
+  via the flat `Vec<LeafCond>` shape — handling both sequential and
+  nested-`if` BCheck patterns without engine changes.
+- **+15 BCheck rules** unlocked (91 → 106). Examples now executable:
+  `bcheck-waf-bypass` (status `^403$`), `bcheck-detectRateLimiter`
+  (status + body AND), `bcheck-Etcd Server - Unauthenticated Access`
+  (status `^200$`), `bcheck-gcp` (GCP metadata endpoint status check),
+  `bcheck-unauth-access-to-prometheus-server`,
+  `bcheck-OpenID-Dynamic-Client-Registration-Endpoint-Detected`.
+- No engine change required — the runtime already evaluated the full
+  matcher set; the lowerer just wasn't producing them.
+
+### Phase 2c.2 (complete) — recursive `Cond` for compound predicates
+
+- Added the recursive `Cond` AST as an **arena-encoded** `CondGraph` +
+  `CondNode { Leaf | All { children: Vec<u32> } | Any { children:
+  Vec<u32> } | Not { child: u32 } }` in
+  [crates/corvex-rules/src/matcher/spec.rs](crates/corvex-rules/src/matcher/spec.rs).
+  Children are `u32` indices into the graph's `nodes` Vec, so the type
+  is **non-self-referential at the type level** — serde's `derive`
+  macro doesn't have to expand recursively, sidestepping the Windows
+  rustc thread-stack overflow that blocked Phase 2a's first attempt.
+  Hand-written serde impls were not needed.
+- `MatchSpec.when_cond: Option<CondGraph>` field added with
+  `#[serde(default, skip_serializing_if = "Option::is_none")]` — purely
+  additive, the existing 6,935 lowered rules continue to round-trip
+  through serde unchanged.
+- New `eval_cond` evaluator in
+  [crates/corvex-rules/src/matcher/engine.rs](crates/corvex-rules/src/matcher/engine.rs)
+  — recursive walk over the arena with a 256-deep recursion guard.
+  `run_match` evaluates **both** `when` (flat AND-list) and
+  `when_cond` (sub-tree) when present and AND-joins the verdicts, so
+  a rule can layer compound logic onto the flat list cheaply.
+- Lowerer extension: BCheck `if A and B then ...` → `CondNode::All`
+  with two leaf children; `if A or B then ...` → `CondNode::Any`. Mixed
+  `and`/`or` in one expression is rejected (operator precedence is
+  ambiguous without a real parser; that subset is rare in upstream
+  BChecks). When multiple `if` lines on one rule each carry a compound
+  predicate, the lowerer stitches them under a top-level `All` (their
+  semantic AND).
+- **+10 BCheck rules** unlocked (106 → 116). Examples:
+  - `bcheck-Apache Struts OGNL Console Publicly Accessible` — status
+    `^200$` AND body `title>OGNL Console` (3-node graph).
+  - 11 rules now carry a `when_cond` sub-tree (one is a rule that
+    already lowered flat in 2c.1 and now layers a compound clause too).
+- The previous "compound predicates (~70 files)" un-lowered bucket
+  shrinks to ~60 — the remaining unlowered compound rules either mix
+  `and`/`or`, reference subjects the recogniser doesn't know
+  (`{base.url}`, `{base.path}`), or live alongside `define:` blocks
+  with non-trivial expressions.
+
+### Phase 2c.3 (complete) — multi-step matchers
+
+Three pieces shipped together:
+
+**1. Cross-step `CondNode` variants** in
+[crates/corvex-rules/src/matcher/spec.rs](crates/corvex-rules/src/matcher/spec.rs):
+
+```rust
+CondNode::StatusDelta     { a, b, op, value }     // i64 status diff
+CondNode::BodyLenDeltaPct { a, b, op, value }     // f64 percent change in body size
+CondNode::ElapsedDeltaMs  { a, b, op, value }     // i64 wall-clock delta in ms
+CondNode::HeaderDiff      { a, b, name, mode }    // header presence / value diff
+
+pub enum NumOp { Eq, Ne, Lt, Le, Gt, Ge }
+pub enum DiffMode { PresenceDiffers, ValueDiffers, AddedInB, RemovedInB }
+```
+
+These slot into the existing arena alongside `Leaf` / `All` / `Any` /
+`Not`, so the macro-derived serde impls stay cheap (the type is still
+non-self-referential — children are still `u32` indices for the boolean
+nodes; the cross-step variants reference `StepId`s rather than other
+arena indices).
+
+**2. Engine evaluation** — `eval_cond_at` in
+[crates/corvex-rules/src/matcher/engine.rs](crates/corvex-rules/src/matcher/engine.rs)
+gained four arms that look up both `StepResult`s by id, compute the
+delta, and run the comparator. `BodyLenDeltaPct` handles div-by-zero
+on empty baselines by reporting `f64::INFINITY` so the comparator
+fires when the candidate body is non-empty.
+
+**3. Per-host timing guard** so concurrent traffic doesn't pollute
+`ElapsedDeltaMs` rules' timing oracle. A process-wide
+`OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>` keys an
+async lock per hostname. The guard is taken before *any* HTTP for a
+spec carrying `ElapsedDeltaMs` and held for the whole multi-step
+sequence, so the baseline and the mutated request can't be interleaved
+with another timing-sensitive spec's traffic. `spec_needs_timing_guard`
+is the cheap pre-check.
+
+**4. Multi-step lowerer** — `lower_burp_multistep` in
+[crates/corvex-rules-builder/src/lower.rs](crates/corvex-rules-builder/src/lower.rs)
+now handles BChecks with two or more `send request called X:` blocks:
+
+- Each send becomes its own `StepSpec` keyed by its BCheck name.
+- Path resolution mirrors the single-step path; sends with `path: {var}`
+  references get a unique `Payload::FromList` bind name per step
+  (`burp_path_<send_name>`) so multiple distinct path variables don't
+  trample each other.
+- Each send's predicates are extracted by the existing
+  `extract_burp_predicates` (with `send_name` bound), and the resulting
+  leaves are retargeted from the default `r0` step id to the actual
+  send's `StepId` via `retarget_leaf` / `retarget_graph` before being
+  AND-joined with the other sends' predicates.
+- A pre-filter (`has_cross_step_comparison`) refuses BChecks whose
+  predicates use `differs from` / `is the same as` / `is {OTHER.response.X}`
+  — those rules need *true* cross-step semantics that the per-step lowerer
+  would silently mis-translate. Roughly 4 rules out of the 19 multi-step
+  BChecks fall into this bucket and remain un-lowered (they're queued for
+  a future iteration that explicitly maps `differs from` → `BodyLenDeltaPct
+  Ne 0` or similar).
+
+**+5 BCheck rules** unlocked (116 → 121). New executables:
+
+- `bcheck-Nacos-create-user-unauthorized-bypass` — 4-step exploit
+  chain (create → delete → create → delete) with status + body
+  predicates per step.
+- `bcheck-CVE-2023-23752-Joomla-information-disclosure` — 2-step:
+  baseline detect (`"joomla-" in body`) + endpoint hit
+  (status + multi-key body match).
+- `bcheck-CVE-2023-39141 Aria2 WebUI - Path Traversal` — 2-step
+  baseline + traversal probe.
+- `bcheck-CVE-2025-30208_Vite_dev_server` — 2-step Vite dev-server
+  detection.
+- Plus a +1 from the escape-handling fix in `extract_quoted_with_len`
+  (used to fail on BCheck literals containing escaped quotes such as
+  `"\"type\":\"application\""`).
+
+**Bug fixed along the way:** `extract_quoted_with_len` now correctly
+tracks consumed byte length even when the quoted body contains escaped
+quotes, so `parse_in_payload_value` no longer mis-aligns its tail
+match. The previous `find('"')` would return the first escaped quote's
+index instead of the closing quote's. Multiple compound predicates
+that previously failed now lower cleanly.
 
 ### Phase 2d (cutover plumbing — complete)
 
-- **Two new CLI flags** in [crates/corvex-core/src/cli.rs](crates/corvex-core/src/cli.rs):
-  - `--rules-only` — runs the scan via the unified `rules.sqlite` path
-    only. `RulesPlugin`'s source filter widens to
-    `["nikto", "zap", "burp"]`, and `TestsPlugin` early-returns from
-    `on_scan`. Produces findings purely from the new path.
-  - `--legacy-only` — inverse: `RulesPlugin` early-returns,
-    `TestsPlugin` runs unchanged. Produces findings purely from the
-    legacy bincode path. Use this as the parity baseline.
-  - Default (no flag) is unchanged — side-by-side with `RulesPlugin`
-    handling `["zap", "burp"]` and `TestsPlugin` owning Nikto.
-- **Both plugins read `ctx.cli.rules_only` / `ctx.cli.legacy_only`** at
-  the top of `on_scan`. No registry or weight changes; the flags toggle
-  behaviour at scan time.
+- **Three CLI flags** in [crates/corvex-core/src/cli.rs](crates/corvex-core/src/cli.rs):
+  - `--rules-only` — explicit alias for the new default. RulesPlugin
+    handles all sources; TestsPlugin no-ops.
+  - `--legacy-only` — RulesPlugin no-ops; TestsPlugin handles Nikto only
+    (no ZAP/Burp). Use this as the parity baseline if a default-mode
+    run is missing an expected finding.
+  - `--side-by-side` — both plugins active; RulesPlugin handles ZAP+Burp
+    while TestsPlugin owns Nikto. The pre-Phase-2d.0 default; opt-in now.
+- **Both plugins gate** on `ctx.cli.{legacy_only,side_by_side}` at the
+  top of `on_scan`. No registry or weight changes.
 - **Desktop UI: "Unified rules" tab** in
   [crates/corvex-desktop/ui/src/components/DatabasesView.tsx](crates/corvex-desktop/ui/src/components/DatabasesView.tsx).
-  Backed by the new `rules_summary` Tauri command. Renders coverage
-  cells, per-source table with upstream commit SHAs, severity
-  distribution, and a friendly empty state with the build instructions
-  when no `rules.sqlite` is present.
+  Backed by the `rules_summary` Tauri command. Renders coverage cells,
+  per-source table with upstream commit SHAs, severity distribution,
+  and a friendly empty state with the build instructions when no
+  `rules.sqlite` is present.
+
+### Phase 2d.0 (complete) — flip default to SQLite-only + embed catalog
+
+Two changes that together make `cargo tauri build` ship a self-contained
+binary that defaults to the unified-rules path:
+
+**1. Default flip.** Pre-2d.0 the default behaviour was side-by-side
+(TestsPlugin Nikto + RulesPlugin ZAP+Burp). Post-2d.0 the default is
+**SQLite-only**: every scan uses RulesPlugin against
+`["nikto", "zap", "burp"]`; TestsPlugin steps aside unless
+`--legacy-only` or `--side-by-side` is explicitly set. The legacy
+bincode `db_tests` build path stays compiled in (~7 MB binary cost
+unchanged) — flipping back is a one-flag operation, not a rebuild.
+
+**2. Embedded catalog.** `crates/corvex-desktop/build.rs` reads the
+repo-root `rules.sqlite` at compile time and writes its path to
+`CORVEX_RULES_SQLITE_PATH`. `crates/corvex-desktop/src/rules_embed.rs`
+then `include_bytes!`s that file into the binary and exposes a
+`resolve_rules_path()` helper that returns the path the runtime should
+open. Lookup order:
+
+  1. `<cwd>/rules.sqlite` (power-user override).
+  2. `<exe-dir>/rules.sqlite` (sibling-of-binary install layout).
+  3. Embedded blob extracted to
+     `<app_data_dir>/dev.fazminnizam.corvex-rust/rules.sqlite` on first
+     launch (or whenever the on-disk content's length / first 4 KB
+     don't match the embedded bytes — catches "user upgraded the
+     binary" without a separate version stamp).
+  4. None — binary falls back to legacy-only.
+
+Embedding adds **~7.6 MB** to the desktop binary (~7.3 MB blob plus
+section padding). The extraction is a one-shot ~5 ms write on first
+launch; subsequent launches see the file and skip the write.
+
+If the repo-root `rules.sqlite` is missing at build time (fresh clone),
+`build.rs` emits an empty placeholder and prints a `cargo:warning`. The
+runtime detects the empty embed via a SQLite-header sniff and falls
+through to the cwd / exe-dir / "no catalog" cases — the build never
+fails on a fresh checkout.
+
+**`cargo tauri build`** therefore now produces a single bundle that:
+- Ships every Nikto / ZAP / Burp rule in one file (no separate
+  `rules.sqlite` companion).
+- Defaults to running every rule through the unified path.
+- Surfaces all three sources' counts under Databases → Unified rules
+  immediately on first launch (the tab calls `rules_summary`, which
+  uses the same `resolve_rules_path()` helper, so it sees the
+  extracted blob without any other code change).
 
 ### Phase 2d.5 (cutover validation — next)
 
@@ -1066,13 +1304,19 @@ rules-sources/burp/COMMIT
 rules-sources/burp/**/*.bcheck              # 263 BCheck files
 
 .cargo/config.toml                          # RUST_MIN_STACK=16MB
+
+rules.sqlite                                # built catalog, tracked in git
+                                            # so fresh clones get a working
+                                            # unified-scanner path without
+                                            # running the builder first
 ```
 
 ### Modified
 
 ```
 Cargo.toml                                  # workspace members + deps
-.gitignore                                  # /rules.sqlite ignored
+.gitignore                                  # tracks /rules.sqlite, ignores
+                                            # only its in-flight side files
 crates/corvex-core/src/lib.rs               # pub mod matcher
 crates/corvex-core/src/scan.rs              # ScanCtx.rule_store
 crates/corvex-core/src/cli.rs               # --rules-only + --legacy-only
@@ -1132,8 +1376,18 @@ If neither location holds the file, the binary logs a debug message and
 proceeds without it (legacy `TestsPlugin` keeps running). This makes the
 file optional for development and easy to swap during testing.
 
-The file is **excluded** from the repo (see `.gitignore`); it is a build
-artefact regenerated from `rules-sources/` whenever needed.
+The file is **tracked in git** at the repo root (`/rules.sqlite`). Fresh
+clones get a working unified-scanner path immediately without needing to
+run the builder first. The canonical workflow:
+
+1. Edit `rules-sources/` (vendor a new ZAP commit, edit a Burp BCheck,
+   improve `lower::lower_*`, etc.).
+2. `cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite`
+3. Commit the regenerated `rules.sqlite` alongside whatever source change
+   provoked the rebuild.
+
+SQLite's in-flight side files (`-journal`, `-wal`, `-shm`) stay
+gitignored — only the finished catalog should land in git.
 
 **For `cargo tauri dev` testing,** the desktop process's exe lives at
 `target/debug/corvex-desktop.exe`, so dropping a copy of `rules.sqlite`

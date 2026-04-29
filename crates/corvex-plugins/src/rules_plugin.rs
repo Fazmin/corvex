@@ -54,14 +54,14 @@ impl Plugin for RulesPlugin {
             }
         };
 
-        // By default (Phase 2a-2c parity period): only run ZAP+Burp rules,
-        // leaving Nikto rows to TestsPlugin so there are no duplicate
-        // findings. `--rules-only` widens this to include Nikto rows from
-        // the unified store — the cutover validation switch.
-        let sources: &[&str] = if ctx.cli.rules_only {
-            &["nikto", "zap", "burp"]
-        } else {
+        // Default (Phase 2d.0+): own every source. `--side-by-side` narrows
+        // to ZAP+Burp so TestsPlugin keeps owning Nikto for a parity-style
+        // dual-pass run. `--rules-only` is kept as an explicit alias for
+        // the new default.
+        let sources: &[&str] = if ctx.cli.side_by_side {
             &["zap", "burp"]
+        } else {
+            &["nikto", "zap", "burp"]
         };
         let rules = store.iter_executable(sources);
         if rules.is_empty() {
