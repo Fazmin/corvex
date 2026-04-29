@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 corvex-core.workspace = true
 corvex-plugins.workspace = true
+corvex-rules.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 clap.workspace = true

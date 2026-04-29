@@ -1,0 +1,20 @@
+{
+  "id": 10051,
+  "name": "i18n:name",
+  "description": "i18n:desc",
+  "solution": "i18n:soln",
+  "reference": "i18n:refs",
+  "riskcode": 2,
+  "confidence": null,
+  "cwe_id": 20,
+  "wasc_id": 20,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A06": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.RelativePathConfusionScanRule",
+  "passive": false
+}

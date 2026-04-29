@@ -139,8 +139,16 @@ fn parse_one(path: &Path) -> Result<NormalizedRule> {
 fn split_metadata(raw: &str) -> Result<(Vec<String>, String)> {
     let lines: Vec<&str> = raw.lines().collect();
     let mut i = 0;
-    while i < lines.len() && lines[i].trim().is_empty() {
-        i += 1;
+    // Skip leading blank lines and `#`-style comments. Some upstream BChecks
+    // start with `#Verified: Yes` or similar provenance comments before the
+    // `metadata:` block.
+    while i < lines.len() {
+        let t = lines[i].trim();
+        if t.is_empty() || t.starts_with('#') {
+            i += 1;
+        } else {
+            break;
+        }
     }
     if i >= lines.len() {
         anyhow::bail!("empty file");

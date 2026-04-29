@@ -1,0 +1,22 @@
+{
+  "id": 10048,
+  "name": "i18n:ascanrules.shellshock.name",
+  "description": "i18n:ascanrules.shellshock.desc",
+  "solution": "i18n:ascanrules.shellshock.soln",
+  "reference": "i18n:ascanrules.shellshock.ref",
+  "riskcode": 3,
+  "confidence": null,
+  "cwe_id": 78,
+  "wasc_id": 31,
+  "alert_tags": {
+    "OWASP_2025_A03": "",
+    "OWASP_2025_A05": "",
+    "OWASP_2021_A06": "",
+    "OWASP_2017_A09": "",
+    "WSTG_V42_INPV_12_COMMAND_INJ": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.ShellShockScanRule",
+  "passive": false
+}

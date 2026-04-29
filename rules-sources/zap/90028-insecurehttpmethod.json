@@ -1,0 +1,21 @@
+{
+  "id": 90028,
+  "name": "i18n:ascanbeta.insecurehttpmethod.name",
+  "description": null,
+  "solution": null,
+  "reference": null,
+  "riskcode": 2,
+  "confidence": null,
+  "cwe_id": 749,
+  "wasc_id": 45,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A06": "",
+    "WSTG_V42_CONF_06_HTTP_METHODS": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.InsecureHttpMethodScanRule",
+  "passive": false
+}

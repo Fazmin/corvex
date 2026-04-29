@@ -1,0 +1,20 @@
+{
+  "id": 43,
+  "name": "i18n:ascanbeta.sourcecodedisclosure.lfibased.name",
+  "description": null,
+  "solution": null,
+  "reference": null,
+  "riskcode": null,
+  "confidence": null,
+  "cwe_id": 541,
+  "wasc_id": 33,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A06": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.SourceCodeDisclosureFileInclusionScanRule",
+  "passive": false
+}

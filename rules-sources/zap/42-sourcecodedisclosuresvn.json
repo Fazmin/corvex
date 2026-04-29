@@ -1,0 +1,20 @@
+{
+  "id": 42,
+  "name": "i18n:name",
+  "description": "i18n:ascanbeta.sourcecodedisclosure.desc",
+  "solution": "i18n:soln",
+  "reference": null,
+  "riskcode": 2,
+  "confidence": null,
+  "cwe_id": 541,
+  "wasc_id": 34,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A06": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.SourceCodeDisclosureSvnScanRule",
+  "passive": false
+}

@@ -1,0 +1,22 @@
+{
+  "id": 40044,
+  "name": "ExponentialEntityExpansionScanRule",
+  "description": null,
+  "solution": null,
+  "reference": null,
+  "riskcode": 2,
+  "confidence": null,
+  "cwe_id": 776,
+  "wasc_id": 44,
+  "alert_tags": {
+    "OWASP_2025_A05": "",
+    "OWASP_2025_A06": "",
+    "OWASP_2025_A10": "",
+    "OWASP_2021_A04": "",
+    "WSTG_V42_BUSL_09_UPLOAD_MALICIOUS_FILES": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.ExponentialEntityExpansionScanRule",
+  "passive": false
+}

@@ -1,0 +1,21 @@
+{
+  "id": 20014,
+  "name": "i18n:ascanbeta.HTTPParamPoll.name",
+  "description": "i18n:ascanbeta.HTTPParamPoll.desc",
+  "solution": "i18n:ascanbeta.HTTPParamPoll.sol",
+  "reference": "i18n:ascanbeta.HTTPParamPoll.extrainfo",
+  "riskcode": 0,
+  "confidence": null,
+  "cwe_id": 20,
+  "wasc_id": 20,
+  "alert_tags": {
+    "OWASP_2025_A05": "",
+    "OWASP_2021_A03": "",
+    "OWASP_2017_A01": "",
+    "WSTG_V42_INPV_04_PARAM_POLLUTION": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.HttpParameterPollutionScanRule",
+  "passive": false
+}

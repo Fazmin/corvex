@@ -90,6 +90,38 @@ pub fn render_db_report(conn: &Connection) -> Result<String> {
     }
     out.push('\n');
 
+    // MatchSpec coverage — what fraction of each source has an executable
+    // lowering wired up.
+    out.push_str("[MatchSpec executable coverage]\n");
+    let mut stmt = conn.prepare(
+        "SELECT source_tool,
+                SUM(CASE WHEN match_spec_json IS NOT NULL THEN 1 ELSE 0 END) AS lowered,
+                COUNT(*) AS total
+           FROM rules
+       GROUP BY source_tool
+       ORDER BY source_tool",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (source, lowered, total) = row?;
+        let pct = if total > 0 {
+            (lowered as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+        out.push_str(&format!(
+            "  {:<6}  {} / {}  ({:.1}%)\n",
+            source, lowered, total, pct
+        ));
+    }
+    out.push('\n');
+
     // OWASP coverage.
     out.push_str("[OWASP-2025 coverage]\n");
     let mut stmt = conn.prepare(

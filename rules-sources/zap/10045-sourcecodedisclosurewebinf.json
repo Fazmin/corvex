@@ -1,0 +1,21 @@
+{
+  "id": 10045,
+  "name": "i18n:ascanrules.sourcecodedisclosurewebinf.name",
+  "description": null,
+  "solution": null,
+  "reference": null,
+  "riskcode": 3,
+  "confidence": null,
+  "cwe_id": 541,
+  "wasc_id": 34,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A06": "",
+    "WSTG_V42_CONF_05_ENUMERATE_INFRASTRUCTURE": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.SourceCodeDisclosureWebInfScanRule",
+  "passive": false
+}

@@ -1,0 +1,21 @@
+{
+  "id": 20016,
+  "name": "i18n:name",
+  "description": "",
+  "solution": "",
+  "reference": "i18n:refs",
+  "riskcode": 3,
+  "confidence": null,
+  "cwe_id": 264,
+  "wasc_id": 14,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A06": "",
+    "WSTG_V42_CONF_08_RIA_CROSS_DOMAIN": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.CrossDomainScanRule",
+  "passive": false
+}

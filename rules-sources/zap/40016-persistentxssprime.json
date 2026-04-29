@@ -1,0 +1,21 @@
+{
+  "id": 40016,
+  "name": "i18n:name",
+  "description": "",
+  "solution": "",
+  "reference": "",
+  "riskcode": 0,
+  "confidence": null,
+  "cwe_id": 79,
+  "wasc_id": 8,
+  "alert_tags": {
+    "OWASP_2025_A05": "",
+    "OWASP_2021_A03": "",
+    "OWASP_2017_A07": "",
+    "WSTG_V42_INPV_02_STORED_XSS": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.PersistentXssPrimeScanRule",
+  "passive": false
+}

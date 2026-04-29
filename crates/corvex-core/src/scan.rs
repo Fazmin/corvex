@@ -42,6 +42,10 @@ pub struct ScanCtx {
     pub scope: Option<Arc<ScopeFilter>>,
     /// Optional vulnerability database for SCA lookups.
     pub vulndb: Option<Arc<VulnDb>>,
+    /// Optional unified rules catalog (Nikto + ZAP + Burp). Populated when
+    /// `rules.sqlite` is present; `None` lets the binary keep working
+    /// without it (the legacy `db_tests` path still drives `TestsPlugin`).
+    pub rule_store: Option<Arc<dyn crate::matcher::RuleProvider>>,
 }
 
 impl ScanCtx {

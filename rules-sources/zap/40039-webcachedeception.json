@@ -1,0 +1,21 @@
+{
+  "id": 40039,
+  "name": "i18n:name",
+  "description": "i18n:desc",
+  "solution": "i18n:soln",
+  "reference": "i18n:refs",
+  "riskcode": null,
+  "confidence": null,
+  "cwe_id": 444,
+  "wasc_id": null,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A06": "",
+    "WSTG_V42_ATHN_06_CACHE_WEAKNESS": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesAlpha.WebCacheDeceptionScanRule",
+  "passive": false
+}

@@ -496,6 +496,50 @@ pub async fn scan_start(
         None
     };
 
+    // Optional unified rules catalog. Same lookup as the CLI: cwd then exe
+    // dir. Missing or unreadable files log a warning and fall through.
+    let rule_store: Option<Arc<dyn corvex_core::matcher::RuleProvider>> = {
+        let candidates = [
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.join("rules.sqlite")),
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.join("rules.sqlite"))),
+        ];
+        let path = candidates
+            .into_iter()
+            .flatten()
+            .find(|p| p.exists());
+        match path {
+            Some(p) => match corvex_rules::RuleStore::open(&p) {
+                Ok(store) => {
+                    let counts = store.count_by_source().unwrap_or_default();
+                    let summary: Vec<String> = counts
+                        .iter()
+                        .map(|(s, n)| format!("{s}={n}"))
+                        .collect();
+                    tracing::info!(
+                        target: "rules",
+                        "rules.sqlite loaded ({}): {}",
+                        p.display(),
+                        summary.join(", ")
+                    );
+                    Some(Arc::new(store) as Arc<dyn corvex_core::matcher::RuleProvider>)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "rules",
+                        "failed to open {}: {e}",
+                        p.display()
+                    );
+                    None
+                }
+            },
+            None => None,
+        }
+    };
+
     let ctx = Arc::new(ScanCtx {
         cfg: Arc::new(cfg),
         cli: Arc::new(cli),
@@ -510,6 +554,7 @@ pub async fn scan_start(
         cancel: cancel.clone(),
         scope,
         vulndb,
+        rule_store,
     });
 
     // Register before spawning so cancel arrives in time.

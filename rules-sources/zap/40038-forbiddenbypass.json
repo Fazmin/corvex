@@ -1,0 +1,21 @@
+{
+  "id": 40038,
+  "name": "i18n:name",
+  "description": "i18n:desc",
+  "solution": "",
+  "reference": "i18n:refs",
+  "riskcode": null,
+  "confidence": null,
+  "cwe_id": 348,
+  "wasc_id": null,
+  "alert_tags": {
+    "OWASP_2025_A01": "",
+    "OWASP_2021_A01": "",
+    "OWASP_2017_A05": "",
+    "WSTG_V42_ATHN_04_AUTH_BYPASS": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.ForbiddenBypassScanRule",
+  "passive": false
+}

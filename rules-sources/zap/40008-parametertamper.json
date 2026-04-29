@@ -1,0 +1,29 @@
+{
+  "id": 40008,
+  "name": "i18n:name",
+  "description": "i18n:desc",
+  "solution": "i18n:soln",
+  "reference": "",
+  "riskcode": 2,
+  "confidence": null,
+  "cwe_id": 472,
+  "wasc_id": 20,
+  "alert_tags": {
+    "OWASP_2025_A06": "",
+    "OWASP_2021_A04": "",
+    "OWASP_2017_A01": ""
+  },
+  "payloads": [
+    "",
+    "@",
+    "+",
+    "%A",
+    "%1Z",
+    "%",
+    "%00",
+    "|"
+  ],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.ParameterTamperScanRule",
+  "passive": false
+}

@@ -10,6 +10,7 @@
 //!         --filter-source nikto
 //!     corvex-rules-builder --report rules.sqlite
 
+mod lower;
 mod normalized;
 mod parsers;
 mod report;
@@ -182,8 +183,21 @@ fn run_build(cli: &Cli) -> Result<()> {
 
     println!();
     println!("[insert] writing {} rules into {}", all_rules.len(), cli.output.display());
-    let written = writer::insert_rules(&mut conn, &all_rules).context("insert rules")?;
+    let (written, lowering_stats) =
+        writer::insert_rules(&mut conn, &all_rules).context("insert rules")?;
     println!("         {} rows written", written);
+    println!();
+    println!("[lowering] MatchSpec coverage:");
+    for (src, n) in &lowering_stats.lowered {
+        println!("           {:<6} lowered = {}", src, n);
+    }
+    for (src, reasons) in &lowering_stats.un_lowered_reasons {
+        let total: u64 = reasons.values().sum();
+        println!("           {:<6} un-lowered = {}", src, total);
+        for (reason, count) in reasons {
+            println!("                  {} = {}", reason, count);
+        }
+    }
 
     // Build metadata.
     let now = time::OffsetDateTime::now_utc()
@@ -207,6 +221,23 @@ fn run_build(cli: &Cli) -> Result<()> {
             &format!("skip_reasons_{source_name}_json"),
             &serde_json::to_string(&stats.skipped_by_reason).unwrap_or_else(|_| "{}".into()),
         )?;
+        let lowered_n = lowering_stats
+            .lowered
+            .get(source_name)
+            .copied()
+            .unwrap_or(0);
+        writer::set_meta(
+            &conn,
+            &format!("lowered_count_{source_name}"),
+            &lowered_n.to_string(),
+        )?;
+        if let Some(reasons) = lowering_stats.un_lowered_reasons.get(source_name) {
+            writer::set_meta(
+                &conn,
+                &format!("unlowered_reasons_{source_name}_json"),
+                &serde_json::to_string(reasons).unwrap_or_else(|_| "{}".into()),
+            )?;
+        }
     }
     if let Some(commit) = read_commit_marker(&cli.sources.join("zap").join("COMMIT")) {
         writer::set_meta(&conn, "zap_commit", &commit)?;

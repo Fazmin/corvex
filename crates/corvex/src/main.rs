@@ -183,6 +183,47 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Optional unified rules catalog. Looked up in conventional locations
+    // (next to the binary, then the repo root). Missing or unreadable files
+    // log a warning and fall through to None — TestsPlugin keeps owning the
+    // legacy db_tests path during the parity period.
+    let rule_store: Option<Arc<dyn corvex_core::matcher::RuleProvider>> = {
+        let candidates = [
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.join("rules.sqlite")),
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.join("rules.sqlite"))),
+        ];
+        let path = candidates
+            .into_iter()
+            .flatten()
+            .find(|p| p.exists());
+        match path {
+            Some(p) => match corvex_rules::RuleStore::open(&p) {
+                Ok(store) => {
+                    let counts = store.count_by_source().unwrap_or_default();
+                    let summary: Vec<String> = counts
+                        .iter()
+                        .map(|(s, n)| format!("{s}={n}"))
+                        .collect();
+                    eprintln!(
+                        "+ rules.sqlite loaded ({}): {}",
+                        p.display(),
+                        summary.join(", ")
+                    );
+                    Some(Arc::new(store) as Arc<dyn corvex_core::matcher::RuleProvider>)
+                }
+                Err(e) => {
+                    eprintln!("- WARNING: failed to open {}: {e}", p.display());
+                    None
+                }
+            },
+            None => None,
+        }
+    };
+
     let ctx = Arc::new(ScanCtx {
         cfg: Arc::new(cfg),
         cli: Arc::new(cli),
@@ -197,6 +238,7 @@ async fn main() -> Result<()> {
         cancel: tokio_util::sync::CancellationToken::new(),
         scope,
         vulndb,
+        rule_store,
     });
 
     let start = SystemTime::now();

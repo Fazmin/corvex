@@ -42,6 +42,7 @@ pub mod paths;
 pub mod put_del_test;
 pub mod report;
 pub mod robots;
+pub mod rules_plugin;
 pub mod sca_plugin;
 pub mod shellshock;
 pub mod siebel;
@@ -111,6 +112,10 @@ pub fn register_all() -> PluginRegistry {
         Arc::new(spring4shell_plugin::Spring4ShellPlugin::default()),
         // Nuclei-format template engine — weight 70, Active hook, opt-in.
         Arc::new(nuclei_plugin::NucleiPlugin::default()),
+        // Unified rules catalog (ZAP+Burp during the Phase-2a parity period).
+        // Weight 98 — runs just before TestsPlugin so any future Nikto-source
+        // rules in the unified store fire alongside the legacy path.
+        Arc::new(rules_plugin::RulesPlugin::default()),
         // The big one — runs db_tests. Weight 99 = last.
         Arc::new(tests_plugin::TestsPlugin::default()),
     ];

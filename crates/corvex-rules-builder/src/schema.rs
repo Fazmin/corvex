@@ -2,7 +2,7 @@
 
 use rusqlite::Connection;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Create all tables and indices if they don't already exist, then stamp the
 /// schema version into `rules_meta`.
@@ -31,6 +31,7 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             payloads_json    TEXT    NOT NULL DEFAULT '[]',
             detection_json   TEXT    NOT NULL,
             source_meta_json TEXT    NOT NULL DEFAULT '{}',
+            match_spec_json  TEXT,                              -- v2: lowered MatchSpec for the runtime engine; NULL when lowering wasn't possible
             enabled          INTEGER NOT NULL DEFAULT 1,
             UNIQUE (source_tool, source_rule_id)
         );
@@ -39,6 +40,8 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_rules_owasp    ON rules(owasp_2025);
         CREATE INDEX IF NOT EXISTS idx_rules_source   ON rules(source_tool);
         CREATE INDEX IF NOT EXISTS idx_rules_category ON rules(category);
+        CREATE INDEX IF NOT EXISTS idx_rules_executable
+            ON rules(source_tool) WHERE match_spec_json IS NOT NULL AND enabled = 1;
 
         CREATE TABLE IF NOT EXISTS rules_meta (
             key   TEXT PRIMARY KEY,

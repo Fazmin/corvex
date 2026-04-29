@@ -1,0 +1,22 @@
+{
+  "id": 20018,
+  "name": "i18n:ascanrules.remotecodeexecution.cve-2012-1823.name",
+  "description": null,
+  "solution": null,
+  "reference": null,
+  "riskcode": 3,
+  "confidence": null,
+  "cwe_id": 20,
+  "wasc_id": 20,
+  "alert_tags": {
+    "OWASP_2025_A03": "",
+    "OWASP_2025_A05": "",
+    "OWASP_2021_A06": "",
+    "OWASP_2017_A09": "",
+    "WSTG_V42_INPV_12_COMMAND_INJ": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.RemoteCodeExecutionCve20121823ScanRule",
+  "passive": false
+}

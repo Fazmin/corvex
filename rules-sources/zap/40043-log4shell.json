@@ -1,0 +1,21 @@
+{
+  "id": 40043,
+  "name": "Log4ShellScanRule",
+  "description": "",
+  "solution": "",
+  "reference": "",
+  "riskcode": 3,
+  "confidence": null,
+  "cwe_id": 117,
+  "wasc_id": 20,
+  "alert_tags": {
+    "OWASP_2025_A03": "",
+    "OWASP_2021_A06": "",
+    "OWASP_2017_A09": "",
+    "WSTG_V42_INPV_11_CODE_INJ": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.Log4ShellScanRule",
+  "passive": false
+}

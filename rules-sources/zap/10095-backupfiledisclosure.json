@@ -1,0 +1,21 @@
+{
+  "id": 10095,
+  "name": "i18n:ascanbeta.backupfiledisclosure.name",
+  "description": "i18n:ascanbeta.backupfiledisclosure.desc",
+  "solution": null,
+  "reference": "i18n:ascanbeta.backupfiledisclosure.refs",
+  "riskcode": 2,
+  "confidence": null,
+  "cwe_id": 530,
+  "wasc_id": 34,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A03": "",
+    "WSTG_V42_CONF_04_BACKUP_FILES": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.BackupFileDisclosureScanRule",
+  "passive": false
+}

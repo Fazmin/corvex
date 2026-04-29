@@ -1,0 +1,21 @@
+{
+  "id": 40040,
+  "name": "CorsScanRule",
+  "description": null,
+  "solution": null,
+  "reference": null,
+  "riskcode": null,
+  "confidence": null,
+  "cwe_id": 942,
+  "wasc_id": 14,
+  "alert_tags": {
+    "OWASP_2025_A01": "",
+    "OWASP_2021_A01": "",
+    "OWASP_2017_A05": "",
+    "WSTG_V42_CLNT_07_CORS": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.CorsScanRule",
+  "passive": false
+}

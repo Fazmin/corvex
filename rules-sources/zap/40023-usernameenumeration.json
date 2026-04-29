@@ -1,0 +1,21 @@
+{
+  "id": 40023,
+  "name": "i18n:ascanbeta.usernameenumeration.name",
+  "description": "i18n:ascanbeta.usernameenumeration.desc",
+  "solution": "i18n:ascanbeta.usernameenumeration.soln",
+  "reference": "i18n:ascanbeta.usernameenumeration.refs",
+  "riskcode": 0,
+  "confidence": null,
+  "cwe_id": 204,
+  "wasc_id": 13,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A06": "",
+    "WSTG_V42_IDNT_04_ACCOUNT_ENUMERATION": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.UsernameEnumerationScanRule",
+  "passive": false
+}

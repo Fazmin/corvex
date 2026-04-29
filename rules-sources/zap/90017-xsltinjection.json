@@ -1,0 +1,20 @@
+{
+  "id": 90017,
+  "name": "i18n:name",
+  "description": "i18n:desc",
+  "solution": "i18n:soln",
+  "reference": "i18n:refs",
+  "riskcode": 2,
+  "confidence": null,
+  "cwe_id": 91,
+  "wasc_id": 23,
+  "alert_tags": {
+    "OWASP_2025_A05": "",
+    "OWASP_2021_A03": "",
+    "OWASP_2017_A01": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.XsltInjectionScanRule",
+  "passive": false
+}

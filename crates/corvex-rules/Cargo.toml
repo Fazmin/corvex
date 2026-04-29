@@ -1,0 +1,17 @@
+[package]
+name = "corvex-rules"
+version.workspace = true
+edition.workspace = true
+description = "Read-only access to the unified rules.sqlite catalog (Nikto + ZAP + Burp), feeding the runtime RulesPlugin"
+
+[dependencies]
+corvex-core.workspace = true
+rusqlite.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+rand.workspace = true

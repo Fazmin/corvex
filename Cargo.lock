@@ -639,6 +639,7 @@ dependencies = [
  "clap",
  "corvex-core",
  "corvex-plugins",
+ "corvex-rules",
  "regex",
  "tokio",
  "tokio-util",
@@ -738,6 +739,7 @@ dependencies = [
  "corvex-nuclei",
  "corvex-plugins",
  "corvex-proxy",
+ "corvex-rules",
  "corvex-sonar",
  "csv",
  "flate2",
@@ -811,6 +813,7 @@ dependencies = [
  "bytes",
  "corvex-core",
  "corvex-nuclei",
+ "corvex-rules",
  "http",
  "hyper",
  "indexmap 2.14.0",
@@ -865,12 +868,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "corvex-rules"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "corvex-core",
+ "rand 0.8.5",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "corvex-rules-builder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "corvex-core",
+ "corvex-rules",
  "csv",
+ "indexmap 2.14.0",
  "rusqlite",
  "serde",
  "serde_json",

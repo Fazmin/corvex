@@ -1,0 +1,11 @@
+# Workspace-level cargo config.
+#
+# RUST_MIN_STACK bumps rustc's per-thread stack size from the Windows MSVC
+# default of 1 MB to 16 MB. This is needed because the `corvex-rules` crate
+# defines a recursive serde-derived `Cond` enum
+# (`Cond::All(Vec<Cond>) | Cond::Any(Vec<Cond>) | Cond::Not(Box<Cond>)`) and
+# the trait-bound resolution for `serde_json::Serializer<&mut Vec<u8>>`
+# expanded against it overflows the default stack on Windows. Linux's
+# default 8 MB stack handles this fine; the env var equalises behaviour.
+[env]
+RUST_MIN_STACK = "16777216"

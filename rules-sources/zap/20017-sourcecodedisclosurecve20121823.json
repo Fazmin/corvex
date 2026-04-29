@@ -1,0 +1,20 @@
+{
+  "id": 20017,
+  "name": "i18n:ascanrules.sourcecodedisclosurecve-2012-1823.name",
+  "description": null,
+  "solution": null,
+  "reference": null,
+  "riskcode": 3,
+  "confidence": null,
+  "cwe_id": 20,
+  "wasc_id": 20,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A06": "",
+    "OWASP_2017_A09": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.SourceCodeDisclosureCve20121823ScanRule",
+  "passive": false
+}

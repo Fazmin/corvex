@@ -13,6 +13,7 @@ pub mod forms;
 pub mod fourohfour;
 pub mod fuzzer;
 pub mod http;
+pub mod matcher;
 pub mod mutate;
 pub mod netservice;
 pub mod os_fingerprint;

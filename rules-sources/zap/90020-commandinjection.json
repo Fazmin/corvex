@@ -1,0 +1,21 @@
+{
+  "id": 90020,
+  "name": "i18n:name",
+  "description": "i18n:desc",
+  "solution": null,
+  "reference": "i18n:refs",
+  "riskcode": 3,
+  "confidence": null,
+  "cwe_id": 78,
+  "wasc_id": 31,
+  "alert_tags": {
+    "OWASP_2025_A05": "",
+    "OWASP_2021_A03": "",
+    "OWASP_2017_A01": "",
+    "WSTG_V42_INPV_12_COMMAND_INJ": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrules.CommandInjectionScanRule",
+  "passive": false
+}

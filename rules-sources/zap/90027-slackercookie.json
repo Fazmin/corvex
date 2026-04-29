@@ -1,0 +1,21 @@
+{
+  "id": 90027,
+  "name": "i18n:ascanbeta.cookieslack.name",
+  "description": "i18n:ascanbeta.cookieslack.desc",
+  "solution": "",
+  "reference": null,
+  "riskcode": 0,
+  "confidence": null,
+  "cwe_id": 205,
+  "wasc_id": 45,
+  "alert_tags": {
+    "OWASP_2025_A02": "",
+    "OWASP_2021_A05": "",
+    "OWASP_2017_A06": "",
+    "WSTG_V42_SESS_02_COOKIE_ATTRS": ""
+  },
+  "payloads": [],
+  "patterns": [],
+  "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.SlackerCookieScanRule",
+  "passive": false
+}
