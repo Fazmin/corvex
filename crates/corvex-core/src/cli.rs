@@ -454,6 +454,21 @@ pub struct Cli {
     #[arg(long = "diff-reports", value_name = "TAGS")]
     pub diff_reports: Option<String>,
 
+    // ---- Phase 2d cutover flags ----------------------------------------------
+
+    /// Run scan via the unified rules.sqlite path only. Disables the legacy
+    /// TestsPlugin (bincode db_tests) and widens RulesPlugin's source filter
+    /// to include all sources (Nikto + ZAP + Burp). Use this to validate the
+    /// new path against a target you've already baselined.
+    #[arg(long = "rules-only", default_value_t = false)]
+    pub rules_only: bool,
+
+    /// Run scan via the legacy TestsPlugin only. Disables RulesPlugin so
+    /// behaviour exactly matches pre-Phase-2 builds. Use this as the parity
+    /// baseline for `--rules-only` comparisons.
+    #[arg(long = "legacy-only", default_value_t = false)]
+    pub legacy_only: bool,
+
     // ---- Config generation flags ---------------------------------------------
 
     /// Generate a template config file in the given format: toml, yaml

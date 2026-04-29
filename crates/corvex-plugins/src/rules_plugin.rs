@@ -42,6 +42,10 @@ impl Plugin for RulesPlugin {
     }
 
     async fn on_scan(&self, ctx: &ScanCtx, mark: Arc<Mutex<Mark>>) -> Result<()> {
+        if ctx.cli.legacy_only {
+            tracing::debug!(target: "rules_plugin", "--legacy-only set; skipping");
+            return Ok(());
+        }
         let store = match &ctx.rule_store {
             Some(s) => s.clone(),
             None => {
@@ -50,8 +54,16 @@ impl Plugin for RulesPlugin {
             }
         };
 
-        // Phase 2a: only run ZAP+Burp rules, leave Nikto rows to TestsPlugin.
-        let rules = store.iter_executable(&["zap", "burp"]);
+        // By default (Phase 2a-2c parity period): only run ZAP+Burp rules,
+        // leaving Nikto rows to TestsPlugin so there are no duplicate
+        // findings. `--rules-only` widens this to include Nikto rows from
+        // the unified store — the cutover validation switch.
+        let sources: &[&str] = if ctx.cli.rules_only {
+            &["nikto", "zap", "burp"]
+        } else {
+            &["zap", "burp"]
+        };
+        let rules = store.iter_executable(sources);
         if rules.is_empty() {
             tracing::debug!(
                 target: "rules_plugin",

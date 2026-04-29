@@ -58,6 +58,17 @@ impl Plugin for TestsPlugin {
     }
 
     async fn on_scan(&self, ctx: &ScanCtx, mark: Arc<Mutex<Mark>>) -> Result<()> {
+        // Phase 2d cutover: when the user asks the unified path to own
+        // Nikto, this plugin steps aside. The mirror flag --legacy-only
+        // would force this plugin to run regardless and is the implicit
+        // default already, so it doesn't need a check here.
+        if ctx.cli.rules_only {
+            tracing::debug!(
+                target: "tests_plugin",
+                "--rules-only set; skipping (RulesPlugin owns the Nikto path)"
+            );
+            return Ok(());
+        }
         let dbs = ctx.dbs.clone();
         let tuning = ctx.tuning.clone();
 

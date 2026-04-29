@@ -1,7 +1,10 @@
 # Scanner Rule Unification to a Single SQLite Catalog
 
-> Status: **Phase 1 + Phase 2a + Phase 2b + Phase 2c complete.** Phase 2d
-> (legacy `TestsPlugin` cutover) is the remaining work.
+> Status: **Phase 1 + Phase 2a + 2b + 2c + 2d (cutover plumbing) complete.**
+> The runtime now lets the user flip between the legacy bincode path
+> (`--legacy-only`), side-by-side (default), and the unified-rules path
+> (`--rules-only`). The final delete of `TestsPlugin` is gated on a
+> sustained side-by-side run with no finding deltas.
 >
 > Last updated: 2026-04-29.
 
@@ -809,17 +812,56 @@ high-value entries (XSS, SQLi reflection-based, etc.) once cross-step
   - Header / status-code matchers in BCheck lowering, increasing the
     Burp coverage past the body-only template.
 
-### Phase 2d (cutover, next)
+### Phase 2d (cutover plumbing — complete)
 
-- Builder starts emitting Nikto rules with Nikto-source `match_spec_json`
-  alongside the existing flow.
-- Parity test extended to compare `RulesPlugin`'s output against
-  `TestsPlugin`'s for every Nikto rule against a fixture target.
-- Once green for one release: drop the `source != 'nikto'` filter, delete
-  `TestsPlugin`, delete the bincode `db_tests` build path in
-  `corvex-core/build.rs`, drop `Databases.tests` from
-  `corvex-core/src/db/types.rs`. Other Nikto DBs (`db_outdated`,
-  `db_favicon`, etc.) stay; they back different plugins.
+- **Two new CLI flags** in [crates/corvex-core/src/cli.rs](crates/corvex-core/src/cli.rs):
+  - `--rules-only` — runs the scan via the unified `rules.sqlite` path
+    only. `RulesPlugin`'s source filter widens to
+    `["nikto", "zap", "burp"]`, and `TestsPlugin` early-returns from
+    `on_scan`. Produces findings purely from the new path.
+  - `--legacy-only` — inverse: `RulesPlugin` early-returns,
+    `TestsPlugin` runs unchanged. Produces findings purely from the
+    legacy bincode path. Use this as the parity baseline.
+  - Default (no flag) is unchanged — side-by-side with `RulesPlugin`
+    handling `["zap", "burp"]` and `TestsPlugin` owning Nikto.
+- **Both plugins read `ctx.cli.rules_only` / `ctx.cli.legacy_only`** at
+  the top of `on_scan`. No registry or weight changes; the flags toggle
+  behaviour at scan time.
+- **CLI smoke test passed:** both flags accept cleanly and the rules
+  store still loads regardless of which path is selected.
+
+### Phase 2d.5 (cutover validation — next)
+
+- **Parity test extended** to spin up a fixture HTTP server (Docker
+  DVWA + WordPress + a handful of misconfig endpoints) and run:
+  1. `corvex --legacy-only --host fixture` → record finding set as the
+     baseline.
+  2. `corvex --rules-only --host fixture` → record finding set as the
+     candidate.
+  3. Diff `(check_id, uri, message)` tuples; the symmetric difference
+     must be empty (or only contain documented un-lowered Nikto rules,
+     which the test asserts against the `unlowered_reasons_nikto_json`
+     count from the build).
+- Once green for one release cycle, **flip the default**: change
+  `RulesPlugin`'s default source filter to `["nikto", "zap", "burp"]`
+  and make `TestsPlugin` no-op unless `--legacy-only` is set.
+
+### Phase 2e (delete legacy)
+
+- After the default flip has been stable for one release:
+  - Delete `crates/corvex-plugins/src/tests_plugin.rs` and its
+    registration in `crates/corvex-plugins/src/lib.rs`.
+  - Delete the bincode `db_tests` build path in
+    `crates/corvex-core/build.rs::load_tests`.
+  - Drop the `tests` field from `Databases` in
+    `crates/corvex-core/src/db/types.rs` and the lazy load step in
+    `crates/corvex-core/src/db/mod.rs`.
+  - Drop `--legacy-only` from `Cli` (or keep it as a hidden no-op for
+    backwards-compat scripting — judgment call).
+  - Other Nikto DBs (`db_outdated`, `db_favicon`, `db_realms`,
+    `db_variables`, `db_headers_*`, etc.) stay; they back different
+    plugins (`OutdatedPlugin`, `FaviconPlugin`, `AuthPlugin`, etc.) and
+    are independent of the unified-rules effort.
 
 ### Future (not in current roadmap)
 
