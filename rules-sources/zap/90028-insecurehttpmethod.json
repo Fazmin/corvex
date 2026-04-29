@@ -15,7 +15,10 @@
     "WSTG_V42_CONF_06_HTTP_METHODS": ""
   },
   "payloads": [],
-  "patterns": [],
+  "patterns": [
+    "<title.*{1,10}Google.{1,25}/title>"
+  ],
+  "all_arrays": {},
   "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.InsecureHttpMethodScanRule",
   "passive": false
 }

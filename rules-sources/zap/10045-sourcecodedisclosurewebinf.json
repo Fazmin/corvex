@@ -15,7 +15,12 @@
     "WSTG_V42_CONF_05_ENUMERATE_INFRASTRUCTURE": ""
   },
   "payloads": [],
-  "patterns": [],
+  "patterns": [
+    "[0-9a-zA-Z_.]+\\.[a-zA-Z0-9_]+",
+    "^import\\s+([0-9a-zA-Z_.]+\\.[a-zA-Z0-9_]+);",
+    "\"([/a-zA-Z0-9_-]+.properties)\""
+  ],
+  "all_arrays": {},
   "raw_class": "org.zaproxy.zap.extension.ascanrules.SourceCodeDisclosureWebInfScanRule",
   "passive": false
 }

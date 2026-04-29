@@ -15,7 +15,12 @@
     "WSTG_V42_INPV_12_COMMAND_INJ": ""
   },
   "payloads": [],
-  "patterns": [],
+  "patterns": [
+    "root:.:0:0",
+    "\\[fonts\\]",
+    "(?:\\sGet-Help)(?i)|cmdlet|get-alias"
+  ],
+  "all_arrays": {},
   "raw_class": "org.zaproxy.zap.extension.ascanrules.CommandInjectionScanRule",
   "passive": false
 }

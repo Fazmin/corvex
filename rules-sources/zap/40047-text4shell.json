@@ -15,8 +15,17 @@
     "OWASP_2017_A09": "",
     "WSTG_V42_INPV_11_CODE_INJ": ""
   },
-  "payloads": [],
+  "payloads": [
+    "${url:UTF-8:http://{0}/bingo}",
+    "${url:UTF-8:https://{0}/bingo}"
+  ],
   "patterns": [],
+  "all_arrays": {
+    "ATTACK_PATTERNS": [
+      "${url:UTF-8:http://{0}/bingo}",
+      "${url:UTF-8:https://{0}/bingo}"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.Text4ShellScanRule",
   "passive": false
 }

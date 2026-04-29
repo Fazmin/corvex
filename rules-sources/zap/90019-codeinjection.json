@@ -14,8 +14,38 @@
     "OWASP_2017_A01": "",
     "WSTG_V42_INPV_11_CODE_INJ": ""
   },
-  "payloads": [],
+  "payloads": [
+    "\";print(",
+    ");$var=\"",
+    "';print(",
+    ");$var='",
+    "${@print(",
+    ")}",
+    "${@print(",
+    ")}\\",
+    ";print(",
+    ");"
+  ],
   "patterns": [],
+  "all_arrays": {
+    "PHP_PAYLOADS": [
+      "\";print(",
+      ");$var=\"",
+      "';print(",
+      ");$var='",
+      "${@print(",
+      ")}",
+      "${@print(",
+      ")}\\",
+      ";print(",
+      ");"
+    ],
+    "ASP_PAYLOADS": [
+      "\"+response.write({0}*{1})+\"",
+      "'+response.write({0}*{1})+'",
+      "response.write({0}*{1})"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrules.CodeInjectionScanRule",
   "passive": false
 }

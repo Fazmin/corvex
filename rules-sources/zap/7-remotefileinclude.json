@@ -14,8 +14,51 @@
     "OWASP_2017_A01": "",
     "WSTG_V42_INPV_11_CODE_INJ": ""
   },
-  "payloads": [],
-  "patterns": [],
+  "payloads": [
+    "http://",
+    "",
+    "HTTP://",
+    "https://",
+    "HTTPS://",
+    "HtTp://",
+    "HtTpS://",
+    "http://",
+    "",
+    "HTTP://",
+    "https://",
+    "HTTPS://",
+    "HtTp://",
+    "HtTpS://"
+  ],
+  "patterns": [
+    "<title>Google</title>",
+    "<title.*?ZAP[ -]*?Google.*?/title>"
+  ],
+  "all_arrays": {
+    "REMOTE_FILE_TARGET_PREFIXES": [
+      "http://",
+      "",
+      "HTTP://",
+      "https://",
+      "HTTPS://",
+      "HtTp://",
+      "HtTpS://",
+      "http://",
+      "",
+      "HTTP://",
+      "https://",
+      "HTTPS://",
+      "HtTp://",
+      "HtTpS://"
+    ],
+    "REMOTE_FILE_TARGETS": [
+      "www.google.com/",
+      "www.google.com:80/",
+      "www.google.com",
+      "www.google.com/search?q=ZAP",
+      "www.google.com:80/search?q=ZAP"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrules.RemoteFileIncludeScanRule",
   "passive": false
 }

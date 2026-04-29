@@ -14,8 +14,35 @@
     "OWASP_2017_A06": "",
     "WSTG_V42_ATHN_06_CACHE_WEAKNESS": ""
   },
-  "payloads": [],
+  "payloads": [
+    "css",
+    "jpg",
+    "js",
+    "html",
+    "gif",
+    "png",
+    "svg",
+    "php",
+    "txt",
+    "pdf",
+    "asp"
+  ],
   "patterns": [],
+  "all_arrays": {
+    "TEST_EXTENSIONS": [
+      "css",
+      "jpg",
+      "js",
+      "html",
+      "gif",
+      "png",
+      "svg",
+      "php",
+      "txt",
+      "pdf",
+      "asp"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrulesAlpha.WebCacheDeceptionScanRule",
   "passive": false
 }

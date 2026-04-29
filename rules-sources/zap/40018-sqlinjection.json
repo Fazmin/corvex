@@ -14,8 +14,67 @@
     "OWASP_2017_A01": "",
     "WSTG_V42_INPV_05_SQLI": ""
   },
-  "payloads": [],
+  "payloads": [
+    " OR 1=1",
+    "' OR '1'='1'",
+    "\" OR \"1\"=\"1\"",
+    " OR 1=1",
+    "' OR '1'='1",
+    "\" OR \"1\"=\"1",
+    "%",
+    "%' ",
+    "%\" "
+  ],
   "patterns": [],
+  "all_arrays": {
+    "SQL_CHECK_ERR": [
+      "\"",
+      ";",
+      "'(",
+      ")",
+      "(",
+      "NULL",
+      "'\""
+    ],
+    "SQL_LOGIC_AND_TRUE": [
+      " AND 1=1",
+      "' AND '1'='1'",
+      "\" AND \"1\"=\"1\"",
+      " AND 1=1",
+      "' AND '1'='1",
+      "\" AND \"1\"=\"1",
+      "' ",
+      "\" "
+    ],
+    "SQL_LOGIC_AND_FALSE": [
+      " AND 1=2",
+      "' AND '1'='2'",
+      "\" AND \"1\"=\"2\"",
+      " AND 1=2",
+      "' AND '1'='2",
+      "\" AND \"1\"=\"2",
+      "' ",
+      "\" "
+    ],
+    "SQL_LOGIC_OR_TRUE": [
+      " OR 1=1",
+      "' OR '1'='1'",
+      "\" OR \"1\"=\"1\"",
+      " OR 1=1",
+      "' OR '1'='1",
+      "\" OR \"1\"=\"1",
+      "%",
+      "%' ",
+      "%\" "
+    ],
+    "SQL_UNION_APPENDAGES": [
+      "'",
+      "\"",
+      ")",
+      "')",
+      "\")"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrules.SqlInjectionScanRule",
   "passive": false
 }

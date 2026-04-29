@@ -13,8 +13,57 @@
     "OWASP_2021_A05": "",
     "OWASP_2017_A06": ""
   },
-  "payloads": [],
-  "patterns": [],
+  "payloads": [
+    "/../",
+    "../",
+    "/../../",
+    "../../",
+    "/../../../",
+    "../../../",
+    "/../../../../",
+    "../../../../",
+    "/webapps/",
+    "webapps/",
+    "/",
+    "",
+    "/../webapps/",
+    "../webapps/"
+  ],
+  "patterns": [
+    "<%.*%>",
+    "<?php",
+    "class",
+    "<html"
+  ],
+  "all_arrays": {
+    "LOCAL_SOURCE_FILE_TARGET_PREFIXES": [
+      "",
+      "/",
+      "../",
+      "webapps/"
+    ],
+    "LOCAL_WAR_EAR_FILE_TARGET_PREFIXES": [
+      "/../",
+      "../",
+      "/../../",
+      "../../",
+      "/../../../",
+      "../../../",
+      "/../../../../",
+      "../../../../",
+      "/webapps/",
+      "webapps/",
+      "/",
+      "",
+      "/../webapps/",
+      "../webapps/"
+    ],
+    "warearFileNames": [
+      ".war",
+      ".ear",
+      ".rar"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.SourceCodeDisclosureFileInclusionScanRule",
   "passive": false
 }

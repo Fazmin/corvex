@@ -1,9 +1,9 @@
 # Scanner Rule Unification to a Single SQLite Catalog
 
-> Status: **Phase 1 + Phase 2a complete.** Phase 2b (ZAP lowering) and Phase
-> 2c (Burp BCheck lowering) are designed but not yet implemented.
+> Status: **Phase 1 + Phase 2a + Phase 2b + Phase 2c complete.** Phase 2d
+> (legacy `TestsPlugin` cutover) is the remaining work.
 >
-> Last updated: 2026-04-28.
+> Last updated: 2026-04-29.
 
 This document is the canonical reference for how `corvex/nikto-rust`
 consolidates web vulnerability rules from **OWASP ZAP**, **Burp Suite**, and
@@ -700,21 +700,116 @@ The refactor's two key moves were (a) hosting the heavy types in
 - Parity test green (5/5).
 - 94.1% Nikto MatchSpec coverage.
 
-### Phase 2b (next)
+### Phase 2b (complete)
 
-- Reintroduce recursive `Cond` with **hand-written** serde impls.
-- `parsers::zap` lowering: payload arrays + pattern strings into a
-  multi-step `MatchSpec` (baseline + injected, reflection check).
-- Drop the `source != 'zap'` filter from `RulesPlugin` once lowering
-  coverage stabilises.
+- **Improved `extract_zap.py`** to pull every `String[]` array and
+  `Pattern.compile("...")` regex from each `*ScanRule.java`, not just
+  arrays whose name contains "PAYLOAD" (Phase 1's heuristic). Result: 21
+  of 51 ZAP rules (~41%) now expose extractable detection signal — up
+  from 1/51 in Phase 1.
+- **`lower::lower_zap`** translates the lowerable subset into the same
+  flat `MatchSpec` shape Nikto uses:
+  - Patterns are filtered by Rust regex compile-success (drops Java
+    `\1`-backref / lookaround patterns RE2 rejects).
+  - Surviving patterns are joined into one alternation under a single
+    `Body` matcher.
+  - Rules with payloads bind `{{ZAP}}` into `/?fuzz={{ZAP}}` via
+    `Payload::FromList` (capped at 16 values to keep the persisted JSON
+    bounded).
+  - Rules with patterns-only become passive: GET `/` + body match.
+- **17 ZAP rules now have executable `match_spec_json`**
+  (33.3% of the vendored 51). Examples:
+  - `40008` ParameterTamper — 6 payload values + Tomcat / Microsoft VBScript
+    / OLE DB / Java servlet exception alternation regex.
+  - `10045` SourceCodeDisclosureWebInf — passive web.xml leak detection.
+  - `20017` SourceCodeDisclosureCVE-2012-1823 — passive PHP source leak.
+  - `40003` CrlfInjection — payload list + CRLF reflection check.
+- The recursive `Cond` enum was *not* needed for Phase 2b after all — the
+  flat `Vec<LeafCond>` shape covers passive + simple-active rules cleanly.
+  Recursive `Cond` (with hand-written serde) is still queued for Phase
+  2b.5 / 2c when cross-step deltas / OR-trees come up in real upstream
+  rules we want to lower.
+- `RulesPlugin` already targets `["zap", "burp"]`; the 17 lowered ZAP
+  rules fire automatically with no plugin code change.
+- Parity test still green (5/5) — no regression.
 
-### Phase 2c
+**Phase 2b coverage summary:**
 
-- `parsers::burp` lowering: BCheck `given/if/then` body parser.
-- Per-host serialisation for time-based rules (`ElapsedDeltaMs` cond).
-- Bind-fan-out (`Payload::FromList` runs the step once per value).
+| Source | Ingested | Lowered | Pct |
+|--------|----------|---------|-----|
+| Nikto  | 7,236    | 6,812   | 94.1% |
+| ZAP    | 51       | 17      | 33.3% |
+| Burp   | 263      | 0       | 0% (Phase 2c) |
+| **Total** | **7,550** | **6,829** | **90.5%** |
 
-### Phase 2d (cutover)
+**Un-lowered ZAP rules (34/51):** rules whose detection logic depends on
+imperative Java code (random tokens generated in-situ, request mutation
+via `getNewMsg()` + `setRequestBody()`, etc.) — no extractable signal in
+the source. These remain catalogued (severity, OWASP, CWE, references) but
+not executable. Phase 2c+ may add rule-by-rule hand-curated lowerings for
+high-value entries (XSS, SQLi reflection-based, etc.) once cross-step
+`Cond` lands.
+
+### Phase 2c (complete)
+
+- **`lower::lower_burp`** parses three BCheck shapes into the same flat
+  `MatchSpec` the other sources use:
+  1. **Passive single-pattern.** `given response then if {latest.response}
+     matches "REGEX" then report ...` → single GET `/` step + body matcher
+     against the regex.
+  2. **Active literal-path single-request.** `send request called X:
+     path: "/foo" ; if {X.response.body} matches "REGEX"` → GET `/foo` +
+     body match. The `in` form (`if "literal" in {X.response.body}`) is
+     also handled, with the literal regex-escaped before persisting.
+  3. **Active path-list run-for-each.** `run for each: paths = "/a", "/b"`
+     followed by `send request called X: path: {paths}` → URI becomes
+     `{{burp_path}}` with a `Payload::FromList` binding (capped at 16
+     paths). Phase-2a runner takes the first value only; full per-path
+     fan-out lands in Phase 2c.5.
+- BCheck rules with multi-step `send`s, compound predicates (`and` / `or`
+  inside `if`), header/status-code-only checks without an accompanying
+  body matcher, or `define:` blocks beyond simple path lists are skipped
+  with reason `burp_unsupported_dsl_shape`. They remain catalogued (with
+  detection_json preserved) for Phase 2c.5.
+- **91 BCheck rules now have executable `match_spec_json`** (34.6% of
+  the vendored 263). Examples:
+  - `bcheck-leaked-aws-token` — passive scan for `AKIA[0-9A-Z]{16}` in any
+    response body.
+  - `bcheck-exposed-git-directory` — GET `{{burp_path}}` against
+    `[/.git/config, /.git/config~]` with body match `\[core\]`.
+  - `bcheck-Cookie-SameSite-Disabled` — passive `(?i)(SameSite=None)`.
+  - `bcheck-jsMapFile`, `bcheck-detectRateLimiter`, `bcheck-client_secret`,
+    `bcheck-gitlab-ci-discovery`, …
+- The recursive `Cond` enum still wasn't needed — none of the lowered
+  BChecks required OR/NOT or cross-step deltas. The flat
+  `Vec<LeafCond>` shape continues to cover everything Phase 2 has
+  shipped. Recursive `Cond` (with hand-written serde) stays queued for
+  whenever a high-value rule needs it.
+- Parity test (5/5) still green. No regressions.
+
+**End-of-Phase 2c coverage summary:**
+
+| Source | Ingested | Lowered | Pct |
+|--------|----------|---------|-----|
+| Nikto  | 7,236    | 6,812   | 94.1% |
+| ZAP    | 51       | 17      | 33.3% |
+| Burp   | 263      | 91      | 34.6% |
+| **Total** | **7,550** | **6,920** | **91.7%** |
+
+### Future (post-Phase 2c)
+
+- **Phase 2c.5 / 2d.0 — fan-out + recursion.**
+  - Bind-fan-out: `Payload::FromList` runs the step once per value rather
+    than just the first. Needed for active fuzzing where each payload is
+    its own request.
+  - Recursive `Cond` with hand-written serde impls when a real upstream
+    rule needs OR / NOT trees or cross-step deltas.
+  - Per-host serialisation for time-based rules (`ElapsedDeltaMs` cond)
+    so concurrent scans don't false-positive the timing oracle.
+  - Header / status-code matchers in BCheck lowering, increasing the
+    Burp coverage past the body-only template.
+
+### Phase 2d (cutover, next)
 
 - Builder starts emitting Nikto rules with Nikto-source `match_spec_json`
   alongside the existing flow.
@@ -733,8 +828,8 @@ The refactor's two key moves were (a) hosting the heavy types in
 - Fan-out `Payload::FromList` semantics that emit a finding per value.
 - ZAP regex flavour translation (java.util.regex → Rust's RE2 — backref /
   lookaround removal).
-- BCheck "v2-beta" full DSL coverage including `define:` / `run for each:`
-  blocks.
+- BCheck "v2-beta" full DSL coverage including arbitrary `define:` /
+  `run for each:` blocks beyond simple path lists.
 
 ---
 

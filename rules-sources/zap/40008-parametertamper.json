@@ -15,15 +15,32 @@
   },
   "payloads": [
     "",
+    "",
     "@",
     "+",
-    "%A",
-    "%1Z",
-    "%",
     "%00",
     "|"
   ],
-  "patterns": [],
+  "patterns": [
+    "javax\\.servlet\\.\\S+",
+    "invoke.+exception|exception.+invoke",
+    "Microsoft(?:\\s|&nbsp)+VBScript(?:\\s|&nbsp)+error",
+    "Microsoft OLE DB Provider for ODBC Drivers.*error",
+    "ODBC.*Drivers.*error",
+    "Microsoft JET Database Engine.*error",
+    " on line <b>",
+    "(Apache Tomcat).*(Caused by:|HTTP Status 500 - Internal Server Error)"
+  ],
+  "all_arrays": {
+    "PARAM_LIST": [
+      "",
+      "",
+      "@",
+      "+",
+      "%00",
+      "|"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrules.ParameterTamperScanRule",
   "passive": false
 }

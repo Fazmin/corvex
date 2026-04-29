@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 corvex-core.workspace = true
 corvex-rules.workspace = true
+regex.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 serde.workspace = true

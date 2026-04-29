@@ -14,7 +14,11 @@
     "OWASP_2017_A09": ""
   },
   "payloads": [],
-  "patterns": [],
+  "patterns": [
+    ".*(<\\?php.+?\\?>).*",
+    ".*(<\\?=.+?\\?>).*"
+  ],
+  "all_arrays": {},
   "raw_class": "org.zaproxy.zap.extension.ascanrules.SourceCodeDisclosureCve20121823ScanRule",
   "passive": false
 }

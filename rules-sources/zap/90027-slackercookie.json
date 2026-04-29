@@ -14,8 +14,17 @@
     "OWASP_2017_A06": "",
     "WSTG_V42_SESS_02_COOKIE_ATTRS": ""
   },
-  "payloads": [],
+  "payloads": [
+    "session",
+    "userid"
+  ],
   "patterns": [],
+  "all_arrays": {
+    "HIGH_RISK_COOKIE_NAMES": [
+      "session",
+      "userid"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.SlackerCookieScanRule",
   "passive": false
 }

@@ -14,7 +14,14 @@
     "OWASP_2017_A05": ""
   },
   "payloads": [],
-  "patterns": [],
+  "patterns": [
+    "Parent Directory",
+    "\\bDirectory Listing\\b.*(Tomcat|Apache)",
+    "\\bDirectory\\b",
+    "[\\s<]+IMG\\s*=",
+    "Parent directory"
+  ],
+  "all_arrays": {},
   "raw_class": "org.zaproxy.zap.extension.ascanrules.DirectoryBrowsingScanRule",
   "passive": false
 }

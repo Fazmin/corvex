@@ -16,6 +16,7 @@
   },
   "payloads": [],
   "patterns": [],
+  "all_arrays": {},
   "raw_class": "org.zaproxy.zap.extension.ascanrules.SqlInjectionMsSqlTimingScanRule",
   "passive": false
 }

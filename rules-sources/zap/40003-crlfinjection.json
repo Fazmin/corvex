@@ -15,7 +15,10 @@
     "WSTG_V42_INPV_15_HTTP_SPLITTING": ""
   },
   "payloads": [],
-  "patterns": [],
+  "patterns": [
+    "\\nSet-cookie: "
+  ],
+  "all_arrays": {},
   "raw_class": "org.zaproxy.zap.extension.ascanrules.CrlfInjectionScanRule",
   "passive": false
 }

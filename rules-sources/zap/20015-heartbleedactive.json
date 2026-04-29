@@ -15,8 +15,19 @@
     "OWASP_2017_A09": "",
     "WSTG_V42_CRYP_01_TLS": ""
   },
-  "payloads": [],
+  "payloads": [
+    "TLS 1.0",
+    "TLS 1.1",
+    "TLS 1.2"
+  ],
   "patterns": [],
+  "all_arrays": {
+    "tlsNames": [
+      "TLS 1.0",
+      "TLS 1.1",
+      "TLS 1.2"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrules.HeartBleedActiveScanRule",
   "passive": false
 }

@@ -893,6 +893,7 @@ dependencies = [
  "corvex-rules",
  "csv",
  "indexmap 2.14.0",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

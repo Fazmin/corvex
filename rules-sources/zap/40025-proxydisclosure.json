@@ -14,7 +14,17 @@
     "OWASP_2017_A06": ""
   },
   "payloads": [],
-  "patterns": [],
+  "patterns": [
+    "^<address>(.+)\\s+Server[^<]*</address>$",
+    "^Max-Forwards:\\s*([0-9]+)\\s*$",
+    "Set-Cookie: (NSC_[a-z0-9]+)=",
+    "^(X-Forwarded-For):\\s*([0-9.]+)\\s*$",
+    "^(X-Forwarded-Port):\\s*([0-9]+)\\s*$",
+    "^(X-Forwarded-Proto):\\s*(.+)\\s*$",
+    "^(Via):\\s*(.+)\\s*$",
+    "^(Cache-Control):\\s*(.+)\\s*$"
+  ],
+  "all_arrays": {},
   "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.ProxyDisclosureScanRule",
   "passive": false
 }

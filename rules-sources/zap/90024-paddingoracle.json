@@ -14,8 +14,31 @@
     "OWASP_2017_A06": "",
     "WSTG_V42_CRYP_02_PADDING_ORACLE": ""
   },
-  "payloads": [],
-  "patterns": [],
+  "payloads": [
+    "BadPaddingException",
+    "padding",
+    "runtime",
+    "runtime error",
+    "server error",
+    "cryptographicexception",
+    "crypto"
+  ],
+  "patterns": [
+    "^([a-fA-F0-9]{2})+$",
+    "^[a-zA-Z0-9_-]+[012]$",
+    "^[a-zA-Z0-9/+]+={0,2}$"
+  ],
+  "all_arrays": {
+    "ERROR_PATTERNS": [
+      "BadPaddingException",
+      "padding",
+      "runtime",
+      "runtime error",
+      "server error",
+      "cryptographicexception",
+      "crypto"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrules.PaddingOracleScanRule",
   "passive": false
 }

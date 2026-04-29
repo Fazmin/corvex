@@ -14,8 +14,37 @@
     "OWASP_2017_A01": "",
     "WSTG_V42_INPV_05_SQLI": ""
   },
-  "payloads": [],
-  "patterns": [],
+  "payloads": [
+    "[$ne]",
+    "[$regex]",
+    "[$gt]",
+    "[$eq]"
+  ],
+  "patterns": [
+    "RuntimeException: SyntaxError: unterminated string literal",
+    "MongoResultException"
+  ],
+  "all_arrays": {
+    "ALL_DATA_PARAM_INJECTION": [
+      "[$ne]",
+      "[$regex]",
+      "[$gt]",
+      "[$eq]"
+    ],
+    "ALL_DATA_VALUE_INJECTION": [
+      "",
+      ".*",
+      "0",
+      ""
+    ],
+    "CRASH_INJECTION": [
+      "\"",
+      "'",
+      "//",
+      "});",
+      ");"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.MongoDbInjectionScanRule",
   "passive": false
 }

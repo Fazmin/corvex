@@ -14,8 +14,28 @@
     "OWASP_2017_A01": "",
     "WSTG_V42_INPV_18_SSTI": ""
   },
-  "payloads": [],
+  "payloads": [
+    "\"",
+    "'",
+    "1",
+    ""
+  ],
   "patterns": [],
+  "all_arrays": {
+    "errorPolyglots": [
+      "<%={{={@{#{${zj}}%>",
+      "<th:t=\"${zj}#foreach"
+    ],
+    "WAYS_TO_FIX_CODE_SYNTAX": [
+      "\"",
+      "'",
+      "1",
+      ""
+    ],
+    "codeFixPrefixes": [
+      ""
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrules.SstiScanRule",
   "passive": false
 }

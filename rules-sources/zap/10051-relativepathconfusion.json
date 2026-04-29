@@ -13,8 +13,39 @@
     "OWASP_2021_A05": "",
     "OWASP_2017_A06": ""
   },
-  "payloads": [],
-  "patterns": [],
+  "payloads": [
+    "-//W3C//DTD HTML 3.2 Final//EN",
+    "-//W3C//DTD HTML 4.01//EN",
+    "-//W3C//DTD HTML 4.0 Transitional//EN",
+    "-//W3C//DTD HTML 4.01 Transitional//EN",
+    "-//W3C//DTD XHTML 1.0 Transitional//EN",
+    "-//W3C//DTD XHTML 1.1//EN",
+    "-//W3C//DTD XHTML Basic 1.0//EN",
+    "-//W3C//DTD XHTML 1.0 Strict//EN",
+    "ISO/IEC 15445:2000//DTD HTML//EN",
+    "ISO/IEC 15445:2000//DTD HyperText Markup Language//EN",
+    "ISO/IEC 15445:1999//DTD HTML//EN",
+    "ISO/IEC 15445:1999//DTD HyperText Markup Language//EN"
+  ],
+  "patterns": [
+    "[a-zA-Z_-]*\\s*:\\s*url\\s*\\((?!https?:)[^/][^)]*\\)"
+  ],
+  "all_arrays": {
+    "DOCTYPE_PUBLIC_IDS_TRIGGERING_QUIRKS_MODE": [
+      "-//W3C//DTD HTML 3.2 Final//EN",
+      "-//W3C//DTD HTML 4.01//EN",
+      "-//W3C//DTD HTML 4.0 Transitional//EN",
+      "-//W3C//DTD HTML 4.01 Transitional//EN",
+      "-//W3C//DTD XHTML 1.0 Transitional//EN",
+      "-//W3C//DTD XHTML 1.1//EN",
+      "-//W3C//DTD XHTML Basic 1.0//EN",
+      "-//W3C//DTD XHTML 1.0 Strict//EN",
+      "ISO/IEC 15445:2000//DTD HTML//EN",
+      "ISO/IEC 15445:2000//DTD HyperText Markup Language//EN",
+      "ISO/IEC 15445:1999//DTD HTML//EN",
+      "ISO/IEC 15445:1999//DTD HyperText Markup Language//EN"
+    ]
+  },
   "raw_class": "org.zaproxy.zap.extension.ascanrulesBeta.RelativePathConfusionScanRule",
   "passive": false
 }

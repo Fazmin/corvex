@@ -103,8 +103,8 @@ pub fn insert_rules(
                 Ok(None) => {
                     let reason = match rule.source_tool {
                         SourceTool::Nikto => "nikto_unlowerable",
-                        SourceTool::Zap => "zap_phase_2b",
-                        SourceTool::Burp => "burp_phase_2c",
+                        SourceTool::Zap => "zap_no_extractable_signal",
+                        SourceTool::Burp => "burp_unsupported_dsl_shape",
                     };
                     stats.note_skip(rule.source_tool, reason);
                     None
