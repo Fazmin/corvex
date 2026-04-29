@@ -1133,6 +1133,43 @@ button.browse-btn:active {
   border: 1px solid var(--border-soft);
 }
 
+.finding-detail .http-status-glossary {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.finding-detail .http-status-glossary li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  line-height: 1.4;
+}
+
+.finding-detail .http-status-code {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 2.5em;
+}
+
+.finding-detail .http-status-title {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.finding-detail .http-status-summary {
+  color: var(--muted);
+}
+
 .finding-detail .ref-chip {
   display: inline-block;
   padding: 3px 10px;
@@ -1150,6 +1187,177 @@ button.browse-btn:active {
   color: var(--muted);
   padding: 24px 12px;
   white-space: normal;
+}
+
+/* ---------- First-launch splash ----------------------------------- */
+
+.splash-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  z-index: 9999;
+}
+
+.splash-card {
+  width: min(440px, 92vw);
+  padding: 32px 32px 28px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+}
+
+.splash-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg-strong);
+  margin-bottom: 8px;
+}
+
+.splash-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 18px;
+  animation: splash-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes splash-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.06); opacity: 0.78; }
+}
+
+.splash-sub {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.splash-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.splash-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 220ms ease-out;
+}
+
+.splash-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.splash-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.splash-step-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  flex: none;
+}
+
+.splash-step-label {
+  flex: 1;
+}
+
+.splash-step-err {
+  color: var(--danger);
+  font-size: 11px;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.splash-step-pending .splash-step-icon {
+  color: var(--muted);
+}
+
+.splash-step-running {
+  color: var(--fg);
+}
+.splash-step-running .splash-step-icon {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: splash-spin 1.1s linear infinite;
+}
+
+@keyframes splash-spin {
+  to { transform: rotate(360deg); }
+}
+
+.splash-step-ok {
+  color: var(--fg-strong);
+}
+.splash-step-ok .splash-step-icon {
+  color: var(--success, #4caf50);
+  border-color: var(--success, #4caf50);
+}
+
+.splash-step-failed {
+  color: var(--fg);
+}
+.splash-step-failed .splash-step-icon {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* HistoryView's expanded row hosts a nested FindingsTable. Reuse the
+   detail-row backdrop but loosen the left padding (the parent table
+   has no checkbox / severity column to align under) and let the
+   nested table breathe. */
+.history-detail {
+  padding: 12px 12px 14px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--panel-alt);
+}
+
+.history-detail .panel.results {
+  margin: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.history-detail .empty {
+  color: var(--muted);
+  padding: 12px 4px;
 }
 
 /* ---------- Findings filter chips ---------- */

@@ -21,6 +21,7 @@ const SECTIONS: Section[] = [
   { id: "interface-tips", title: "Interface tips" },
   { id: "data-storage", title: "Data & storage" },
   { id: "exploitdb", title: "Exploit-DB enrichment" },
+  { id: "unified-rules", title: "Unified rules catalog" },
   { id: "nuclei-catalog", title: "Bundled Nuclei templates" },
   { id: "glossary", title: "Glossary" },
   { id: "limitations", title: "Known limitations" },
@@ -141,7 +142,12 @@ export function HelpView() {
             <li>
               <strong>When the scan finishes,</strong> a toast pops in the
               bottom-right. The findings table is exportable (CSV / JSON
-              buttons) and the run is saved to History.
+              buttons). To keep the run for later, click{" "}
+              <strong>Save scan</strong> in the same toolbar — that's what
+              promotes it into the History view. Unsaved scans are kept
+              only for the rest of the session and are purged on the next
+              app launch, so <code>history.sqlite</code> doesn't grow
+              unbounded.
             </li>
           </ol>
 
@@ -163,9 +169,15 @@ export function HelpView() {
             <li>
               <strong>Findings table:</strong> one row per finding. Click a row
               to expand details (CVE, CVSS, EPSS, component, references, fix
-              version). A purple <em>SCA</em> pill marks software-composition
-              findings; teal <em>Web</em> marks everything else. Drag the thin
-              bar below the table to resize it up or down; the size persists.
+              version). If the message references an HTTP status code
+              (e.g. <code>(HTTP 308)</code> or <em>"returned 404"</em>),
+              the expanded panel also shows a short <strong>HTTP status
+              glossary</strong> right under the message — code, official
+              title, and a one-line summary — so you don't have to guess
+              what an unfamiliar status means. A purple <em>SCA</em> pill
+              marks software-composition findings; teal <em>Web</em> marks
+              everything else. Drag the thin bar below the table to resize
+              it up or down; the size persists.
             </li>
             <li>
               <strong>Log panel:</strong> raw engine messages at TRACE / DEBUG /
@@ -290,9 +302,23 @@ export function HelpView() {
 
           <h4>History</h4>
           <p>
-            Every scan — successful, cancelled, or errored — gets a row here.
+            History is <strong>opt-in</strong>. Only scans you've explicitly
+            saved (via the <strong>Save scan</strong> button on the
+            Dashboard's findings toolbar) appear here, plus any scan that's
+            currently <em>Running</em>. Anything you didn't save is dropped
+            on the next app launch — that keeps{" "}
+            <code>history.sqlite</code> from accumulating dozens of
+            throwaway runs you no longer care about.
+          </p>
+          <p>
             Columns: host, started timestamp, duration, requests, findings,
-            status. Per-row actions:
+            status. The leftmost column is a chevron — click any row (or
+            the chevron) to expand it and see the saved findings inline.
+            On first expansion the findings are pulled from{" "}
+            <code>history.sqlite</code> and rendered with the same
+            FindingsTable you used live on the Dashboard, complete with
+            its own per-scan filter / search state. Multiple rows can be
+            open at once. Per-row actions:
           </p>
           <ul>
             <li>
@@ -301,15 +327,21 @@ export function HelpView() {
               Disabled while another scan is in progress.
             </li>
             <li>
-              <strong>Delete:</strong> removes that single history entry.
+              <strong>Delete:</strong> removes that single history entry,
+              including every finding tied to it (the database cascades
+              the delete through <code>scan_findings</code>).
             </li>
             <li>
-              Top-right: <strong>Refresh</strong> and <strong>Clear all</strong>.
+              Top-right: <strong>Refresh</strong> reloads the list, and{" "}
+              <strong>Clear all</strong> wipes every saved scan after a
+              confirm prompt.
             </li>
           </ul>
           <p>
-            History is persisted to a SQLite file — survives restarts, survives
-            crashes.
+            Saved scans live in <code>history.sqlite</code> under your app
+            data folder — they survive restarts and crashes. There is no
+            separate "Unsave" button: since unsaved rows would be purged
+            on next launch anyway, Delete covers both cases.
           </p>
 
           <h4>Plugins</h4>
@@ -322,7 +354,7 @@ export function HelpView() {
 
           <h4>Databases</h4>
           <p>
-            The single "what's bundled?" view. Five tabs:
+            The single "what's bundled?" view. Eight tabs:
           </p>
           <ul>
             <li>
@@ -362,6 +394,30 @@ export function HelpView() {
               provenance card names ProjectDiscovery (MIT), explains the
               filter policy (severity critical/high plus the <code>kev</code>
               tag), and lists the on-disk load roots actually being used.
+            </li>
+            <li>
+              <strong>Fingerprints (Wappalyzer)</strong> — counts for the
+              vendored Wappalyzer-compatible dataset that backs Stack
+              fingerprinting and the Banner-CVE check.
+            </li>
+            <li>
+              <strong>Exploit-DB</strong> — total / verified exploit counts,
+              snapshot origin (<code>bundled</code> vs{" "}
+              <code>user-synced</code>), upstream commit SHA, last refresh
+              timestamp, and a <em>Re-sync</em> button that pulls a fresh
+              copy from upstream.
+            </li>
+            <li>
+              <strong>Unified rules</strong> — the consolidated SQLite
+              catalog (<code>rules.sqlite</code>) that powers the default
+              scanning path. Six summary cells (total ingested, total
+              executable plus coverage %, schema version, build timestamp,
+              invalid-JSON sanity check, source path) plus two tables:
+              per-source ingest / executable / coverage % / upstream
+              commit, and a severity breakdown across every source. See
+              the dedicated{" "}
+              <a href="#unified-rules">Unified rules catalog</a> section
+              below for what the numbers mean.
             </li>
           </ul>
           <p>
@@ -2763,11 +2819,14 @@ Content-Length: 42
               live; the stats bar shows request count and elapsed time.
             </li>
             <li>
-              When done, the run shows up in History with origin{" "}
-              <em>active</em>. The captured Traffic row that seeded it
-              stays untouched — the fuzzer fires its own requests and
-              captures its own exchanges, so original and fuzzed
-              traffic are cleanly separable in the log.
+              When done, click <strong>Save scan</strong> in the findings
+              toolbar if you want to revisit this run later — that
+              promotes it into the History view (with origin{" "}
+              <em>active</em>); otherwise it's dropped on the next app
+              launch. The captured Traffic row that seeded it stays
+              untouched — the fuzzer fires its own requests and captures
+              its own exchanges, so original and fuzzed traffic are
+              cleanly separable in the log.
             </li>
           </ol>
           <p className="callout">
@@ -4490,6 +4549,161 @@ Content-Length: 42
         </section>
 
         {/* ------------------------------------------------------------------ */}
+        <section id="unified-rules">
+          <h3>Unified rules catalog</h3>
+          <p>
+            The desktop ships a single SQLite file —{" "}
+            <code>rules.sqlite</code> — that consolidates every web-scan
+            rule the application can fire into one queryable catalog. It's
+            embedded into the binary at build time so a fresh install runs
+            the full rule set without any post-install setup; on first
+            launch the embedded blob is extracted to{" "}
+            <code>&lt;app_data_dir&gt;/dev.fazminnizam.corvex-rust/rules.sqlite</code>{" "}
+            and the runtime opens it from there.
+          </p>
+
+          <h4>What the Databases → Unified rules tab shows</h4>
+          <p>
+            Six summary cells across the top:
+          </p>
+          <ul>
+            <li>
+              <strong>Total rules ingested</strong> — every rule the build
+              pipeline parsed and persisted, including ones whose
+              detection logic isn't yet runnable.
+            </li>
+            <li>
+              <strong>Total executable</strong> + percentage — rules whose
+              detection logic was lowered into a runtime-evaluable
+              <code>match_spec_json</code>. Only these contribute findings
+              when you scan.
+            </li>
+            <li>
+              <strong>Schema version</strong> — the on-disk catalog format.
+              Bumps cleanly via additive columns; older builds reading a
+              newer catalog still work for everything they understand.
+            </li>
+            <li>
+              <strong>Built (UTC)</strong> — when the catalog was last
+              regenerated. Useful when bisecting a finding regression.
+            </li>
+            <li>
+              <strong>Invalid JSON rows</strong> — sanity check; should
+              always be zero. Anything else means a builder run produced
+              a malformed row and the catalog should be rebuilt.
+            </li>
+            <li>
+              <strong>Path</strong> — the absolute file path the runtime
+              opened. Reflects the lookup order described below.
+            </li>
+          </ul>
+
+          <p>
+            Below the cells, two tables. <em>Per-source coverage</em>{" "}
+            lists every rule source with its ingest count, executable
+            count, coverage %, and upstream commit short-SHA. The
+            commit SHA is the upstream snapshot the catalog was built
+            against — pinning it makes catalogs reproducible and
+            auditable. <em>Severity distribution</em> breaks every
+            executable rule down by source × severity (critical / high /
+            medium / low / info). Use these to spot anomalies after a
+            catalog rebuild.
+          </p>
+
+          <h4>Where the runtime looks for the catalog</h4>
+          <p>
+            Lookup order on every launch:
+          </p>
+          <ol>
+            <li>
+              <code>&lt;cwd&gt;/rules.sqlite</code> — power-user override.
+              Whatever sits next to the working directory wins, so a
+              developer can swap catalogs between scans without
+              rebuilding.
+            </li>
+            <li>
+              <code>&lt;exe-dir&gt;/rules.sqlite</code> — sibling-of-binary
+              install layout. Useful for distributing the app as a folder
+              of files.
+            </li>
+            <li>
+              <code>&lt;app_data_dir&gt;/dev.fazminnizam.corvex-rust/rules.sqlite</code>{" "}
+              — the extracted copy of the embedded blob. Written on first
+              launch, or whenever the on-disk content's length / first
+              4 KB don't match the embedded bytes (catches the "user
+              upgraded the binary" case automatically).
+            </li>
+            <li>
+              None — the binary falls back to legacy-only behaviour with
+              a debug log and the Unified rules tab shows a friendly
+              empty state with rebuild instructions.
+            </li>
+          </ol>
+
+          <h4>Default scan path</h4>
+          <p>
+            By default every scan runs through the unified catalog —
+            <code>rules.sqlite</code> is the source of truth for which
+            rules fire. The legacy embedded test database is still
+            compiled in as a safety net but does not run unless the user
+            explicitly opts in via a CLI flag (see <em>Troubleshooting</em>{" "}
+            for the escape hatches). For typical usage you do nothing
+            special: install, launch, scan.
+          </p>
+
+          <h4>Rebuilding the catalog</h4>
+          <p>
+            The catalog is regenerated by the bundled{" "}
+            <code>corvex-rules-builder</code> tool. From the repo root:
+          </p>
+          <pre style={{ padding: 8, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 4 }}>
+            cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite
+          </pre>
+          <p>
+            That writes a fresh <code>rules.sqlite</code> at the repo
+            root, which will be picked up on next desktop launch via
+            the lookup order above (the cwd entry wins over the
+            extracted blob). For a permanent change, rebuild the
+            desktop with <code>cargo tauri build</code> — the build
+            script re-embeds whatever <code>rules.sqlite</code> currently
+            sits at the repo root.
+          </p>
+          <p>
+            <em>Tip:</em> after a rebuild, glance at the Unified rules
+            tab. The total-executable count and the per-source coverage %
+            are the quickest sanity check that the new catalog is what
+            you expected. The build timestamp also updates, so if it
+            still shows yesterday's date the runtime is reading a
+            different copy than the one you just built.
+          </p>
+
+          <h4>Why some rules are catalogued but not executable</h4>
+          <p>
+            The total-ingested and total-executable counts on the tab
+            are deliberately separate. A rule lands in the catalog as
+            soon as the build pipeline can parse its metadata
+            (severity, references, OWASP mapping, …). It only becomes
+            executable after a second pass — the lowerer — turns its
+            detection logic into the runtime's match-spec format. Some
+            rules expose every detail the lowerer needs and translate
+            cleanly; others encode their detection logic in shapes the
+            lowerer doesn't yet recognise (compound predicates with
+            unusual operator precedence, complex variable
+            substitutions, multi-step interactions that need oracles
+            we haven't built yet, etc.). Those rules stay in the
+            catalog so future iterations of the lowerer can pick them
+            up without re-vendoring upstream content; today they
+            simply don't fire.
+          </p>
+          <p>
+            Coverage rises monotonically as the lowerer learns new
+            shapes. The skip-reason breakdowns visible in the build
+            output drive that work: each labelled bucket points at a
+            specific lowering pattern engineering can target next.
+          </p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
         <section id="nuclei-catalog">
           <h3>Bundled Nuclei templates</h3>
           <p>
@@ -5424,6 +5638,17 @@ Content-Length: 42
             Either a scan is already running (cancel it first), or the row's
             status is <em>Running</em> — the app treats an in-progress history
             entry as unsafe to duplicate.
+          </p>
+
+          <h4>My scan is gone from History after restarting</h4>
+          <p>
+            History is opt-in. If you didn't click <strong>Save scan</strong>{" "}
+            in the findings toolbar before quitting, the run was treated as a
+            throwaway and dropped on the next launch (the database does a{" "}
+            <code>DELETE FROM scans WHERE saved = 0</code> on open). To keep
+            future scans, click Save while the results are still on the
+            Dashboard — you can do it during the run or after it finishes,
+            as long as you haven't quit the app.
           </p>
 
           <h4>Log panel stopped scrolling</h4>

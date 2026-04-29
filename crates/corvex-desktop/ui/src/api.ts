@@ -159,6 +159,43 @@ export interface SummaryPayload {
   elapsed_secs: number;
 }
 
+// ---- App init progress ------------------------------------------------------
+//
+// Wraps the heavy first-launch init pipeline so the UI can show a
+// "Configuring Corvex" splash instead of a frozen window. The backend
+// emits `app://init-step` for every step transition and
+// `app://init-ready` once the pipeline is done. `initStatus` is a
+// snapshot poll for late-mounting subscribers.
+
+export type InitStepStatus =
+  | { kind: "pending" }
+  | { kind: "running" }
+  | { kind: "ok" }
+  | { kind: "failed"; message: string };
+
+export interface InitStep {
+  id: string;
+  label: string;
+  status: InitStepStatus;
+}
+
+export interface InitProgress {
+  steps: InitStep[];
+  ready: boolean;
+}
+
+export function initStatus(): Promise<InitProgress> {
+  return invoke<InitProgress>("init_status");
+}
+
+export function onInitStep(cb: (step: InitStep) => void): Promise<UnlistenFn> {
+  return listen<InitStep>("app://init-step", (e) => cb(e.payload));
+}
+
+export function onInitReady(cb: (snapshot: InitProgress) => void): Promise<UnlistenFn> {
+  return listen<InitProgress>("app://init-ready", (e) => cb(e.payload));
+}
+
 // ---- Commands --------------------------------------------------------------
 
 export function listPlugins(): Promise<PluginSummary[]> {
@@ -173,8 +210,16 @@ export function versionInfo(): Promise<VersionInfo> {
   return invoke<VersionInfo>("version_info");
 }
 
-export function startScan(params: ScanParams): Promise<string> {
-  return invoke<string>("scan_start", { params });
+/** Result of `scan_start`. `scan_id` is the runtime UUID used to scope
+ *  per-scan events; `history_id` is the SQLite row id used to flip the
+ *  saved flag when the user clicks "Save scan". */
+export interface ScanStartHandle {
+  scan_id: string;
+  history_id: number | null;
+}
+
+export function startScan(params: ScanParams): Promise<ScanStartHandle> {
+  return invoke<ScanStartHandle>("scan_start", { params });
 }
 
 export function cancelScan(id: string): Promise<boolean> {
@@ -486,6 +531,10 @@ export interface HistoryEntry {
   total_requests: number;
   total_findings: number;
   total_errors: number;
+  /** True once the user has explicitly saved this scan. Unsaved scans
+   *  are visible only while their status is "running"; on next launch
+   *  they are purged. */
+  saved: boolean;
 }
 
 export function historyList(limit?: number): Promise<HistoryEntry[]> {
@@ -498,6 +547,14 @@ export function historyClear(): Promise<number> {
 
 export function historyDelete(id: number): Promise<number> {
   return invoke<number>("history_delete", { id });
+}
+
+export function historySetSaved(id: number, saved: boolean): Promise<number> {
+  return invoke<number>("history_set_saved", { id, saved });
+}
+
+export function historyFindings(id: number): Promise<FindingPayload[]> {
+  return invoke<FindingPayload[]>("history_findings", { id });
 }
 
 // --- Proxy and Checks ----------------------------------------------------

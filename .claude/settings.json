@@ -24,7 +24,9 @@
       "PowerShell($files = @\\('scripts\\\\build-vulndb-snapshot.ps1','scripts\\\\refresh-all-bundles.ps1'\\); foreach \\($f in $files\\) { $tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile\\($f, [ref]$tokens, [ref]$errors\\) | Out-Null; if \\($errors -and $errors.Count -gt 0\\) { Write-Host \"FAIL $f\" -ForegroundColor Red; $errors | ForEach-Object { Write-Host \\(\"  {0}\" -f $_\\) } } else { Write-Host \"OK   $f\" } })",
       "Bash(npx tsc *)",
       "Bash(echo \"exit=$?\")",
-      "Bash(awk -F',' '{print NF}')"
+      "Bash(awk -F',' '{print NF}')",
+      "Bash(grep -E \"\\\\.\\(rs|ts|tsx\\)$\")",
+      "Bash(grep -E \"\\\\.\\(md|MD\\)$\")"
     ]
   }
 }
