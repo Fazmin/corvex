@@ -54,9 +54,6 @@ tests/udb_*
 /*.sql
 /*.log
 /scan-*.txt
-snapshot.db.gz
-*/vulndb/snapshot.db.gz
-snapshot.db.gz
 
 # --- corvex-rules-builder output ---------------------------------------------
 # `/rules.sqlite` IS tracked: committing it lets fresh clones run the unified

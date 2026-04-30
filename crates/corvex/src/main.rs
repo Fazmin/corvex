@@ -155,11 +155,13 @@ async fn main() -> Result<()> {
         let db_path = cli.vulndb_path.clone().unwrap_or_else(|| {
             vulndb::default_db_path().unwrap_or_else(|_| std::path::PathBuf::from("vulndb.sqlite"))
         });
+        let explicit_update = matches!(cli.vulndb_update.as_str(), "now" | "latest");
         let needs_vulndb = cli.scan_dir.is_some()
             || cli.sbom_input.is_some()
             || cli.binary_scan.is_some()
             || cli.vulndb_export.is_some()
-            || cli.vulndb_import.is_some();
+            || cli.vulndb_import.is_some()
+            || (explicit_update && cli.vulndb_path.is_some());
 
         if needs_vulndb {
             match VulnDb::open(&db_path) {
