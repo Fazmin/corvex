@@ -13,6 +13,8 @@ members = [
     "crates/vulndb-builder",
     "crates/corvex-rules",
     "crates/corvex-rules-builder",
+    "crates/corvex-devicedb",
+    "crates/corvex-devicedb-builder",
 ]
 
 [workspace.package]
@@ -32,6 +34,7 @@ corvex-proxy = { path = "crates/corvex-proxy" }
 corvex-intel = { path = "crates/corvex-intel" }
 corvex-checks = { path = "crates/corvex-checks" }
 corvex-rules = { path = "crates/corvex-rules" }
+corvex-devicedb = { path = "crates/corvex-devicedb" }
 
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }

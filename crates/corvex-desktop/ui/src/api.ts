@@ -272,6 +272,28 @@ export function sonarSummary(
   });
 }
 
+/** Quick counts for the SNMP device-signature catalog bundled in the
+ *  binary. Drives the Datasets tab in the Probing view. */
+export interface DeviceDbSummary {
+  entries: number;
+  vendors: number;
+  device_types: number;
+  clauses: number;
+  disabled_clauses: number;
+  sys_object_id_prefixes: number;
+  sys_descr_substrings: number;
+  sys_descr_regexes: number;
+  catalog_ready: boolean;
+  /** IANA Private Enterprise Number rows. */
+  iana_enterprise_count: number;
+  /** IEEE OUI registry rows (MA-L / MA-M / MA-S). */
+  ieee_oui_count: number;
+}
+
+export function deviceDbSummary(): Promise<DeviceDbSummary> {
+  return invoke<DeviceDbSummary>("device_db_summary");
+}
+
 // ---- Nuclei template engine -------------------------------------------------
 
 export interface NucleiSummary {
@@ -357,6 +379,14 @@ export interface ProbeParams {
   jarm?: boolean;
   extra_probe_files?: string[];
   host_concurrency?: number;
+  /** SNMP v2c device fingerprint. Always on in Deep mode (the flag is
+   *  ignored). In Rapid mode it's off by default and only fires when
+   *  the user explicitly enables it. */
+  snmp_fingerprint?: boolean;
+  /** OS ARP cache lookup + IEEE OUI vendor resolve. Always on in Deep
+   *  mode; opt-in in Rapid mode. Useful only for L2-adjacent hosts —
+   *  routed targets return the upstream router's MAC. */
+  mac_lookup?: boolean;
 }
 
 export interface ProbeHostStart {
@@ -402,6 +432,28 @@ export interface ProbeSummary {
   cancelled: boolean;
 }
 
+export interface ProbeMacResolved {
+  probe_id: string;
+  display: string;
+  hostname: string;
+  ip: string;
+  mac: string;
+  mac_vendor: string | null;
+}
+
+export interface ProbeDeviceMatch {
+  probe_id: string;
+  display: string;
+  hostname: string;
+  ip: string;
+  os: string;
+  vendor: string;
+  device_type: string;
+  source: string;
+  sys_descr: string | null;
+  sys_object_id: string | null;
+}
+
 export interface ProbeTargetError {
   probe_id: string;
   target: string;
@@ -418,7 +470,14 @@ export function cancelProbe(id: string): Promise<boolean> {
 
 export function probeEventName(
   probeId: string,
-  kind: "host-start" | "host-end" | "open-port" | "summary" | "error"
+  kind:
+    | "host-start"
+    | "host-end"
+    | "open-port"
+    | "device-match"
+    | "mac-resolved"
+    | "summary"
+    | "error"
 ): string {
   return `probe://${probeId}/${kind}`;
 }
@@ -499,6 +558,24 @@ export function onProbeError(
   cb: (p: ProbeTargetError) => void
 ): Promise<UnlistenFn> {
   return listen<ProbeTargetError>(probeEventName(id, "error"), (e) =>
+    cb(e.payload)
+  );
+}
+
+export function onProbeDeviceMatch(
+  id: string,
+  cb: (p: ProbeDeviceMatch) => void
+): Promise<UnlistenFn> {
+  return listen<ProbeDeviceMatch>(probeEventName(id, "device-match"), (e) =>
+    cb(e.payload)
+  );
+}
+
+export function onProbeMacResolved(
+  id: string,
+  cb: (p: ProbeMacResolved) => void
+): Promise<UnlistenFn> {
+  return listen<ProbeMacResolved>(probeEventName(id, "mac-resolved"), (e) =>
     cb(e.payload)
   );
 }
@@ -1325,6 +1402,22 @@ export interface DnsRecord {
   sources: string[];
 }
 
+export interface AssetDeviceMatch {
+  os: string;
+  vendor: string;
+  device_type: string;
+  source: string;
+  sys_descr: string | null;
+  sys_object_id: string | null;
+  observed_at_unix: number;
+}
+
+export interface AssetHostMac {
+  mac: string;
+  mac_vendor: string | null;
+  observed_at_unix: number;
+}
+
 export interface AssetOverview {
   host: string;
   ips: string[];
@@ -1338,6 +1431,8 @@ export interface AssetOverview {
   asn_placeholder: string | null;
   cidr_24s: string[];
   scanned_count: number;
+  device: AssetDeviceMatch | null;
+  mac: AssetHostMac | null;
 }
 
 export interface AssetService {

@@ -10,6 +10,7 @@ mod asset_db;
 mod asset_identity;
 mod check_bridge;
 mod commands;
+mod device_embed;
 mod error;
 mod event_sink;
 mod exploitdb;
@@ -26,9 +27,11 @@ mod recon_store;
 mod rules_embed;
 mod scan_state;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use asset_db::AssetDb;
+use corvex_devicedb::DeviceCatalog;
 use corvex_proxy::{Authority, CaConfig, ProxyDb, ProxyState};
 use exploitdb::ExploitDb;
 use history::HistoryDb;
@@ -68,6 +71,47 @@ fn main() {
             app.manage(ScanRegistry::default());
             app.manage(ProbeRegistry::default());
             app.manage(Arc::new(ReconRegistry::default()));
+
+            // Device-signature catalogue lives in a SQLite file that
+            // ships embedded in the binary. `device_embed` writes it
+            // out on first launch (or when the on-disk copy drifts
+            // from the embedded bytes); we then open it read-only.
+            // A failure here is non-fatal — probing still works without
+            // device IDs, just without the Device panel populated.
+            let resolved_devices_path = device_embed::resolve_devices_path();
+            let device_cat = match &resolved_devices_path {
+                Some(path) => match DeviceCatalog::open(path) {
+                    Ok(cat) => {
+                        tracing::info!(
+                            target: "devicedb",
+                            entries = cat.entries.len(),
+                            path = %path.display(),
+                            "device signature catalog ready"
+                        );
+                        cat
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "devicedb",
+                            path = %path.display(),
+                            "device catalog open failed: {e}; SNMP fingerprinting disabled"
+                        );
+                        DeviceCatalog::default()
+                    }
+                },
+                None => {
+                    tracing::info!(
+                        target: "devicedb",
+                        "no devices.sqlite available; SNMP fingerprinting disabled"
+                    );
+                    DeviceCatalog::default()
+                }
+            };
+            app.manage(Arc::new(device_cat));
+            // Stash the resolved SQLite path for commands that want to
+            // query the bundled IANA / OUI reference tables (which
+            // aren't loaded into the in-memory catalog above).
+            app.manage(Arc::new(DevicesDbPath(resolved_devices_path)));
 
             // Init progress is also managed synchronously so the
             // splash's `init_status` poll has something to read even
@@ -174,6 +218,7 @@ fn main() {
             commands::vulndb_summary,
             commands::vulndb_update,
             commands::sonar_summary,
+            commands::device_db_summary,
             commands::nuclei_summary,
             commands::nuclei_template_list,
             commands::wappalyzer_summary,
@@ -278,6 +323,11 @@ fn ws_frame_payload(f: &corvex_proxy::WsFrame) -> WsFrameEvent {
         captured_at_unix: f.captured_at.unix_timestamp(),
     }
 }
+
+/// Newtype wrapper so the resolved `devices.sqlite` path can be put
+/// into Tauri-managed state (a bare `Option<PathBuf>` would clash with
+/// any other state that uses the same shape).
+pub struct DevicesDbPath(pub Option<PathBuf>);
 
 fn open_history(app: &tauri::AppHandle) -> anyhow::Result<HistoryDb> {
     let dir = app

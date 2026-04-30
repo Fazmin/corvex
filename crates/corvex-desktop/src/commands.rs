@@ -27,7 +27,7 @@ use crate::history::{HistoryDb, HistoryEntry, ScanFindingRow};
 use crate::init_progress::{InitProgress, InitProgressHandle};
 use crate::params::ScanParams;
 use crate::probe_state::{ProbeRegistry, RunningProbe};
-use crate::probe_store::{PendingOpenPort, ProbeStore};
+use crate::probe_store::{PendingDeviceMatch, PendingHostMac, PendingOpenPort, ProbeStore};
 use crate::scan_state::{RunningScan, ScanRegistry, ScanStats};
 
 #[derive(Debug, Clone, Serialize)]
@@ -219,6 +219,123 @@ pub async fn jarm_lookup(hash: String, extra_probe_files: Vec<String>) -> JarmLo
         cipher_version,
         extensions_digest,
     }
+}
+
+/// Quick counts for the SNMP device-signature catalog. Drives the
+/// "Datasets" tab on the Probing view so users can confirm the bundled
+/// catalog has been wired in correctly. All numbers come from the
+/// in-memory `DeviceCatalog` already managed as state — no extra
+/// SQLite query at request time.
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceDbSummary {
+    /// Total entries (one per device YAML).
+    pub entries: u32,
+    /// Distinct vendor / group buckets across the entries.
+    pub vendors: u32,
+    /// Distinct device-type buckets ("network", "firewall", "pdu", …).
+    pub device_types: u32,
+    /// Total number of discovery clauses across all entries.
+    pub clauses: u32,
+    /// Clauses tagged disabled because they require an active SNMP GET
+    /// the matcher cannot issue.
+    pub disabled_clauses: u32,
+    /// Total positive sysObjectID prefixes recorded (across all
+    /// non-disabled clauses).
+    pub sys_object_id_prefixes: u32,
+    /// Total positive sysDescr substrings recorded.
+    pub sys_descr_substrings: u32,
+    /// Total positive sysDescr regexes recorded.
+    pub sys_descr_regexes: u32,
+    /// True when at least one entry loaded successfully — i.e. the
+    /// SNMP device-fingerprint pass has data to match against.
+    pub catalog_ready: bool,
+    /// IANA Private Enterprise Number rows. Used as a fallback
+    /// vendor lookup against the `1.3.6.1.4.1.<pen>` branch when the
+    /// device-signature catalog has no specific match.
+    pub iana_enterprise_count: u32,
+    /// IEEE OUI rows (MA-L / MA-M / MA-S registrations). Resolves a
+    /// MAC address into a vendor name when one is available.
+    pub ieee_oui_count: u32,
+}
+
+#[tauri::command]
+pub async fn device_db_summary(
+    catalog: State<'_, std::sync::Arc<corvex_devicedb::DeviceCatalog>>,
+    db_path: State<'_, std::sync::Arc<crate::DevicesDbPath>>,
+) -> AppResult<DeviceDbSummary> {
+    use std::collections::BTreeSet;
+
+    let cat = catalog.inner().clone();
+    let mut vendors: BTreeSet<&str> = BTreeSet::new();
+    let mut device_types: BTreeSet<&str> = BTreeSet::new();
+    let mut clauses = 0u32;
+    let mut disabled_clauses = 0u32;
+    let mut sys_object_id_prefixes = 0u32;
+    let mut sys_descr_substrings = 0u32;
+    let mut sys_descr_regexes = 0u32;
+    for entry in &cat.entries {
+        vendors.insert(entry.vendor.as_str());
+        device_types.insert(entry.device_type.as_str());
+        for c in &entry.clauses {
+            clauses = clauses.saturating_add(1);
+            if c.disabled {
+                disabled_clauses = disabled_clauses.saturating_add(1);
+                continue;
+            }
+            sys_object_id_prefixes =
+                sys_object_id_prefixes.saturating_add(c.sys_object_id_prefixes.len() as u32);
+            sys_descr_substrings =
+                sys_descr_substrings.saturating_add(c.sys_descr_substrings.len() as u32);
+            sys_descr_regexes =
+                sys_descr_regexes.saturating_add(c.sys_descr_regexes.len() as u32);
+        }
+    }
+
+    // Reference-table counts come from the SQLite file directly —
+    // they're not loaded into the in-memory `DeviceCatalog`. Failing
+    // to open is non-fatal: the panel just shows zeros and a hint.
+    let (iana_count, oui_count) = match db_path.inner().as_ref().0.as_deref() {
+        Some(path) => count_reference_tables(path).unwrap_or_else(|e| {
+            tracing::warn!(
+                target: "devicedb",
+                path = %path.display(),
+                "reference-table count failed: {e}"
+            );
+            (0, 0)
+        }),
+        None => (0, 0),
+    };
+
+    Ok(DeviceDbSummary {
+        entries: cat.entries.len() as u32,
+        vendors: vendors.len() as u32,
+        device_types: device_types.len() as u32,
+        clauses,
+        disabled_clauses,
+        sys_object_id_prefixes,
+        sys_descr_substrings,
+        sys_descr_regexes,
+        catalog_ready: !cat.entries.is_empty(),
+        iana_enterprise_count: iana_count,
+        ieee_oui_count: oui_count,
+    })
+}
+
+fn count_reference_tables(
+    path: &std::path::Path,
+) -> Result<(u32, u32), rusqlite::Error> {
+    let conn = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let iana: i64 = conn
+        .query_row("SELECT COUNT(*) FROM iana_enterprise", [], |r| r.get(0))
+        .unwrap_or(0);
+    let oui: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ieee_oui", [], |r| r.get(0))
+        .unwrap_or(0);
+    Ok((iana as u32, oui as u32))
 }
 
 #[tauri::command]
@@ -703,6 +820,20 @@ pub struct ProbeParams {
     pub extra_probe_files: Vec<String>,
     #[serde(default)]
     pub host_concurrency: Option<usize>,
+    /// Run an SNMP v2c GET against UDP/161 on each host and match the
+    /// reply against the device-signature catalogue. Always on in Deep
+    /// mode (the flag is ignored). In Rapid mode it's off by default
+    /// and only fires when the user explicitly enables it.
+    #[serde(default)]
+    pub snmp_fingerprint: bool,
+    /// After the TCP scan completes, read the OS ARP / neighbour cache
+    /// for the target IP and resolve the MAC against the bundled
+    /// `ieee_oui` table for a vendor name. Always on in Deep mode;
+    /// opt-in in Rapid mode. Only L2-adjacent hosts return useful
+    /// data — for routed targets the cache holds the upstream
+    /// router's MAC (documented on the Datasets section).
+    #[serde(default)]
+    pub mac_lookup: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -747,6 +878,30 @@ struct ProbeOpenPort {
     cpe: Vec<String>,
     jarm: Option<String>,
     banner: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProbeMacResolved {
+    probe_id: String,
+    display: String,
+    hostname: String,
+    ip: String,
+    mac: String,
+    mac_vendor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProbeDeviceMatch {
+    probe_id: String,
+    display: String,
+    hostname: String,
+    ip: String,
+    os: String,
+    vendor: String,
+    device_type: String,
+    source: &'static str,
+    sys_descr: Option<String>,
+    sys_object_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -798,6 +953,12 @@ pub async fn probe_start(
 
     let app_cloned = app.clone();
     let probe_store_for_task = probe_store.clone();
+    let device_catalog = app
+        .try_state::<Arc<corvex_devicedb::DeviceCatalog>>()
+        .map(|s| s.inner().clone());
+    let devices_db_path = app
+        .try_state::<Arc<crate::DevicesDbPath>>()
+        .and_then(|s| s.inner().0.clone());
     tauri::async_runtime::spawn(async move {
         let start = std::time::Instant::now();
         run_probe(
@@ -807,6 +968,8 @@ pub async fn probe_start(
             cancel,
             start,
             probe_store_for_task.clone(),
+            device_catalog,
+            devices_db_path,
         )
         .await;
         if let Some(store) = probe_store_for_task.as_ref() {
@@ -839,6 +1002,8 @@ async fn run_probe(
     cancel: CancellationToken,
     start: std::time::Instant,
     probe_store: Option<Arc<ProbeStore>>,
+    device_catalog: Option<Arc<corvex_devicedb::DeviceCatalog>>,
+    devices_db_path: Option<std::path::PathBuf>,
 ) {
     let id_str = probe_id.to_string();
 
@@ -846,6 +1011,10 @@ async fn run_probe(
         "deep" => corvex_sonar::ScanMode::Deep,
         _ => corvex_sonar::ScanMode::Rapid,
     };
+    // SNMP fingerprinting + MAC capture are part of Deep by
+    // definition; in Rapid they only fire when the user opts in.
+    let do_snmp = matches!(scan_mode, corvex_sonar::ScanMode::Deep) || params.snmp_fingerprint;
+    let do_mac = matches!(scan_mode, corvex_sonar::ScanMode::Deep) || params.mac_lookup;
     let tuning = corvex_sonar::ScanTuning::defaults_for(scan_mode);
     let opts = corvex_sonar::SonarOpts {
         jarm: params.jarm,
@@ -910,6 +1079,8 @@ async fn run_probe(
         let port_list = port_list.clone();
         let opts = opts.clone();
         let probe_store = probe_store.clone();
+        let device_catalog = device_catalog.clone();
+        let devices_db_path = devices_db_path.clone();
         let probe_uuid = probe_id;
 
         tasks.push(tauri::async_runtime::spawn(async move {
@@ -939,16 +1110,37 @@ async fn run_probe(
                 Err(_) => return,
             };
 
-            let scan_result = tokio::select! {
+            // Launch the TCP service scan and (when enabled) the SNMP
+            // device-fingerprint probe concurrently. SNMP needs its own
+            // UDP round-trip and lives outside the TCP probe trait, so
+            // running it in parallel keeps the host's wall-clock cost
+            // bounded by `max(tcp_budget, snmp_timeout)`.
+            let tcp_fut = corvex_core::portscan::tcp_scan(
+                ip,
+                &target.hostname,
+                &port_list,
+                scan_mode,
+                tuning,
+                opts,
+            );
+            let snmp_fut = async {
+                if !do_snmp {
+                    return None;
+                }
+                let snmp_target = std::net::SocketAddr::new(ip, 161);
+                let snmp_opts = corvex_sonar::probes::snmp::SnmpProbeOpts::default();
+                match corvex_sonar::probes::snmp::probe(snmp_target, &snmp_opts).await {
+                    Ok(opt) => opt,
+                    Err(e) => {
+                        tracing::debug!(target: "snmp", "{snmp_target}: {e}");
+                        None
+                    }
+                }
+            };
+
+            let (scan_result, snmp_result) = tokio::select! {
                 _ = cancel.cancelled() => return,
-                r = corvex_core::portscan::tcp_scan(
-                    ip,
-                    &target.hostname,
-                    &port_list,
-                    scan_mode,
-                    tuning,
-                    opts,
-                ) => r,
+                r = futures::future::join(tcp_fut, snmp_fut) => r,
             };
 
             // Collect every open port for this host and emit one event
@@ -1008,6 +1200,112 @@ async fn run_probe(
             }
             if !host_ports.is_empty() {
                 let _ = app.emit(&ev(&id_str, "open-port"), host_ports);
+            }
+
+            // MAC-cache read. By this point the TCP scan has already
+            // exchanged SYNs with the target so the OS ARP cache holds
+            // a fresh entry for any L2-adjacent host. Routed targets
+            // come back with their upstream router's MAC — we still
+            // surface the value but document the limitation in the UI.
+            if do_mac {
+                if let Some(mac) = corvex_sonar::probes::arp::arp_lookup(ip).await {
+                    let mac_vendor = devices_db_path.as_deref().and_then(|p| {
+                        match rusqlite::Connection::open_with_flags(
+                            p,
+                            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                        ) {
+                            Ok(conn) => corvex_devicedb::db::lookup_ieee_oui(&conn, &mac)
+                                .unwrap_or(None),
+                            Err(e) => {
+                                tracing::debug!(
+                                    target: "probe",
+                                    "OUI lookup db open failed: {e}"
+                                );
+                                None
+                            }
+                        }
+                    });
+                    let host_norm =
+                        crate::asset_identity::normalize_host(&target.hostname);
+                    let pending = PendingHostMac {
+                        host: host_norm.clone(),
+                        ip: Some(target.ip.clone()).filter(|s| !s.is_empty()),
+                        mac: mac.clone(),
+                        mac_vendor: mac_vendor.clone(),
+                    };
+                    if let Some(store) = probe_store.as_ref() {
+                        if let Err(e) = store.insert_host_mac(&probe_uuid, &pending) {
+                            tracing::warn!(
+                                target: "probe",
+                                "host_mac insert failed: {e}"
+                            );
+                        }
+                    }
+                    let _ = app.emit(
+                        &ev(&id_str, "mac-resolved"),
+                        ProbeMacResolved {
+                            probe_id: id_str.clone(),
+                            display: target.display.clone(),
+                            hostname: target.hostname.clone(),
+                            ip: target.ip.clone(),
+                            mac,
+                            mac_vendor,
+                        },
+                    );
+                }
+            }
+
+            // Resolve the device match (if any) once per host, persist
+            // it, and push it to the UI. Errors are non-fatal — a host
+            // with no SNMP / no matching signature simply leaves the
+            // existing probe flow unchanged.
+            if let Some(snmp) = snmp_result {
+                if let Some(catalog) = device_catalog.as_ref() {
+                    if let Some(m) = corvex_devicedb::identify(
+                        snmp.sys_object_id.as_deref(),
+                        snmp.sys_descr.as_deref(),
+                        catalog,
+                    ) {
+                        let host_norm =
+                            crate::asset_identity::normalize_host(&target.hostname);
+                        let pending = PendingDeviceMatch {
+                            host: host_norm.clone(),
+                            ip: Some(target.ip.clone()).filter(|s| !s.is_empty()),
+                            os: m.os.clone(),
+                            vendor: m.vendor.clone(),
+                            device_type: m.device_type.clone(),
+                            source: m.source.as_str().to_string(),
+                            sys_descr: snmp.sys_descr.clone(),
+                            sys_object_id: snmp.sys_object_id.clone(),
+                        };
+                        if let Some(store) = probe_store.as_ref() {
+                            if let Err(e) =
+                                store.insert_device_match(&probe_uuid, &pending)
+                            {
+                                tracing::warn!(
+                                    target: "probe",
+                                    "device-match insert failed: {e}"
+                                );
+                            }
+                        }
+                        let _ = app.emit(
+                            &ev(&id_str, "device-match"),
+                            ProbeDeviceMatch {
+                                probe_id: id_str.clone(),
+                                display: target.display.clone(),
+                                hostname: target.hostname.clone(),
+                                ip: target.ip.clone(),
+                                os: m.os,
+                                vendor: m.vendor,
+                                device_type: m.device_type,
+                                source: m.source.as_str(),
+                                sys_descr: snmp.sys_descr,
+                                sys_object_id: snmp.sys_object_id,
+                            },
+                        );
+                    }
+                }
             }
 
             open_ports_total.fetch_add(open_count, std::sync::atomic::Ordering::Relaxed);

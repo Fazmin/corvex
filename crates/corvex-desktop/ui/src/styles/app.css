@@ -4035,20 +4035,11 @@ button[disabled] {
 .landing-hero {
   position: relative;
   width: 100%;
-  /* Stretch to fill the vertical space the stage gives us so the
-     card chrome covers the whole pane. Inner content uses
-     justify-content: center to stay vertically centered as the card
-     grows taller. */
+  /* Stretch to fill the vertical space the stage gives us. Inner
+     content stays centered both ways so it doesn't drift to the top
+     edge on tall windows. */
   flex: 1 1 auto;
-  border: 1px solid var(--border);
-  background:
-    radial-gradient(ellipse at 30% 0%, rgba(90, 241, 154, 0.10), transparent 55%),
-    radial-gradient(ellipse at 70% 100%, rgba(93, 167, 255, 0.12), transparent 60%),
-    var(--panel);
-  border-radius: calc(var(--radius) + 4px);
   padding: 56px 40px 44px 40px;
-  overflow: hidden;
-  box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4057,11 +4048,7 @@ button[disabled] {
 }
 
 .landing-hero-glow {
-  position: absolute;
-  inset: -1px;
-  pointer-events: none;
-  background:
-    linear-gradient(120deg, transparent 55%, rgba(90, 241, 154, 0.05) 75%, transparent 95%);
+  display: none;
 }
 
 /* The brand mark is now the focal element: large, centered, with a

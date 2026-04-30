@@ -16,7 +16,6 @@ type Tab =
   | "configure"
   | "modes"
   | "families"
-  | "datasets"
   | "directive"
   | "jarm";
 
@@ -25,7 +24,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "configure", label: "Configure" },
   { key: "modes", label: "Scan modes" },
   { key: "families", label: "Probe families" },
-  { key: "datasets", label: "Datasets" },
   { key: "jarm", label: "JARM" },
   { key: "directive", label: "Directive format" },
 ];
@@ -166,7 +164,6 @@ export function ProbingView() {
       )}
       {tab === "modes" && <ModesTab />}
       {tab === "families" && <FamiliesTab summary={summary} />}
-      {tab === "datasets" && <DatasetsTab summary={summary} summaryErr={summaryErr} />}
       {tab === "jarm" && <JarmTab />}
       {tab === "directive" && <DirectiveTab />}
     </div>
@@ -628,70 +625,6 @@ function FamilyCard({
   );
 }
 
-/* ============================================================ */
-/* Datasets tab                                                  */
-/* ============================================================ */
-
-function DatasetsTab({ summary, summaryErr }: { summary: SonarSummary | null; summaryErr: string | null }) {
-  return (
-    <div className="single-pane" style={{ display: "grid", gap: 16 }}>
-      <div className="form-panel" style={{ maxWidth: 860 }}>
-        <h3 style={{ margin: 0 }}>Loaded now</h3>
-        <p className="sub" style={{ marginTop: 6, lineHeight: 1.5 }}>
-          Quick counts for this running process. The full breakdown —
-          per-dataset provenance, licence attribution, cross-cutting web and
-          SCA numbers — lives in the{" "}
-          <strong>Databases</strong> view so everything you have bundled
-          shows up in one place.
-        </p>
-        {summaryErr && (
-          <div className="field-error">Failed to query probe database: {summaryErr}</div>
-        )}
-        {summary && (
-          <div
-            style={{
-              marginTop: 10,
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "6px 14px",
-              fontSize: "calc(var(--font-base) - 2px)",
-              color: "var(--fg)",
-              fontFamily: "monospace",
-            }}
-          >
-            <span>
-              <span style={{ color: "var(--muted)" }}>scripted </span>
-              {summary.scripted_count}
-            </span>
-            <span>
-              <span style={{ color: "var(--muted)" }}>declarative </span>
-              {summary.static_count - summary.extra_probes_loaded}
-            </span>
-            <span>
-              <span style={{ color: "var(--muted)" }}>fingerprint sets </span>
-              {summary.fingerprint_sets.length}
-            </span>
-            <span>
-              <span style={{ color: "var(--muted)" }}>fingerprints </span>
-              {summary.fingerprint_count - summary.extra_fps_loaded}
-            </span>
-            <span>
-              <span style={{ color: "var(--muted)" }}>layer-3 files </span>
-              {summary.extra_files_loaded}
-              {summary.extra_files_loaded > 0 && (
-                <span style={{ color: "var(--muted)" }}>
-                  {" "}
-                  (+{summary.extra_probes_loaded} probes, +
-                  {summary.extra_fps_loaded} fps)
-                </span>
-              )}
-            </span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /* ============================================================ */
 /* JARM tab                                                      */

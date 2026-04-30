@@ -1,0 +1,20 @@
+[package]
+name = "corvex-devicedb"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SNMP device-signature catalog and matcher for Corvex."
+
+[dependencies]
+serde.workspace = true
+serde_yaml.workspace = true
+fancy-regex.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+once_cell.workspace = true
+rusqlite.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

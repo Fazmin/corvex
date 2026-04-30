@@ -21,7 +21,7 @@ use crate::asset_identity::{
 };
 use crate::error::AppResult;
 use crate::history::HistoryDb;
-use crate::probe_store::{ProbeServiceRow, ProbeStore};
+use crate::probe_store::{DeviceMatchRow, HostMacRow, ProbeServiceRow, ProbeStore};
 use crate::recon_store::ReconDb;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +38,55 @@ pub struct AssetOverview {
     pub asn_placeholder: Option<String>,
     pub cidr_24s: Vec<String>,
     pub scanned_count: u32,
+    /// Latest SNMP device-fingerprint match for this host, if any.
+    /// `None` when SNMP has not produced a hit on this host.
+    pub device: Option<AssetDeviceMatch>,
+    /// Latest MAC-resolution observation for this host. Populated only
+    /// when MAC capture was enabled at probe time and the host was L2
+    /// adjacent (or otherwise present in the OS ARP cache).
+    pub mac: Option<AssetHostMac>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetHostMac {
+    pub mac: String,
+    pub mac_vendor: Option<String>,
+    pub observed_at_unix: i64,
+}
+
+impl From<HostMacRow> for AssetHostMac {
+    fn from(r: HostMacRow) -> Self {
+        Self {
+            mac: r.mac,
+            mac_vendor: r.mac_vendor,
+            observed_at_unix: r.observed_at_unix,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetDeviceMatch {
+    pub os: String,
+    pub vendor: String,
+    pub device_type: String,
+    pub source: String,
+    pub sys_descr: Option<String>,
+    pub sys_object_id: Option<String>,
+    pub observed_at_unix: i64,
+}
+
+impl From<DeviceMatchRow> for AssetDeviceMatch {
+    fn from(r: DeviceMatchRow) -> Self {
+        Self {
+            os: r.os,
+            vendor: r.vendor,
+            device_type: r.device_type,
+            source: r.source,
+            sys_descr: r.sys_descr,
+            sys_object_id: r.sys_object_id,
+            observed_at_unix: r.observed_at_unix,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,6 +253,16 @@ pub async fn asset_overview(
             .last_seen_for_host(&h)
             .map_err(|e| crate::error::AppError::Other(format!("probe last_seen: {e}")))?;
 
+        let device = probe
+            .latest_device_match_for_host(&h)
+            .map_err(|e| crate::error::AppError::Other(format!("device_match: {e}")))?
+            .map(AssetDeviceMatch::from);
+
+        let mac = probe
+            .latest_host_mac(&h)
+            .map_err(|e| crate::error::AppError::Other(format!("host_mac: {e}")))?
+            .map(AssetHostMac::from);
+
         // We rely on `summary_for_host` for scan_count + the latest
         // scan timestamp folded into last_seen_unix. We still walk the
         // history rows here once to compute the *earliest* scan
@@ -240,6 +299,8 @@ pub async fn asset_overview(
             asn_placeholder: None,
             cidr_24s: cidrs,
             scanned_count: counts.scan_count,
+            device,
+            mac,
         })
     })
     .await

@@ -7,6 +7,8 @@ pub mod mysql;
 pub mod postgres;
 pub mod rdp;
 pub mod smb;
+pub mod arp;
+pub mod snmp;
 pub mod ssh;
 pub mod tls;
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  dbSummary,
+  deviceDbSummary,
   exploitdbSummary,
   exploitdbUpdate,
   nucleiExtrasDownload,
@@ -10,7 +10,7 @@ import {
   sonarSummary,
   vulndbSummary,
   wappalyzerSummary,
-  type DbSummary,
+  type DeviceDbSummary,
   type ExploitDbSummary,
   type NucleiSummary,
   type RulesSummary,
@@ -38,22 +38,22 @@ interface Cell {
 type DbTab =
   | "web"
   | "probing"
+  | "devices"
   | "sca"
   | "fuzzing"
   | "nuclei"
   | "fingerprints"
-  | "exploits"
-  | "rules";
+  | "exploits";
 
 const TABS: { key: DbTab; label: string }[] = [
   { key: "web", label: "Web signatures" },
   { key: "probing", label: "Probing" },
+  { key: "devices", label: "Device signatures" },
   { key: "sca", label: "SCA / VulnDB" },
   { key: "fuzzing", label: "Fuzzing" },
   { key: "nuclei", label: "Nuclei templates" },
   { key: "fingerprints", label: "Fingerprints (Wappalyzer)" },
   { key: "exploits", label: "Exploit-DB" },
-  { key: "rules", label: "Unified rules" },
 ];
 
 interface Props {
@@ -123,57 +123,283 @@ export function DatabasesView({ onNavigate }: Props) {
 
       {tab === "web" && <WebTab />}
       {tab === "probing" && <ProbingTab onNavigate={onNavigate} />}
+      {tab === "devices" && <DevicesTab onNavigate={onNavigate} />}
       {tab === "sca" && <ScaTab onNavigate={onNavigate} />}
       {tab === "fuzzing" && <FuzzingTab onNavigate={onNavigate} />}
       {tab === "nuclei" && <NucleiTab onNavigate={onNavigate} />}
       {tab === "fingerprints" && <FingerprintsTab onNavigate={onNavigate} />}
       {tab === "exploits" && <ExploitDbTab />}
-      {tab === "rules" && <RulesTab />}
     </div>
   );
 }
 
 /* ====================================================================== */
-/* Tab 1 — Web signatures                                                  */
+/* Tab 1 — Web signatures (unified rules catalog)                          */
 /* ====================================================================== */
+//
+// The legacy bincode-based `db_tests` / `db_outdated` / `db_favicon` /
+// etc. tables are no longer authoritative — every web check now flows
+// through the unified `rules.sqlite` catalog produced by
+// `corvex-rules-builder`. This tab surfaces that catalog directly.
 
 function WebTab() {
-  const [dbs, setDbs] = useState<DbSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<RulesSummary | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    dbSummary()
-      .then(setDbs)
-      .finally(() => setLoading(false));
+    rulesSummary()
+      .then((s) => {
+        setSummary(s);
+        setErr(null);
+      })
+      .catch((e: unknown) => {
+        setErr(
+          typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
+        );
+      });
   }, []);
 
-  const cells: Cell[] = dbs
-    ? [
-        { label: "db_tests", value: dbs.tests, hint: "Main vulnerability signature database (DSL-driven)" },
-        { label: "db_outdated", value: dbs.outdated, hint: "Outdated server-version regex matchers" },
-        { label: "db_favicon", value: dbs.favicon, hint: "MD5-hashed favicon → software identifier" },
-        { label: "db_server_msgs", value: dbs.server_msgs, hint: "Server banner → CVE / vulnerability mapping" },
-        { label: "db_realms", value: dbs.realms, hint: "HTTP auth realm → device identifier + default creds" },
-        { label: "db_variables", value: dbs.variables, hint: "Template variables (@CGIDIRS, @ADMIN, @LFI, …)" },
-        { label: "db_content_search", value: dbs.content_search, hint: "Body regex matchers (per response)" },
-        { label: "db_headers_common", value: dbs.headers_common, hint: "Reference list of common HTTP headers" },
-        { label: "db_headers_suggested", value: dbs.headers_suggested, hint: "Recommended security headers" },
-        { label: "db_multiple_index", value: dbs.multiple_index, hint: "Default index file variations" },
-        { label: "db_options", value: dbs.options, hint: "HTTP method names + danger ratings" },
-        { label: "db_useragents", value: dbs.useragents, hint: "Realistic User-Agent strings" },
-        { label: "db_dictionary", value: dbs.dictionary, hint: "Dictionary words for path brute-forcing" },
-        { label: "db_404_strings", value: dbs.fourohfour, hint: "Body fragments that mark a 404 page" },
-      ]
-    : [];
+  if (err) {
+    return (
+      <div className="empty">Failed to load rules.sqlite summary: {err}</div>
+    );
+  }
+  if (!summary) return <div className="empty">Loading…</div>;
+
+  if (!summary.loaded) {
+    return (
+      <>
+        <div className="sub" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+          The unified web-rules catalog (
+          <code>program/rules/rules.sqlite</code>) consolidates checks
+          from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>, and{" "}
+          <strong>Burp Suite BChecks</strong> into one queryable SQLite
+          file embedded in the binary at compile time. Findings from
+          this catalog are emitted by <code>RulesPlugin</code> at scan
+          time.
+        </div>
+        <div className="empty" style={{ padding: 16 }}>
+          No <code>rules.sqlite</code> was found in the working
+          directory or executable directory. Build it from the repo
+          with:
+          <pre
+            style={{
+              marginTop: 8,
+              padding: 8,
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              fontSize: "calc(var(--font-base) - 1px)",
+            }}
+          >
+            .\scripts\build-rules-snapshot.ps1
+          </pre>
+        </div>
+      </>
+    );
+  }
+
+  const totalLowered = summary.total_executable;
+  const totalIngested = summary.total_ingested;
+  const lowerPct =
+    totalIngested > 0
+      ? ((totalLowered / totalIngested) * 100).toFixed(1)
+      : "0.0";
+
+  const cells: Cell[] = [
+    {
+      label: "Total rules ingested",
+      value: totalIngested,
+      hint: "Rules parsed from rules-sources/{nikto,zap,burp}/ and persisted into rules.sqlite.",
+    },
+    {
+      label: "Total executable",
+      value: `${totalLowered} (${lowerPct}%)`,
+      hint: "Rules with non-NULL match_spec_json — these can fire via RulesPlugin at scan time.",
+    },
+    {
+      label: "Schema version",
+      value: summary.schema_version ?? "—",
+      hint: "rules.sqlite schema. v2 added the match_spec_json column for runtime execution.",
+    },
+    {
+      label: "Built (UTC)",
+      value: summary.build_ts
+        ? summary.build_ts.replace("T", " ").replace(/\..*Z$/, " UTC")
+        : "—",
+      hint: "When corvex-rules-builder produced this catalog.",
+    },
+    {
+      label: "Invalid JSON rows",
+      value: summary.invalid_json_rows,
+      hint: "Rows whose JSON columns failed json_valid(). Healthy catalogs report 0.",
+    },
+    {
+      label: "Path",
+      value: summary.path
+        ? summary.path.length > 48
+          ? "…" + summary.path.slice(-46)
+          : summary.path
+        : "—",
+      hint: "Absolute path the catalog was loaded from.",
+    },
+  ];
 
   return (
     <>
-      {loading && <div className="empty">Loading…</div>}
+      <div className="sub" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+        The unified web-rules catalog (
+        <code>program/rules/rules.sqlite</code>) consolidates checks
+        from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>, and{" "}
+        <strong>Burp Suite BChecks</strong>. <code>RulesPlugin</code>{" "}
+        reads the executable subset at scan time. By default the
+        desktop runs in side-by-side mode (legacy{" "}
+        <code>TestsPlugin</code> owns Nikto; <code>RulesPlugin</code>{" "}
+        owns ZAP + Burp); the CLI flag <code>--rules-only</code> flips
+        ownership for parity validation.
+      </div>
+
       <div className="info-grid">
         {cells.map((c) => (
           <InfoCell key={c.label} cell={c} />
         ))}
       </div>
+
+      <h3
+        style={{
+          marginTop: 16,
+          marginBottom: 8,
+          fontSize: "var(--font-base)",
+        }}
+      >
+        Per-source coverage
+      </h3>
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontSize: "calc(var(--font-base) - 1px)",
+        }}
+      >
+        <thead>
+          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
+              Source
+            </th>
+            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
+              Ingested
+            </th>
+            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
+              Executable
+            </th>
+            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
+              Coverage
+            </th>
+            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
+              Upstream commit
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {summary.by_source.map((src) => {
+            const commit =
+              src.source_tool === "nikto"
+                ? summary.nikto_commit
+                : src.source_tool === "zap"
+                ? summary.zap_commit
+                : src.source_tool === "burp"
+                ? summary.burp_commit
+                : null;
+            const pct =
+              src.ingested > 0
+                ? ((src.lowered / src.ingested) * 100).toFixed(1)
+                : "0.0";
+            return (
+              <tr
+                key={src.source_tool}
+                style={{ borderBottom: "1px solid var(--border)" }}
+              >
+                <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
+                  {src.source_tool}
+                </td>
+                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                  {src.ingested.toLocaleString()}
+                </td>
+                <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                  {src.lowered.toLocaleString()}
+                </td>
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    textAlign: "right",
+                    color: "var(--muted)",
+                  }}
+                >
+                  {pct}%
+                </td>
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    color: "var(--muted)",
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {commit ? commit.slice(0, 10) : "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      <h3
+        style={{
+          marginTop: 16,
+          marginBottom: 8,
+          fontSize: "var(--font-base)",
+        }}
+      >
+        Severity distribution
+      </h3>
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontSize: "calc(var(--font-base) - 1px)",
+        }}
+      >
+        <thead>
+          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
+              Source
+            </th>
+            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
+              Severity
+            </th>
+            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
+              Count
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {summary.by_severity.map((row, i) => (
+            <tr
+              key={`${row.source_tool}-${row.severity}-${i}`}
+              style={{ borderBottom: "1px solid var(--border)" }}
+            >
+              <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
+                {row.source_tool}
+              </td>
+              <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
+                {row.severity}
+              </td>
+              <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                {row.count.toLocaleString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </>
   );
 }
@@ -271,6 +497,11 @@ function ProbingTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
             on the Configure tab are read at process startup and merged in
             memory only.
           </li>
+          <li>
+            See the <strong>Device signatures</strong> tab for the SNMP
+            device-fingerprint catalog and its companion IANA / IEEE
+            reference tables.
+          </li>
         </ul>
       </Provenance>
 
@@ -284,7 +515,158 @@ function ProbingTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
 }
 
 /* ====================================================================== */
-/* Tab 3 — SCA / VulnDB                                                   */
+/* Tab 3 — Device signatures (SNMP catalog + IANA PEN + IEEE OUI)         */
+/* ====================================================================== */
+
+function DevicesTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
+  const [device, setDevice] = useState<DeviceDbSummary | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    deviceDbSummary()
+      .then((d) => {
+        setDevice(d);
+        setErr(null);
+      })
+      .catch((e: unknown) => {
+        setErr(
+          typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
+        );
+      });
+  }, []);
+
+  if (err) {
+    return <div className="empty">Failed to load device catalog: {err}</div>;
+  }
+  if (!device) return <div className="empty">Loading…</div>;
+
+  if (!device.catalog_ready) {
+    return (
+      <>
+        <div className="empty" style={{ marginBottom: 12 }}>
+          No device signature catalog is loaded. Run{" "}
+          <code>.\scripts\build-devicedb-snapshot.ps1</code> and rebuild
+          corvex-desktop to embed{" "}
+          <code>program/devicedb/devices.sqlite</code> into the binary.
+        </div>
+      </>
+    );
+  }
+
+  const cells: Cell[] = [
+    {
+      label: "SNMP device entries",
+      value: device.entries,
+      hint: "One row per signature YAML — vendor / OS / device-type triples",
+    },
+    {
+      label: "Vendors",
+      value: device.vendors,
+      hint: "Distinct vendor / group buckets across the catalog",
+    },
+    {
+      label: "Device types",
+      value: device.device_types,
+      hint: "network / firewall / pdu / server / printer / wireless / …",
+    },
+    {
+      label: "Discovery clauses",
+      value: device.clauses,
+      hint:
+        device.disabled_clauses > 0
+          ? `Total clauses across all entries (${device.disabled_clauses.toLocaleString()} disabled — require active SNMP follow-up GETs we don't issue)`
+          : "Total clauses across all entries",
+    },
+    {
+      label: "sysObjectID prefixes",
+      value: device.sys_object_id_prefixes,
+      hint: "Positive OID prefixes — matcher tries longest first",
+    },
+    {
+      label: "sysDescr substrings",
+      value: device.sys_descr_substrings,
+      hint: "Lower-cased fragments used for case-insensitive substring match",
+    },
+    {
+      label: "sysDescr regexes",
+      value: device.sys_descr_regexes,
+      hint: "fancy-regex patterns wrapped in a 50 ms timeout",
+    },
+    {
+      label: "IANA Private Enterprise Numbers",
+      value: device.iana_enterprise_count,
+      hint: "Decimal under 1.3.6.1.4.1.<pen> → registering organisation",
+    },
+    {
+      label: "IEEE OUI registrations",
+      value: device.ieee_oui_count,
+      hint: "MAC-prefix → vendor across MA-L (24-bit), MA-M (28-bit), MA-S (36-bit)",
+    },
+  ];
+
+  return (
+    <>
+      <div className="info-grid">
+        {cells.map((c) => (
+          <InfoCell key={c.label} cell={c} />
+        ))}
+      </div>
+
+      <Provenance title="Where the data comes from">
+        <ul style={{ margin: "6px 0 0 18px", padding: 0, lineHeight: 1.6 }}>
+          <li>
+            <strong>SNMP device-signature catalog</strong> built into{" "}
+            <code>program/devicedb/devices.sqlite</code> from the YAML
+            files in <code>crates/corvex-devicedb/data/devices/</code>.
+            Rebuilt via{" "}
+            <code>.\scripts\build-devicedb-snapshot.ps1</code>; embedded
+            in the binary at compile time and extracted on first launch.
+            Drives the host-level Device panel on the asset detail
+            view; matched against SNMP <code>sysDescr.0</code> /{" "}
+            <code>sysObjectID.0</code> using AND-within-clause /
+            longest-prefix-wins semantics.
+          </li>
+          <li>
+            <strong>IANA Private Enterprise Numbers</strong> (table{" "}
+            <code>iana_enterprise</code>) ingested from the canonical
+            IANA text file at{" "}
+            <code>crates/corvex-devicedb/data/iana-enterprise-numbers.txt</code>{" "}
+            (source: <code>iana.org/assignments/enterprise-numbers</code>).
+            Acts as a vendor-identification fallback when the device
+            catalog has no specific YAML for an OID.
+          </li>
+          <li>
+            <strong>IEEE OUI registry</strong> (table{" "}
+            <code>ieee_oui</code>) ingested from{" "}
+            <code>crates/corvex-devicedb/data/ieee-ouidb.json</code>{" "}
+            (source: <code>standards-oui.ieee.org</code>). Resolves a
+            MAC address to a vendor across all three IEEE registration
+            tiers. Note: the probing pipeline does not capture MAC
+            addresses today (Layer-2-only attribute, requires
+            same-subnet adjacency or privileged sockets) — the table is
+            ready for future MAC-capture features.
+          </li>
+          <li>
+            All three tables share <code>devices.sqlite</code> (schema
+            version 2). The reader auto-rejects stale extracted
+            copies whose schema version doesn't match the embedded
+            blob, so binary upgrades pick up new data without manual
+            cache cleanup.
+          </li>
+        </ul>
+      </Provenance>
+
+      <ViewLink
+        onNavigate={onNavigate}
+        view="probing"
+        label="Live SNMP fingerprinting controls + per-host Device chip → Probing view"
+      />
+    </>
+  );
+}
+
+/* ====================================================================== */
+/* Tab 4 — SCA / VulnDB                                                   */
 /* ====================================================================== */
 
 function ScaTab({ onNavigate }: { onNavigate?: (v: View) => void }) {
@@ -1246,268 +1628,5 @@ function ViewLink({
         {label}
       </button>
     </div>
-  );
-}
-
-/* ====================================================================== */
-/* Tab 8 — Unified rules catalog (rules.sqlite)                            */
-/* ====================================================================== */
-
-function RulesTab() {
-  const [summary, setSummary] = useState<RulesSummary | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    rulesSummary()
-      .then((s) => {
-        setSummary(s);
-        setErr(null);
-      })
-      .catch((e: unknown) => {
-        setErr(
-          typeof e === "string" ? e : e instanceof Error ? e.message : "unknown"
-        );
-      });
-  }, []);
-
-  if (err) {
-    return (
-      <div className="empty">Failed to load rules.sqlite summary: {err}</div>
-    );
-  }
-  if (!summary) return <div className="empty">Loading…</div>;
-
-  if (!summary.loaded) {
-    return (
-      <>
-        <div className="sub" style={{ marginBottom: 10, lineHeight: 1.5 }}>
-          The unified rules catalog (<code>rules.sqlite</code>) consolidates
-          checks from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>, and{" "}
-          <strong>Burp Suite BChecks</strong> into one queryable SQLite file
-          alongside the binary. Findings from this catalog are emitted by
-          <code> RulesPlugin</code> at scan time.
-        </div>
-        <div className="empty" style={{ padding: 16 }}>
-          No <code>rules.sqlite</code> was found in the working directory or
-          executable directory. Build it from the repo with:
-          <pre
-            style={{
-              marginTop: 8,
-              padding: 8,
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              borderRadius: 4,
-              fontSize: "calc(var(--font-base) - 1px)",
-            }}
-          >
-            cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite
-          </pre>
-          The desktop falls back to the legacy bincode <code>db_tests</code>{" "}
-          path silently when this file is absent.
-        </div>
-      </>
-    );
-  }
-
-  const totalLowered = summary.total_executable;
-  const totalIngested = summary.total_ingested;
-  const lowerPct =
-    totalIngested > 0
-      ? ((totalLowered / totalIngested) * 100).toFixed(1)
-      : "0.0";
-
-  const cells: Cell[] = [
-    {
-      label: "Total rules ingested",
-      value: totalIngested,
-      hint: "Rules parsed from rules-sources/{nikto,zap,burp}/ and persisted into rules.sqlite.",
-    },
-    {
-      label: "Total executable",
-      value: `${totalLowered} (${lowerPct}%)`,
-      hint: "Rules with non-NULL match_spec_json — these can fire via RulesPlugin at scan time.",
-    },
-    {
-      label: "Schema version",
-      value: summary.schema_version ?? "—",
-      hint: "rules.sqlite schema. v2 added the match_spec_json column for runtime execution.",
-    },
-    {
-      label: "Built (UTC)",
-      value: summary.build_ts
-        ? summary.build_ts.replace("T", " ").replace(/\..*Z$/, " UTC")
-        : "—",
-      hint: "When corvex-rules-builder produced this catalog.",
-    },
-    {
-      label: "Invalid JSON rows",
-      value: summary.invalid_json_rows,
-      hint: "Rows whose JSON columns failed json_valid(). Healthy catalogs report 0.",
-    },
-    {
-      label: "Path",
-      value: summary.path
-        ? summary.path.length > 48
-          ? "…" + summary.path.slice(-46)
-          : summary.path
-        : "—",
-      hint: "Absolute path the catalog was loaded from.",
-    },
-  ];
-
-  return (
-    <>
-      <div className="sub" style={{ marginBottom: 10, lineHeight: 1.5 }}>
-        The unified rules catalog (<code>rules.sqlite</code>) consolidates
-        checks from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>, and{" "}
-        <strong>Burp Suite BChecks</strong>. <code>RulesPlugin</code> reads
-        the executable subset at scan time. By default the desktop runs in
-        side-by-side mode (legacy <code>TestsPlugin</code> owns Nikto;{" "}
-        <code>RulesPlugin</code> owns ZAP+Burp); the CLI flag{" "}
-        <code>--rules-only</code> flips ownership for parity validation.
-      </div>
-
-      <div className="info-grid">
-        {cells.map((c) => (
-          <InfoCell key={c.label} cell={c} />
-        ))}
-      </div>
-
-      <h3
-        style={{
-          marginTop: 16,
-          marginBottom: 8,
-          fontSize: "var(--font-base)",
-        }}
-      >
-        Per-source coverage
-      </h3>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: "calc(var(--font-base) - 1px)",
-        }}
-      >
-        <thead>
-          <tr style={{ borderBottom: "1px solid var(--border)" }}>
-            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
-              Source
-            </th>
-            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
-              Ingested
-            </th>
-            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
-              Executable
-            </th>
-            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
-              Coverage
-            </th>
-            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
-              Upstream commit
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {summary.by_source.map((src) => {
-            const commit =
-              src.source_tool === "nikto"
-                ? summary.nikto_commit
-                : src.source_tool === "zap"
-                ? summary.zap_commit
-                : src.source_tool === "burp"
-                ? summary.burp_commit
-                : null;
-            const pct =
-              src.ingested > 0
-                ? ((src.lowered / src.ingested) * 100).toFixed(1)
-                : "0.0";
-            return (
-              <tr
-                key={src.source_tool}
-                style={{ borderBottom: "1px solid var(--border)" }}
-              >
-                <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
-                  {src.source_tool}
-                </td>
-                <td style={{ padding: "6px 8px", textAlign: "right" }}>
-                  {src.ingested.toLocaleString()}
-                </td>
-                <td style={{ padding: "6px 8px", textAlign: "right" }}>
-                  {src.lowered.toLocaleString()}
-                </td>
-                <td
-                  style={{
-                    padding: "6px 8px",
-                    textAlign: "right",
-                    color: "var(--muted)",
-                  }}
-                >
-                  {pct}%
-                </td>
-                <td
-                  style={{
-                    padding: "6px 8px",
-                    color: "var(--muted)",
-                    fontFamily: "monospace",
-                  }}
-                >
-                  {commit ? commit.slice(0, 10) : "—"}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      <h3
-        style={{
-          marginTop: 16,
-          marginBottom: 8,
-          fontSize: "var(--font-base)",
-        }}
-      >
-        Severity distribution
-      </h3>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: "calc(var(--font-base) - 1px)",
-        }}
-      >
-        <thead>
-          <tr style={{ borderBottom: "1px solid var(--border)" }}>
-            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
-              Source
-            </th>
-            <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--muted)" }}>
-              Severity
-            </th>
-            <th style={{ textAlign: "right", padding: "6px 8px", color: "var(--muted)" }}>
-              Count
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {summary.by_severity.map((row, i) => (
-            <tr
-              key={`${row.source_tool}-${row.severity}-${i}`}
-              style={{ borderBottom: "1px solid var(--border)" }}
-            >
-              <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
-                {row.source_tool}
-              </td>
-              <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
-                {row.severity}
-              </td>
-              <td style={{ padding: "6px 8px", textAlign: "right" }}>
-                {row.count.toLocaleString()}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
   );
 }

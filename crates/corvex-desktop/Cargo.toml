@@ -23,6 +23,7 @@ corvex-proxy.workspace = true
 corvex-checks.workspace = true
 corvex-intel.workspace = true
 corvex-rules.workspace = true
+corvex-devicedb.workspace = true
 toml_crate.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog = "2"

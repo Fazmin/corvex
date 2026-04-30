@@ -37,8 +37,10 @@ struct Cli {
     #[arg(long, default_value = "rules-sources")]
     sources: PathBuf,
 
-    /// Output path for the SQLite catalog.
-    #[arg(long, default_value = "rules.sqlite")]
+    /// Output path for the SQLite catalog. Default mirrors the vulndb /
+    /// devicedb layout so committed binary artifacts live together
+    /// under `program/`.
+    #[arg(long, default_value = "program/rules/rules.sqlite")]
     output: PathBuf,
 
     /// Limit ingestion to a single source. Repeatable.

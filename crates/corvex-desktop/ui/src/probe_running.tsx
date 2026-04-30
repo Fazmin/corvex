@@ -20,14 +20,18 @@ import {
 } from "react";
 import {
   cancelProbe,
+  onProbeDeviceMatch,
   onProbeError,
   onProbeHostEnd,
   onProbeHostStart,
+  onProbeMacResolved,
   onProbeOpenPort,
   onProbeSummary,
   startProbe,
+  type ProbeDeviceMatch,
   type ProbeHostEnd,
   type ProbeHostStart,
+  type ProbeMacResolved,
   type ProbeOpenPort,
   type ProbeParams,
   type ProbeSummary,
@@ -50,6 +54,12 @@ export interface ProbeForm {
   scanMode: "rapid" | "deep";
   portsRange: string;
   jarm: boolean;
+  /** Rapid-mode opt-in for SNMP-based device fingerprinting. Ignored
+   *  in Deep mode (always on there). */
+  snmpFingerprint: boolean;
+  /** Rapid-mode opt-in for MAC-address scanning (OS ARP cache + IEEE
+   *  OUI vendor resolve). Ignored in Deep mode (always on there). */
+  macLookup: boolean;
   concurrency: number;
 }
 
@@ -63,6 +73,10 @@ interface ProbeRunShape {
   // Accumulated results
   hosts: Record<string, HostStatus>;
   openPorts: ProbeOpenPort[];
+  /** Latest SNMP device-fingerprint hit per host (display-keyed). */
+  deviceMatches: Record<string, ProbeDeviceMatch>;
+  /** Latest MAC-resolution hit per host (display-keyed). */
+  macResolved: Record<string, ProbeMacResolved>;
   errors: ProbeTargetError[];
   summary: ProbeSummary | null;
 
@@ -86,6 +100,8 @@ function readFormDefaults(): ProbeForm {
     scanMode: "rapid",
     portsRange: "1-1000",
     jarm: false,
+    snmpFingerprint: false,
+    macLookup: false,
     concurrency: 8,
   };
   try {
@@ -101,6 +117,8 @@ function readFormDefaults(): ProbeForm {
           ? parsed.portsRange
           : fallback.portsRange,
       jarm: Boolean(parsed.jarm),
+      snmpFingerprint: Boolean(parsed.snmpFingerprint),
+      macLookup: Boolean(parsed.macLookup),
       concurrency: fallback.concurrency,
     };
   } catch {
@@ -113,6 +131,8 @@ const DEFAULT_FORM: ProbeForm = {
   scanMode: "rapid",
   portsRange: "1-1000",
   jarm: false,
+  snmpFingerprint: false,
+  macLookup: false,
   concurrency: 8,
 };
 
@@ -123,6 +143,8 @@ const ProbeRunContext = createContext<ProbeRunShape>({
   nowMs: Date.now(),
   hosts: {},
   openPorts: [],
+  deviceMatches: {},
+  macResolved: {},
   errors: [],
   summary: null,
   form: DEFAULT_FORM,
@@ -147,6 +169,12 @@ export function ProbeRunningProvider({ children }: { children: ReactNode }) {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [hosts, setHosts] = useState<Record<string, HostStatus>>({});
   const [openPorts, setOpenPorts] = useState<ProbeOpenPort[]>([]);
+  const [deviceMatches, setDeviceMatches] = useState<
+    Record<string, ProbeDeviceMatch>
+  >({});
+  const [macResolved, setMacResolved] = useState<
+    Record<string, ProbeMacResolved>
+  >({});
   const [errors, setErrors] = useState<ProbeTargetError[]>([]);
   const [summary, setSummary] = useState<ProbeSummary | null>(null);
   const [form, setFormState] = useState<ProbeForm>(() => readFormDefaults());
@@ -174,6 +202,8 @@ export function ProbeRunningProvider({ children }: { children: ReactNode }) {
   const reset = useCallback(() => {
     setHosts({});
     setOpenPorts([]);
+    setDeviceMatches({});
+    setMacResolved({});
     setErrors([]);
     setSummary(null);
     setProbeId(null);
@@ -190,6 +220,8 @@ export function ProbeRunningProvider({ children }: { children: ReactNode }) {
       cleanupListeners();
       setHosts({});
       setOpenPorts([]);
+      setDeviceMatches({});
+      setMacResolved({});
       setErrors([]);
       setSummary(null);
 
@@ -252,6 +284,12 @@ export function ProbeRunningProvider({ children }: { children: ReactNode }) {
         if (batch.length === 0) return;
         setOpenPorts((prev) => [...prev, ...batch]);
       });
+      const uDev = await onProbeDeviceMatch(id, (p: ProbeDeviceMatch) => {
+        setDeviceMatches((prev) => ({ ...prev, [p.display]: p }));
+      });
+      const uMac = await onProbeMacResolved(id, (p: ProbeMacResolved) => {
+        setMacResolved((prev) => ({ ...prev, [p.display]: p }));
+      });
       const uErr = await onProbeError(id, (p: ProbeTargetError) => {
         setErrors((prev) => [...prev, p]);
       });
@@ -261,7 +299,15 @@ export function ProbeRunningProvider({ children }: { children: ReactNode }) {
         cleanupListeners();
       });
 
-      unlistenersRef.current = [uHostStart, uHostEnd, uOpen, uErr, uSum];
+      unlistenersRef.current = [
+        uHostStart,
+        uHostEnd,
+        uOpen,
+        uDev,
+        uMac,
+        uErr,
+        uSum,
+      ];
     },
     [cleanupListeners]
   );
@@ -279,6 +325,8 @@ export function ProbeRunningProvider({ children }: { children: ReactNode }) {
       nowMs,
       hosts,
       openPorts,
+      deviceMatches,
+      macResolved,
       errors,
       summary,
       form,
@@ -294,6 +342,8 @@ export function ProbeRunningProvider({ children }: { children: ReactNode }) {
       nowMs,
       hosts,
       openPorts,
+      deviceMatches,
+      macResolved,
       errors,
       summary,
       form,

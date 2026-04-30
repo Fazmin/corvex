@@ -7,7 +7,12 @@
  */
 
 import { useMemo } from "react";
-import type { ProbeOpenPort, ProbeParams } from "../api";
+import type {
+  ProbeDeviceMatch,
+  ProbeMacResolved,
+  ProbeOpenPort,
+  ProbeParams,
+} from "../api";
 import { useSettings } from "../settings";
 import { useProbeRun, type HostStatus } from "../probe_running";
 import { InfoTip } from "./InfoTip";
@@ -90,6 +95,8 @@ export function ProbeRunner() {
     running,
     hosts,
     openPorts,
+    deviceMatches,
+    macResolved,
     errors,
     summary,
     startedAt,
@@ -101,11 +108,21 @@ export function ProbeRunner() {
     reset: resetRun,
   } = run;
 
-  const { targetsText, scanMode, portsRange, jarm, concurrency } = form;
+  const {
+    targetsText,
+    scanMode,
+    portsRange,
+    jarm,
+    snmpFingerprint,
+    macLookup,
+    concurrency,
+  } = form;
   const setTargetsText = (v: string) => setForm({ targetsText: v });
   const setScanMode = (v: "rapid" | "deep") => setForm({ scanMode: v });
   const setPortsRange = (v: string) => setForm({ portsRange: v });
   const setJarm = (v: boolean) => setForm({ jarm: v });
+  const setSnmpFingerprint = (v: boolean) => setForm({ snmpFingerprint: v });
+  const setMacLookup = (v: boolean) => setForm({ macLookup: v });
   const setConcurrency = (v: number) => setForm({ concurrency: v });
 
   const hasResults =
@@ -148,6 +165,13 @@ export function ProbeRunner() {
       jarm: scanMode === "deep" ? jarm : false,
       extra_probe_files: scanMode === "deep" ? extraProbeFiles : [],
       host_concurrency: concurrency,
+      // Deep scans always run SNMP fingerprinting; the backend ignores
+      // the flag in that mode. In Rapid the user opts in via the
+      // checkbox, defaulting off.
+      snmp_fingerprint: scanMode === "deep" ? true : snmpFingerprint,
+      // Same shape for MAC capture: forced on in Deep, opt-in in
+      // Rapid.
+      mac_lookup: scanMode === "deep" ? true : macLookup,
     };
     await startRun(params);
   };
@@ -284,6 +308,55 @@ example.com
             </InfoTip>
           </label>
 
+          <label className="checkbox" style={{ flex: "0 0 auto" }}>
+            <input
+              type="checkbox"
+              checked={scanMode === "deep" ? true : snmpFingerprint}
+              onChange={(e) => setSnmpFingerprint(e.target.checked)}
+              disabled={running || scanMode === "deep"}
+            />
+            SNMP device fingerprint
+            <InfoTip label="SNMP fingerprint help">
+              Sends one SNMPv2c GET to UDP/161 per host (community{" "}
+              <code>public</code>) asking for sysDescr and sysObjectID, then
+              looks the response up in the bundled device-signature catalog
+              to identify Cisco / Juniper / Mikrotik / APC / etc. devices.
+              <br />
+              <br />
+              Always on in <strong>Deep</strong> mode; opt-in in{" "}
+              <strong>Rapid</strong>. Adds up to one UDP round-trip per host
+              (default 1.5s timeout) and runs in parallel with the TCP scan.
+            </InfoTip>
+          </label>
+
+          <label className="checkbox" style={{ flex: "0 0 auto" }}>
+            <input
+              type="checkbox"
+              checked={scanMode === "deep" ? true : macLookup}
+              onChange={(e) => setMacLookup(e.target.checked)}
+              disabled={running || scanMode === "deep"}
+            />
+            MAC address scan
+            <InfoTip label="MAC address scan help">
+              After the TCP scan completes, reads the OS ARP / neighbour
+              cache for each host and resolves the MAC against the
+              bundled IEEE OUI table for a vendor name. No extra packets,
+              no privileged sockets — relies on the cache populated by
+              the SYNs the scan already sent.
+              <br />
+              <br />
+              Always on in <strong>Deep</strong> mode; opt-in in{" "}
+              <strong>Rapid</strong>.
+              <br />
+              <br />
+              <strong>Caveat:</strong> only L2-adjacent hosts (same
+              broadcast domain as the scanner) return a meaningful MAC.
+              For routed targets the cache holds the upstream router's
+              MAC, not the target's — the same MAC will appear for many
+              IPs, which is your hint to ignore the value.
+            </InfoTip>
+          </label>
+
           <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
             Host concurrency
             <input
@@ -372,9 +445,13 @@ example.com
       </div>
 
       {(running || Object.keys(hosts).length > 0) && (
-        <div className="form-panel" style={{ maxWidth: 960 }}>
+        <div className="form-panel" style={{ maxWidth: 1100 }}>
           <h3 style={{ margin: 0 }}>Hosts</h3>
-          <HostTable hosts={hosts} />
+          <HostTable
+            hosts={hosts}
+            deviceMatches={deviceMatches}
+            macResolved={macResolved}
+          />
         </div>
       )}
 
@@ -422,7 +499,15 @@ example.com
   );
 }
 
-function HostTable({ hosts }: { hosts: Record<string, HostStatus> }) {
+function HostTable({
+  hosts,
+  deviceMatches,
+  macResolved,
+}: {
+  hosts: Record<string, HostStatus>;
+  deviceMatches: Record<string, ProbeDeviceMatch>;
+  macResolved: Record<string, ProbeMacResolved>;
+}) {
   const rows = Object.values(hosts).sort((a, b) => a.ip.localeCompare(b.ip));
   return (
     <table className="sub" style={{ width: "100%", marginTop: 8, borderCollapse: "collapse" }}>
@@ -430,6 +515,8 @@ function HostTable({ hosts }: { hosts: Record<string, HostStatus> }) {
         <tr style={{ borderBottom: "1px solid var(--border)" }}>
           <th style={{ textAlign: "left", padding: "6px 10px 6px 0" }}>Target</th>
           <th style={{ textAlign: "left", padding: "6px 10px" }}>IP</th>
+          <th style={{ textAlign: "left", padding: "6px 10px" }}>MAC · Vendor</th>
+          <th style={{ textAlign: "left", padding: "6px 10px" }}>Device</th>
           <th style={{ textAlign: "left", padding: "6px 10px" }}>State</th>
           <th style={{ textAlign: "right", padding: "6px 10px" }}>Open</th>
           <th style={{ textAlign: "right", padding: "6px 0" }}>Elapsed</th>
@@ -454,6 +541,12 @@ function HostTable({ hosts }: { hosts: Record<string, HostStatus> }) {
               style={{ padding: "4px 10px", fontFamily: "monospace", color: "var(--muted)" }}
             >
               {h.ip}
+            </td>
+            <td style={{ padding: "4px 10px" }}>
+              <MacCell mac={macResolved[h.display]} />
+            </td>
+            <td style={{ padding: "4px 10px" }}>
+              <DeviceCell match={deviceMatches[h.display]} />
             </td>
             <td style={{ padding: "4px 10px" }}>
               <span
@@ -493,6 +586,78 @@ function HostTable({ hosts }: { hosts: Record<string, HostStatus> }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+function MacCell({ mac }: { mac: ProbeMacResolved | undefined }) {
+  if (!mac) {
+    return <em style={{ color: "var(--muted)", fontStyle: "normal" }}>—</em>;
+  }
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        flexDirection: "column",
+        gap: 1,
+        fontFamily: "monospace",
+      }}
+      title={
+        mac.mac_vendor
+          ? `${mac.mac} — ${mac.mac_vendor} (IEEE OUI)`
+          : `${mac.mac} — no OUI match`
+      }
+    >
+      <span style={{ color: "var(--fg)" }}>{mac.mac}</span>
+      <span
+        style={{
+          color: mac.mac_vendor ? "var(--accent)" : "var(--muted)",
+          fontSize: "0.85em",
+        }}
+      >
+        {mac.mac_vendor ?? "unknown vendor"}
+      </span>
+    </span>
+  );
+}
+
+function DeviceCell({ match }: { match: ProbeDeviceMatch | undefined }) {
+  if (!match) {
+    return <em style={{ color: "var(--muted)", fontStyle: "normal" }}>—</em>;
+  }
+  const tooltip = [
+    match.sys_descr ? `sysDescr: ${match.sys_descr}` : null,
+    match.sys_object_id ? `sysObjectID: ${match.sys_object_id}` : null,
+    `matched via ${match.source}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return (
+    <span
+      title={tooltip}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        fontFamily: "monospace",
+        color: "var(--fg)",
+      }}
+    >
+      <strong>{match.vendor}</strong>
+      <span style={{ color: "var(--muted)" }}>·</span>
+      <span>{match.os}</span>
+      <span
+        style={{
+          padding: "1px 6px",
+          borderRadius: 4,
+          background: "var(--panel-alt, var(--panel))",
+          border: "1px solid var(--border)",
+          color: "var(--muted)",
+          fontSize: "0.78em",
+        }}
+      >
+        {match.device_type}
+      </span>
+    </span>
   );
 }
 

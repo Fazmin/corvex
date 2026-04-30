@@ -55,12 +55,16 @@ tests/udb_*
 /*.log
 /scan-*.txt
 
-# --- corvex-rules-builder output ---------------------------------------------
-# `/rules.sqlite` IS tracked: committing it lets fresh clones run the unified
-# scanner path without first running `cargo run -p corvex-rules-builder`. The
-# canonical workflow is "rebuild + re-commit" whenever rules-sources/ changes.
-# Side-files SQLite produces during in-flight writes are still ignored — only
-# the finished catalog should land in git.
-/rules.sqlite-journal
-/rules.sqlite-wal
-/rules.sqlite-shm
+# --- committed catalog artifacts ---------------------------------------------
+# `program/rules/rules.sqlite` and `program/devicedb/devices.sqlite` ARE
+# tracked: committing them lets fresh clones build + run the desktop binary
+# without first having to run the relevant builder. The canonical workflow
+# is "rebuild + re-commit" whenever the upstream sources change.
+# Side-files SQLite produces during in-flight writes are still ignored —
+# only the finished catalog should land in git.
+/program/rules/rules.sqlite-journal
+/program/rules/rules.sqlite-wal
+/program/rules/rules.sqlite-shm
+/program/devicedb/devices.sqlite-journal
+/program/devicedb/devices.sqlite-wal
+/program/devicedb/devices.sqlite-shm

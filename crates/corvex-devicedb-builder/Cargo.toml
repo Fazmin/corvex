@@ -1,0 +1,23 @@
+[package]
+name = "corvex-devicedb-builder"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Builds the SNMP device-signature catalog (devices.sqlite) from YAML sources."
+
+[[bin]]
+name = "corvex-devicedb-builder"
+path = "src/main.rs"
+
+[dependencies]
+corvex-devicedb.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+walkdir.workspace = true

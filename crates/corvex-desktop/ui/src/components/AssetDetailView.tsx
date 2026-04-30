@@ -17,6 +17,7 @@ import {
 } from "../api";
 import { useAssetNav } from "../asset_nav";
 import { AssetGraph } from "./asset/AssetGraph";
+import { DevicePanel } from "./asset/DevicePanel";
 import { EndpointsPanel } from "./asset/EndpointsPanel";
 import { FindingsPanel } from "./asset/FindingsPanel";
 import { IdentityPanel } from "./asset/IdentityPanel";
@@ -256,6 +257,7 @@ export function AssetDetailView() {
           }}
         >
           <IdentityPanel overview={overview} />
+          <DevicePanel device={overview.device} mac={overview.mac} />
           <ServicesPanel services={services} />
           <StackPanel techs={techs} />
           <RelatedAssetsPanel related={related} />

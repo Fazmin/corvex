@@ -735,6 +735,7 @@ dependencies = [
  "bincode",
  "corvex-checks",
  "corvex-core",
+ "corvex-devicedb",
  "corvex-intel",
  "corvex-nuclei",
  "corvex-plugins",
@@ -763,6 +764,37 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "walkdir",
+]
+
+[[package]]
+name = "corvex-devicedb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fancy-regex",
+ "once_cell",
+ "rusqlite",
+ "serde",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "corvex-devicedb-builder"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "corvex-devicedb",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tracing",
+ "tracing-subscriber",
  "walkdir",
 ]
 

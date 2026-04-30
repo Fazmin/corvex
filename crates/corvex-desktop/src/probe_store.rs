@@ -48,6 +48,36 @@ CREATE TABLE IF NOT EXISTS probe_open_ports (
 CREATE INDEX IF NOT EXISTS idx_probe_open_host ON probe_open_ports(host);
 CREATE INDEX IF NOT EXISTS idx_probe_open_jarm ON probe_open_ports(jarm) WHERE jarm IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_probe_open_run  ON probe_open_ports(probe_run_id);
+
+CREATE TABLE IF NOT EXISTS probe_device_match (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    probe_run_id  TEXT NOT NULL,
+    host          TEXT NOT NULL,
+    ip            TEXT,
+    os            TEXT NOT NULL,
+    vendor        TEXT NOT NULL,
+    device_type   TEXT NOT NULL,
+    source        TEXT NOT NULL,
+    sys_descr     TEXT,
+    sys_object_id TEXT,
+    observed_at   INTEGER NOT NULL,
+    FOREIGN KEY (probe_run_id) REFERENCES probe_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_probe_dev_host ON probe_device_match(host);
+CREATE INDEX IF NOT EXISTS idx_probe_dev_run  ON probe_device_match(probe_run_id);
+
+CREATE TABLE IF NOT EXISTS probe_host_mac (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    probe_run_id  TEXT NOT NULL,
+    host          TEXT NOT NULL,
+    ip            TEXT,
+    mac           TEXT NOT NULL,
+    mac_vendor    TEXT,
+    observed_at   INTEGER NOT NULL,
+    FOREIGN KEY (probe_run_id) REFERENCES probe_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_probe_host_mac_host ON probe_host_mac(host);
+CREATE INDEX IF NOT EXISTS idx_probe_host_mac_run  ON probe_host_mac(probe_run_id);
 "#;
 
 /// One open-port observation handed to [`ProbeStore::insert_open_ports`].
@@ -67,6 +97,54 @@ pub struct PendingOpenPort {
     pub cpe: Vec<String>,
     pub jarm: Option<String>,
     pub banner: String,
+}
+
+/// One device-match observation, written once per host per probe run
+/// when SNMP fingerprinting fired and the matcher returned a hit.
+#[derive(Debug, Clone)]
+pub struct PendingDeviceMatch {
+    pub host: String,
+    pub ip: Option<String>,
+    pub os: String,
+    pub vendor: String,
+    pub device_type: String,
+    pub source: String,
+    pub sys_descr: Option<String>,
+    pub sys_object_id: Option<String>,
+}
+
+/// One MAC-resolution observation. Captured after the TCP scan
+/// completes, so it only carries useful data for L2-adjacent hosts.
+#[derive(Debug, Clone)]
+pub struct PendingHostMac {
+    pub host: String,
+    pub ip: Option<String>,
+    /// Lower-case colon-separated MAC.
+    pub mac: String,
+    /// OUI vendor name resolved against the bundled `ieee_oui` table.
+    pub mac_vendor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostMacRow {
+    pub host: String,
+    pub ip: Option<String>,
+    pub mac: String,
+    pub mac_vendor: Option<String>,
+    pub observed_at_unix: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceMatchRow {
+    pub host: String,
+    pub ip: Option<String>,
+    pub os: String,
+    pub vendor: String,
+    pub device_type: String,
+    pub source: String,
+    pub sys_descr: Option<String>,
+    pub sys_object_id: Option<String>,
+    pub observed_at_unix: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,6 +341,126 @@ impl ProbeStore {
         Ok(out)
     }
 
+    /// Insert one device-match row. Idempotent at the row level — we
+    /// always insert a fresh row so the asset view can show a history
+    /// (latest wins on read).
+    pub fn insert_device_match(
+        &self,
+        run_id: &Uuid,
+        m: &PendingDeviceMatch,
+    ) -> SqlResult<()> {
+        let conn = self.conn.lock().expect("probe db mutex");
+        conn.execute(
+            "INSERT INTO probe_device_match
+                (probe_run_id, host, ip, os, vendor, device_type, source,
+                 sys_descr, sys_object_id, observed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                run_id.to_string(),
+                m.host,
+                m.ip,
+                m.os,
+                m.vendor,
+                m.device_type,
+                m.source,
+                m.sys_descr,
+                m.sys_object_id,
+                now_secs(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Most-recent device-match observation for a host, or `None` if
+    /// SNMP has never produced a hit. Used by the asset detail view.
+    pub fn latest_device_match_for_host(
+        &self,
+        host: &str,
+    ) -> SqlResult<Option<DeviceMatchRow>> {
+        let conn = self.conn.lock().expect("probe db mutex");
+        let mut stmt = conn.prepare_cached(
+            "SELECT host, ip, os, vendor, device_type, source,
+                    sys_descr, sys_object_id, observed_at
+               FROM probe_device_match
+              WHERE host = ?1
+              ORDER BY observed_at DESC
+              LIMIT 1",
+        )?;
+        stmt.query_row(params![host], |row| {
+            Ok(DeviceMatchRow {
+                host: row.get(0)?,
+                ip: row.get(1)?,
+                os: row.get(2)?,
+                vendor: row.get(3)?,
+                device_type: row.get(4)?,
+                source: row.get(5)?,
+                sys_descr: row.get(6)?,
+                sys_object_id: row.get(7)?,
+                observed_at_unix: row.get(8)?,
+            })
+        })
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+    }
+
+    /// Insert one MAC observation. The same host probed twice writes a
+    /// fresh row so the asset view can show first/last-seen aggregates.
+    pub fn insert_host_mac(
+        &self,
+        run_id: &Uuid,
+        m: &PendingHostMac,
+    ) -> SqlResult<()> {
+        let conn = self.conn.lock().expect("probe db mutex");
+        conn.execute(
+            "INSERT INTO probe_host_mac
+                (probe_run_id, host, ip, mac, mac_vendor, observed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                run_id.to_string(),
+                m.host,
+                m.ip,
+                m.mac,
+                m.mac_vendor,
+                now_secs(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Most-recent MAC observation for a host, or `None` if MAC
+    /// scanning has never produced a hit. Used by the asset detail
+    /// view's Identity / Device panel.
+    pub fn latest_host_mac(
+        &self,
+        host: &str,
+    ) -> SqlResult<Option<HostMacRow>> {
+        let conn = self.conn.lock().expect("probe db mutex");
+        let mut stmt = conn.prepare_cached(
+            "SELECT host, ip, mac, mac_vendor, observed_at
+               FROM probe_host_mac
+              WHERE host = ?1
+              ORDER BY observed_at DESC
+              LIMIT 1",
+        )?;
+        stmt.query_row(params![host], |row| {
+            Ok(HostMacRow {
+                host: row.get(0)?,
+                ip: row.get(1)?,
+                mac: row.get(2)?,
+                mac_vendor: row.get(3)?,
+                observed_at_unix: row.get(4)?,
+            })
+        })
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+    }
+
     /// Most-recent observed_at per host — feeds the asset list's
     /// "last seen" column and the timeline panel's probe events.
     pub fn last_seen_for_host(&self, host: &str) -> SqlResult<Option<i64>> {
@@ -362,6 +560,64 @@ mod tests {
         assert_eq!(siblings.len(), 1);
         assert_eq!(siblings[0].0, "b.example");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn device_match_round_trip() {
+        let (db, dir) = tmp_db();
+        let run = Uuid::new_v4();
+        db.insert_run(&run, &["sw1.example".into()]).unwrap();
+        db.insert_device_match(
+            &run,
+            &PendingDeviceMatch {
+                host: "sw1.example".into(),
+                ip: Some("10.0.0.1".into()),
+                os: "ios".into(),
+                vendor: "cisco".into(),
+                device_type: "network".into(),
+                source: "sysobjectid".into(),
+                sys_descr: Some("Cisco IOS Software".into()),
+                sys_object_id: Some("1.3.6.1.4.1.9.1.516".into()),
+            },
+        )
+        .unwrap();
+        let m = db
+            .latest_device_match_for_host("sw1.example")
+            .unwrap()
+            .expect("row");
+        assert_eq!(m.os, "ios");
+        assert_eq!(m.vendor, "cisco");
+        assert_eq!(m.source, "sysobjectid");
+
+        // No hit for an unrelated host.
+        assert!(db
+            .latest_device_match_for_host("other.example")
+            .unwrap()
+            .is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn host_mac_round_trip() {
+        let (db, dir) = tmp_db();
+        let run = Uuid::new_v4();
+        db.insert_run(&run, &["sw1.example".into()]).unwrap();
+        db.insert_host_mac(
+            &run,
+            &PendingHostMac {
+                host: "sw1.example".into(),
+                ip: Some("10.0.0.1".into()),
+                mac: "00:11:22:aa:bb:cc".into(),
+                mac_vendor: Some("Cisco Systems, Inc".into()),
+            },
+        )
+        .unwrap();
+        let row = db.latest_host_mac("sw1.example").unwrap().expect("row");
+        assert_eq!(row.mac, "00:11:22:aa:bb:cc");
+        assert_eq!(row.mac_vendor.as_deref(), Some("Cisco Systems, Inc"));
+        assert!(db.latest_host_mac("nope.example").unwrap().is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
