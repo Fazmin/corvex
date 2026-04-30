@@ -4005,21 +4005,25 @@ button[disabled] {
 .landing {
   height: 100%;
   overflow-y: auto;
-  /* Center the stage horizontally AND vertically inside whatever space
-     the main view gives us. On widescreen the stage stays anchored to
-     the middle instead of stretching across the panel. */
+  /* Stretch the stage horizontally and vertically so the hero card
+     fills the entire pane. Inner hero content (emblem + title +
+     tagline + CTAs) is still center-aligned inside the card so it
+     doesn't drift to the top edge on tall windows. */
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   padding: 32px 28px;
 }
 
-/* The stage is the actual content column — capped width, centered,
-   stacked vertically with generous spacing. Everything inside is
-   center-aligned so the page reads as a single calm composition. */
+/* The stage is the content column. The hero card spans the full
+   available width so its panel chrome (gradient + glow + shadow)
+   breathes edge-to-edge on widescreen displays; child sections that
+   benefit from a tighter reading width (e.g. the disclaimer) cap
+   themselves. The hero's own inner text uses ch-based maxes
+   (.landing-title, .landing-tagline) so prose stays readable even
+   when the card stretches wide. */
 .landing-stage {
   width: 100%;
-  max-width: 880px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4031,6 +4035,11 @@ button[disabled] {
 .landing-hero {
   position: relative;
   width: 100%;
+  /* Stretch to fill the vertical space the stage gives us so the
+     card chrome covers the whole pane. Inner content uses
+     justify-content: center to stay vertically centered as the card
+     grows taller. */
+  flex: 1 1 auto;
   border: 1px solid var(--border);
   background:
     radial-gradient(ellipse at 30% 0%, rgba(90, 241, 154, 0.10), transparent 55%),
@@ -4043,6 +4052,7 @@ button[disabled] {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-align: center;
 }
 
@@ -4296,6 +4306,9 @@ button[disabled] {
 
 .landing-disclaimer {
   width: 100%;
+  /* Cap the legal-copy width so it stays readable even when the
+     hero card above stretches wider. */
+  max-width: 880px;
   display: flex;
   align-items: flex-start;
   gap: 10px;
