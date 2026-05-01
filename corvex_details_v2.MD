@@ -14,8 +14,25 @@
 > with sub-modules; the Nuclei runner is exposed through the Checks
 > engine as the `nuclei-active` umbrella check plus per-template rows,
 > so it is a sub-engine of Checks rather than a peer. The accurate
-> count is **seven engines**, not nine. The Tauri command count in §9
-> has also been corrected from the stale "65" to the actual 74.
+> count is **seven engines**, not nine.
+>
+> **v2.1 addendum (current build):** five new pieces of functionality
+> have landed since the original v2 was written and are folded into the
+> sections below — (a) a first-launch splash screen with live
+> per-subsystem progress (so the window no longer looks frozen during
+> CA generation / DB seeding); (b) **opt-in scan save** with auto-purge
+> of unsaved runs at next launch; (c) **inline historical findings**
+> in the History view (per-scan findings now persist in a new
+> `scan_findings` table and re-render through `FindingsTable` on row
+> expansion); (d) an embedded **unified rules catalog** (`rules.sqlite`)
+> consolidating Nikto + OWASP ZAP + Burp BCheck rules with a `RulesPlugin`
+> runtime executor and a new **Unified rules** tab in Databases; and
+> (e) an in-UI **HTTP status code glossary** that decorates `HTTP 308`,
+> `returned 404`, etc. inside finding messages with one-line
+> explanations on hover. The Tauri command count is now **78** (was
+> "65" in v1, "74" in the original v2 — four new commands:
+> `init_status`, `history_set_saved`, `history_findings`,
+> `rules_summary`).
 
 ---
 
@@ -177,6 +194,31 @@ lives mostly in `corvex-plugins` driven from `corvex-core`.
   a four-section collapsible left rail (Workspace / Engine / Resources
   / Preferences) and a resizable findings pane; the experience is
   identical on Windows, macOS, and Linux.
+- A **first-launch splash screen** (`SplashScreen.tsx` +
+  `init_progress.rs`) gates the main React tree on the backend's heavy
+  init pipeline. `setup()` returns immediately after registering the
+  cheap in-memory state, then a background task opens each disk-touching
+  subsystem in turn — Recon DB → Exploit-DB index → Scan history →
+  Service probe store → Asset DB → Proxy state & CA — flipping a per-step
+  status (`Pending` → `Running` → `Ok` / `Failed`) and emitting
+  `app://init-step` events. The splash renders one row per step with a
+  progress bar; when every step has reported its terminal state the
+  backend emits `app://init-ready` and the splash unmounts to reveal the
+  app. Steps fail-soft (a failed Exploit-DB seed still lets the rest of
+  the app run), and the `init_status` command lets the splash recover an
+  accurate snapshot if it mounts after the first event has already
+  fired.
+- A **unified rules catalog** (`rules.sqlite`) is **embedded into the
+  desktop binary at build time** (`build.rs` + `rules_embed.rs`) and
+  extracted on first launch to
+  `<app_data_dir>/dev.fazminnizam.corvex-rust/rules.sqlite`, with a
+  cwd / exe-dir override path so power users can swap catalogs without
+  rebuilding. The catalog ingests **Nikto + OWASP ZAP + Burp Suite
+  BChecks** through `corvex-rules-builder`, lowers each rule to a
+  `match_spec_json` blob, and is consumed at scan time by `RulesPlugin`
+  alongside the legacy `TestsPlugin`. The desktop runs both in
+  side-by-side mode by default; the CLI flag `--rules-only` flips
+  ownership for parity validation.
 
 ---
 
@@ -236,8 +278,22 @@ a `StatsBar` (requests, findings, errors, rate, progress), a
 global `tracing` subscriber. A running scan shows a pulsing dot in the
 sidebar Engine section and a dashboard-level ScanIndicator with a
 cancel button. CVE-bearing findings expand to show matching public
-exploits via the Exploit-DB integration. Finished scans are persisted
-to the history DB.
+exploits via the Exploit-DB integration. Status codes referenced in a
+finding message (`HTTP 308`, `returned 404`, `MOVED PERMANENTLY (301)`,
+…) are decorated by an in-UI **HTTP status glossary**
+(`util/httpStatus.ts`) so users hover any code to see a one-line
+plain-English summary — covers the common 1xx / 2xx / 3xx / 4xx / 5xx
+codes (including 418, 429, and the WebDAV / RFC 6585 family) without
+leaving the table.
+
+Once a scan finishes, a **Save scan** button appears on the
+FindingsTable toolbar. Without it, the run sits in `history.sqlite`
+with `saved = 0` and is purged the next time the app launches —
+**opt-in retention** keeps the History list from filling with throwaway
+exploratory scans. Clicking *Save scan* flips the row's `saved` flag
+via `history_set_saved` and the row stays put forever (or until the
+user deletes it). In-flight `running` scans always show in History so
+a mid-scan navigation doesn't hide them.
 
 This view drives engines #1 (web signature scanner) and #2 (active
 injection engine) from a single form: leaving the active toggles off
@@ -305,6 +361,24 @@ Users can re-run any prior scan with a single click (the saved JSON
 params re-populate `ScanForm`), delete individual entries, or clear
 history. Each row's host column carries an `AssetLink` icon for a
 one-click jump to the asset view.
+
+**Opt-in retention.** Only scans the user explicitly clicked **Save
+scan** on (Dashboard) survive a relaunch — `HistoryDb::open` runs
+`DELETE FROM scans WHERE saved = 0` at startup, which cascades through
+the new `scan_findings` table via `ON DELETE CASCADE`. This keeps the
+history surface focused on intentional records rather than every
+exploratory ten-second probe. In-progress (`running`) scans are still
+shown so opening History mid-scan never hides what's live.
+
+**Inline findings.** Each row is expandable (chevron in the leftmost
+column). Expanding fires `history_findings(id)` against the
+`scan_findings` table — a per-finding persistence layer added so the
+History view can re-render the full FindingsTable for a past run
+without re-scanning. The fetch is lazy (cached per row), keyed by
+`scan_id`, and renders through the same `FindingsTable` component the
+Dashboard uses, so severity filters, CVE-expand-to-Exploit-DB, JSON
+copy, and the HTTP status glossary all work identically against
+historical data.
 
 ### 4.5 Plugins
 
@@ -595,7 +669,7 @@ Four tabs:
 
 ### 4.11 Databases (embedded datasets)
 
-Seven tabs inspecting what ships inside the binary:
+Eight tabs inspecting what ships inside the binary:
 
 - **Web signatures** — `db_tests` (7,236), `db_outdated` (1,257),
   `db_favicon` (362), `db_server_msgs` (260), `db_realms` (170),
@@ -629,6 +703,20 @@ Seven tabs inspecting what ships inside the binary:
   (`exploitdb://progress`) drive a per-stage bar (download → parse →
   commit_lookup → done). A user-synced snapshot is preserved across
   app upgrades unless explicitly reset.
+- **Unified rules** — Surface for the embedded `rules.sqlite` catalog
+  consolidating **Nikto**, **OWASP ZAP**, and **Burp Suite BChecks**
+  into a single SQLite file. Shows the resolved on-disk path (after
+  cwd / exe-dir / extracted-blob lookup), schema version, builder
+  timestamp, total ingested vs total executable rule counts (rules
+  with non-NULL `match_spec_json` are runnable by `RulesPlugin`), an
+  invalid-JSON sanity counter, a per-source breakdown
+  (rows ingested + rows lowered + lowering coverage % + pinned
+  upstream commit SHA per tool), and a per-(source, severity)
+  breakdown sorted critical → info. When `rules.sqlite` is absent the
+  tab renders a build instruction
+  (`cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite`)
+  and reminds the user that the desktop falls back to legacy
+  bincode-only behaviour silently in that case.
 
 ### 4.12 Settings
 
@@ -660,10 +748,16 @@ highlighting.
 
 ## 5. Backend surface (Tauri commands)
 
-Every user action in the UI funnels through one of the following 74
+Every user action in the UI funnels through one of the following 78
 commands (registered in `main.rs` and defined in `commands.rs`,
 `proxy_cmd.rs`, `asset_cmd.rs`, and `recon_cmd.rs`). The rest is
 rendering.
+
+### Init / lifecycle
+
+| Command | What it does |
+| --- | --- |
+| `init_status` | Snapshot of the splash screen's per-step init progress (Recon DB, Exploit-DB, History, Probe store, Asset DB, Proxy/CA). Returns a `{ steps[], ready }` shape so a late-mounting splash can recover the same state the live `app://init-step` events would have rendered. |
 
 ### Scan + history
 
@@ -675,7 +769,9 @@ rendering.
 | `scan_start` | Spawn a scan (signature + optional active fuzz + SCA + portscan). Returns a UUID the UI subscribes to for events. |
 | `scan_cancel` | Cooperatively cancel a running scan via a `CancellationToken`. |
 | `scan_stats` | Snapshot counts from the scan's `GlobalState`. |
-| `history_list` / `history_clear` / `history_delete` | SQLite history CRUD. |
+| `history_list` / `history_clear` / `history_delete` | SQLite history CRUD. Only `saved = 1` and currently-`running` scans are surfaced; unsaved rows are purged at app launch. |
+| `history_set_saved` | Flip the `saved` flag on a `scans` row so it survives the next-launch auto-purge. Backs the Dashboard's *Save scan* button. |
+| `history_findings` | Return every persisted finding for a past scan from the `scan_findings` table. Drives the History view's inline-expand row that re-renders the full FindingsTable for a historical run. |
 
 ### VulnDB / probe / fingerprints
 
@@ -755,6 +851,12 @@ rendering.
 | `exploitdb_update` | Sync from `gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv` with `ETag`/`If-None-Match` short-circuiting. Emits `exploitdb://progress` events; replaces all rows in one transaction. |
 | `exploitdb_fetch_source` | Download an exploit's raw source from GitLab and cache it on disk. Returns body + language hint for the in-UI source viewer. |
 
+### Unified rules catalog
+
+| Command | What it does |
+| --- | --- |
+| `rules_summary` | Inspect the embedded `rules.sqlite` catalog. Returns the resolved on-disk path (cwd > exe-dir > extracted blob), schema version, builder timestamp, pinned `nikto_commit` / `zap_commit` / `burp_commit` SHAs, per-source ingested vs executable counts (rules with non-NULL `match_spec_json` are runnable by `RulesPlugin`), per-(source, severity) breakdown, and a `json_valid()` integrity counter. Returns `{ loaded: false }` rather than erroring when no catalog is found, so the Databases tab can render a build instruction instead of a stack trace. |
+
 ---
 
 ## 6. Event bus (what the UI listens to)
@@ -775,6 +877,8 @@ rendering.
 - `proxy://csrf-observed` — fresh CSRF token harvested from a response (rule id, host, truncated value, observed-at). Drives the Settings → CSRF tokens live status panel.
 - `exploitdb://progress` — Exploit-DB sync stages (`start`, `download`, `up_to_date`, `commit_lookup`, `parse`, `done`).
 - `nuclei://progress` — Nuclei tier-2 download progress (when extras download is in flight).
+- `app://init-step` — splash-screen progress: one event per init-step transition (`Pending` → `Running` → `Ok` / `Failed`) for each of the six first-launch steps (Recon DB, Exploit-DB index, Scan history, Probe store, Asset DB, Proxy state & CA). The frontend's SplashScreen subscribes to these so the user sees real progress instead of a frozen window during CA generation / DB seeding.
+- `app://init-ready` — terminal splash event. Fired once every init step has reported its final state (success or failure). The SplashScreen unmounts and the main React tree mounts on this signal.
 - `log://line` — every `tracing` event the engine emits (level, target, message).
 
 This push model is why the LogPanel, StatsBar, FindingsTable, Traffic
@@ -789,12 +893,13 @@ refreshes on a slow 2 s cadence.)
 
 | Path (platform-resolved via `app_data_dir`) | Contents |
 | --- | --- |
-| `history.sqlite` | Scan history table; proxy sessions, exchanges, WebSocket frames, scope rules, retention setting, intercept mode, key/value settings, findings; recon runs and recon findings (`recon_runs` + `recon_findings`, FK cascade); CSRF rules (`proxy_csrf_rules`); conditional intercept rules (`proxy_intercept_rules`, with conditions stored as a tagged-enum JSON blob to avoid future schema migrations). WAL mode so every engine shares it safely. |
+| `history.sqlite` | Scan history table (`scans` — with the new `saved` flag for opt-in retention; unsaved rows are purged at next launch); per-scan persisted findings (`scan_findings`, `ON DELETE CASCADE` from `scans` so the History view's inline-expand can re-render past runs); proxy sessions, exchanges, WebSocket frames, scope rules, retention setting, intercept mode, key/value settings, findings; recon runs and recon findings (`recon_runs` + `recon_findings`, FK cascade); CSRF rules (`proxy_csrf_rules`); conditional intercept rules (`proxy_intercept_rules`, with conditions stored as a tagged-enum JSON blob to avoid future schema migrations). WAL mode so every engine shares it safely. |
 | `exploitdb.sqlite` | Exploit-DB snapshot — `exploits`, `exploit_cves`, `exploitdb_meta` tables. Seeded from a bundled snapshot on first launch and upgraded on app updates unless the user has run their own sync. Refreshable via the `exploitdb_update` command. |
 | `proxy/ca/ca.cert.pem` + `proxy/ca/ca.key.pem` | Locally-generated Certificate Authority for HTTPS MITM. Regenerated on first proxy start if missing. |
 | `proxy/bodies/<exchange-id>.{req,res}.bin` | Large request / response bodies that exceed the 512 KB inline cap are spilled here (up to the 32 MB per-side hard cap). Evicted alongside the parent exchange when retention trims. |
 | `corvex/nuclei-templates/<tag>/` | Tier-2 Nuclei template cache (only `http/` is unpacked from the GitHub tarball). |
-| Bundled in binary | Web-signature DBs, Nuclei tier-1 curated templates, Wappalyzer seed + dataset, JARM known hashes, default config, OWASP `top10.yaml`, hidden-parameter wordlist, Wappalyzer → CPE map, Exploit-DB seed snapshot, default subdomain wordlist (~200 names), gzip-compressed NVD + EPSS snapshot (when present at build time — extracted to `<app_data_dir>/corvex/vulndb.sqlite` on first run). |
+| `rules.sqlite` (extracted on first run, sibling of `history.sqlite`) | Embedded **unified rules catalog** consolidating Nikto + OWASP ZAP + Burp BCheck rules. The bytes are `include_bytes!`-baked into the desktop binary by `build.rs` and extracted on first launch (or after a binary upgrade — detected via length mismatch + first-4 KB compare). A cwd / exe-dir copy wins over the extracted blob so power users can swap catalogs without a rebuild. `RulesPlugin` opens this read-only at scan time. |
+| Bundled in binary | Web-signature DBs, Nuclei tier-1 curated templates, Wappalyzer seed + dataset, JARM known hashes, default config, OWASP `top10.yaml`, hidden-parameter wordlist, Wappalyzer → CPE map, Exploit-DB seed snapshot, default subdomain wordlist (~200 names), unified rules catalog (`rules.sqlite`, ~7 MB), gzip-compressed NVD + EPSS snapshot (when present at build time — extracted to `<app_data_dir>/corvex/vulndb.sqlite` on first run). |
 
 Nothing is written outside the user's data dir. No registry entries. No
 network calls unless the user explicitly clicks **Update VulnDB**,
@@ -959,6 +1064,43 @@ the breadcrumb stack (depth 8) to navigate back. Same target,
 correlated across recon, probe, proxy, and dashboard scans, in one
 place.
 
+### 8.17 "Keep yesterday's scan but throw away the noise."
+
+Run a quick exploratory scan from the Dashboard → glance at the
+findings → close the tab. Nothing happens to History — the row sat in
+`history.sqlite` with `saved = 0` and gets purged at the next launch.
+Now run the scan you actually care about → click **Save scan** in the
+FindingsTable toolbar → close the app. Tomorrow, open History: only
+the saved run is there, with its full findings list one click away
+through the inline-expand. No "Clear all" rituals, no janitor work —
+**opt-in retention** keeps History for intentional records only.
+
+### 8.18 "Re-read findings from a scan I ran two weeks ago."
+
+History → expand any saved row by clicking its chevron. The view
+fires `history_findings(id)` against the `scan_findings` table and
+re-renders the full FindingsTable inline — same severity filters,
+same JSON copy, same CVE-expand-to-Exploit-DB rows, same HTTP status
+glossary tooltips. The lazy-load is cached per row so collapsing /
+re-expanding is free. Pair with **Re-run** if you want to compare a
+fresh run against the historical baseline.
+
+### 8.19 "Confirm the unified rules catalog is loaded and healthy."
+
+Databases → **Unified rules** tab. The header line shows whether
+`rules.sqlite` is loaded (and from where — cwd, exe-dir, or the
+extracted-blob path under app data), the schema version, and the
+builder timestamp. The grid below it tabulates per-source ingested vs
+executable counts (rules with non-NULL `match_spec_json` are runnable
+by `RulesPlugin`; the percentage tells you how much of each upstream
+catalogue is wired up), the pinned upstream commit SHAs for Nikto /
+ZAP / Burp, and an invalid-JSON row counter that should always read
+`0` on a healthy build. If the tab reports `loaded = false`, the
+desktop is silently running on the legacy bincode path — rebuild the
+catalog with
+`cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite`
+and re-launch.
+
 ---
 
 ## 9. Why it's valuable to security professionals
@@ -1002,7 +1144,7 @@ place.
    and upstream commit SHA. Every scan run is saved as JSON params you
    can audit or re-use.
 
-7. **Fully scriptable surface.** Every UI action maps to one of the 74
+7. **Fully scriptable surface.** Every UI action maps to one of the 78
    documented Tauri commands and a typed event; the same engines have
    a matching CLI (`corvex`) so CI pipelines, runbooks, and GUI
    sessions share one source of truth.
@@ -1080,3 +1222,28 @@ place.
   in the first place; intercept rules sit on top of the
   off/request/response/both mode selector and decide which captured
   exchanges are queued for inspection.
+- **Unified rules catalog** is consumed in **side-by-side mode** by
+  default — `RulesPlugin` (ZAP + Burp BChecks) and the legacy
+  `TestsPlugin` (Nikto bincode) both run, with a manifest pre-emption
+  layer so the same upstream rule doesn't fire twice. Full ownership
+  flip to `RulesPlugin` is gated behind the CLI flag `--rules-only`
+  for parity validation; the desktop has no UI toggle in v1.
+  `match_spec_json` lowering coverage varies by source — check the
+  Databases → Unified rules tab for the per-source executable %.
+  When the embedded blob is the build placeholder (no
+  `rules.sqlite` next to the workspace at compile time), the runtime
+  falls back to legacy-only behaviour with a debug log; the user has
+  no error to react to but loses the new BCheck / ZAP coverage.
+- **Opt-in scan save** auto-purges any unsaved scan at the *next*
+  launch, not at scan completion — exit the app without saving and
+  the row stays through the rest of that session (so a mistake is
+  recoverable until you close the window). Inline historical
+  findings are persisted only for `scans` rows the user kept;
+  unsaved rows take their `scan_findings` with them via
+  `ON DELETE CASCADE`.
+- **Splash screen** steps fail-soft individually but the proxy / CA
+  step in particular is the slow one (RSA keygen on first launch).
+  A failed step keeps its red badge and the rest of the app loads —
+  but the affected subsystem will surface a more specific error on
+  first user interaction (e.g. proxy listener won't start without a
+  CA).
