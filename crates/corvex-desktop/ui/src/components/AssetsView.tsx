@@ -39,7 +39,6 @@ export function AssetsView() {
   return (
     <div
       style={{
-        padding: 20,
         display: "flex",
         flexDirection: "column",
         gap: 14,
