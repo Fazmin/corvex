@@ -16,23 +16,39 @@
 > so it is a sub-engine of Checks rather than a peer. The accurate
 > count is **seven engines**, not nine.
 >
-> **v2.1 addendum (current build):** five new pieces of functionality
-> have landed since the original v2 was written and are folded into the
-> sections below — (a) a first-launch splash screen with live
-> per-subsystem progress (so the window no longer looks frozen during
-> CA generation / DB seeding); (b) **opt-in scan save** with auto-purge
-> of unsaved runs at next launch; (c) **inline historical findings**
-> in the History view (per-scan findings now persist in a new
-> `scan_findings` table and re-render through `FindingsTable` on row
-> expansion); (d) an embedded **unified rules catalog** (`rules.sqlite`)
-> consolidating Nikto + OWASP ZAP + Burp BCheck rules with a `RulesPlugin`
-> runtime executor and a new **Unified rules** tab in Databases; and
-> (e) an in-UI **HTTP status code glossary** that decorates `HTTP 308`,
-> `returned 404`, etc. inside finding messages with one-line
-> explanations on hover. The Tauri command count is now **78** (was
-> "65" in v1, "74" in the original v2 — four new commands:
-> `init_status`, `history_set_saved`, `history_findings`,
-> `rules_summary`).
+> **v2.1 addendum:** five pieces of functionality landed shortly after
+> the original v2 was written and are folded into the sections below —
+> (a) a first-launch splash screen with live per-subsystem progress
+> (so the window no longer looks frozen during CA generation / DB
+> seeding); (b) **opt-in scan save** with auto-purge of unsaved runs at
+> next launch; (c) **inline historical findings** in the History view
+> (per-scan findings now persist in a new `scan_findings` table and
+> re-render through `FindingsTable` on row expansion); (d) an embedded
+> **unified rules catalog** (`rules.sqlite`) consolidating Nikto +
+> OWASP ZAP + Burp BCheck rules with a `RulesPlugin` runtime executor;
+> and (e) an in-UI **HTTP status code glossary** that decorates
+> `HTTP 308`, `returned 404`, etc. inside finding messages with
+> one-line explanations on hover.
+>
+> **v2.2 addendum (current build):** four further changes have landed
+> since v2.1 and are reflected in the sections below — (i) an embedded
+> **SNMP device-signature catalog** (`devices.sqlite`, ingested from
+> `corvex-devicedb` YAMLs + IANA Private Enterprise Numbers + the
+> IEEE OUI registry) that fires automatically in Deep probes (and is
+> opt-in for Rapid probes), driving an eighth **Device** panel on the
+> asset detail view and surfacing per-host SNMP / MAC chips on the
+> Probing tab; (ii) **MAC-address capture** through the OS ARP / NDP
+> cache, with vendor names resolved against the bundled IEEE OUI
+> table; (iii) a **stateful probe runner** (`ProbeRunningProvider`)
+> hoisted into the React root so a probe keeps streaming results in
+> the background after the user navigates to a different sidebar
+> view; and (iv) a Databases-view restructure — the legacy
+> bincode-based "Web signatures" tab now reads from `rules.sqlite`
+> directly (the standalone "Unified rules" tab is folded into it),
+> and a new **Device signatures** tab exposes the SNMP catalog plus
+> the IANA / IEEE reference tables. The Tauri command count is now
+> **79** (was "65" in v1, "74" in the original v2, "78" in v2.1 — one
+> new command: `device_db_summary`).
 
 ---
 
@@ -55,8 +71,15 @@ installable application:
    detectors, not two parallel engines.
 3. A **Software Composition Analysis (SCA)** engine backed by a local
    NVD + EPSS mirror with binary, manifest, and SBOM analysis.
-4. A **service probing** engine (Nmap-class service detection + JARM TLS
-   fingerprinting).
+4. A **service probing** engine (Nmap-class TCP service detection + JARM
+   TLS fingerprinting). On every host the engine also fires, in parallel
+   with the TCP sweep, an **SNMP v2c device-fingerprint probe** (UDP/161
+   `sysDescr.0` + `sysObjectID.0`, matched against a bundled signature
+   catalog of vendor / OS / device-type triples) and a **MAC capture
+   pass** (post-scan OS ARP / NDP cache lookup, vendor resolved through
+   the bundled IEEE OUI registry, with the IANA Private Enterprise
+   Numbers table as a sysObjectID-prefix fallback). Both fire
+   automatically in Deep mode and are opt-in checkboxes in Rapid mode.
 5. A **reconnaissance engine** for subdomain discovery via passive OSINT
    sources (Certificate Transparency / crt.sh, AlienVault OTX,
    CertSpotter) and active DNS work (record enumeration, AXFR attempts,
@@ -99,22 +122,30 @@ Everything runs locally. The binary ships the signature databases,
 Wappalyzer-compatible fingerprints, a curated Nuclei template set, the
 OWASP Top 10 v2025 taxonomy, a 13-group / ~220-name hidden-parameter
 wordlist, a curated Wappalyzer → CPE map for banner-CVE lookups, an
-Exploit-DB snapshot, a default subdomain wordlist, and a private CA
-generator. No SaaS, no cloud, no telemetry.
+Exploit-DB snapshot, a default subdomain wordlist, the unified rules
+catalog (`rules.sqlite`), the SNMP device-signature catalog
+(`devices.sqlite`, including the IANA Private Enterprise Numbers
+table and the IEEE OUI registry), and a private CA generator. No
+SaaS, no cloud, no telemetry.
 
 The GUI is a Tauri v2 shell (Rust core + React/TypeScript front-end). The
 same Rust engines power both the headless CLI (`corvex`) and the desktop
 binary (`corvex-desktop`) — the UI is a thin command surface, not a
 re-implementation.
 
-> **Crates vs engines.** The codebase is organised into eight Rust crates
+> **Crates vs engines.** The codebase is organised into ten Rust crates
 > (`corvex-core`, `corvex-checks`, `corvex-recon`, `corvex-intel`,
-> `corvex-nuclei`, `corvex-sonar`, `corvex-proxy`, `corvex-plugins`) that
-> do **not** map one-to-one onto the seven user-facing engines —
-> `corvex-nuclei`, for instance, is a crate consumed by the Checks engine
-> rather than a standalone engine. Crate boundaries follow code-reuse
-> needs (the same engines power both the desktop GUI and the CLI);
-> engine boundaries follow user-facing workflow surfaces.
+> `corvex-nuclei`, `corvex-sonar`, `corvex-proxy`, `corvex-plugins`,
+> `corvex-rules`, `corvex-devicedb`) that do **not** map one-to-one
+> onto the seven user-facing engines — `corvex-nuclei`, for instance,
+> is a crate consumed by the Checks engine rather than a standalone
+> engine; `corvex-rules` is the runtime executor for the unified
+> Nikto + ZAP + Burp BCheck catalog and is consumed by both the
+> signature scanner and the legacy `TestsPlugin`; `corvex-devicedb`
+> is the SNMP signature matcher consumed by the probing engine.
+> Crate boundaries follow code-reuse needs (the same engines power
+> both the desktop GUI and the CLI); engine boundaries follow
+> user-facing workflow surfaces.
 
 ---
 
@@ -156,14 +187,17 @@ re-implementation.
 |   corvex-  corvex-  corvex-   corvex-  corvex-           |
 |   core     plugins  nuclei    sonar    proxy             |
 |                                                           |
-|   corvex-checks  corvex-recon  corvex-intel  (shared)    |
+|   corvex-checks   corvex-recon    corvex-intel  (shared) |
+|   corvex-rules    corvex-devicedb               (shared) |
 |                                                           |
 +-----------------------------------------------------------+
           |                 |                 |
           v                 v                 v
     history.sqlite    proxy/ca/*.pem    nuclei-templates/
     exploitdb.sqlite  proxy/bodies/*    (bundled + cache)
-    (app_data_dir)    (app_data_dir)
+    rules.sqlite      (app_data_dir)
+    devices.sqlite
+    (app_data_dir)
 ```
 
 The boxes labelled `corvex-*` are **crates**, not engines. The seven
@@ -219,6 +253,33 @@ lives mostly in `corvex-plugins` driven from `corvex-core`.
   alongside the legacy `TestsPlugin`. The desktop runs both in
   side-by-side mode by default; the CLI flag `--rules-only` flips
   ownership for parity validation.
+- A **device-signature catalog** (`devices.sqlite`) is embedded
+  through the same `build.rs` mechanism (`device_embed.rs`) and
+  extracted to the same per-user namespace
+  (`<app_data_dir>/dev.fazminnizam.corvex-rust/devices.sqlite`), with
+  the same cwd / exe-dir override chain. The file ships the SNMP
+  device-fingerprint catalog (~hundreds of vendor / OS / device-type
+  YAMLs lowered into matchable rows by `corvex-devicedb-builder`), the
+  IANA Private Enterprise Numbers reference table, and the IEEE OUI
+  registry (MA-L / MA-M / MA-S tiers). The probing engine reads it
+  read-only on every Deep host (and on Rapid hosts where the user
+  ticks the SNMP / MAC checkboxes); the Asset detail view's Device
+  panel surfaces the latest match per host.
+- A **vulndb warm-up** task fires from `setup()` (after splash init
+  has begun) and opens `vulndb.sqlite` on the blocking pool, so the
+  schema-v2 vendor/product index on `cpe_matches` is hot and
+  index-resident before the user's first SCA scan. Skipped when the
+  file isn't on disk yet (so users who never run SCA don't pay the
+  warm-up cost).
+- A **stateful probe runner** (`probe_running.tsx`'s
+  `ProbeRunningProvider`) lives at the React root, above the App
+  router. It owns the active probe id, listener handles, and
+  accumulated result tables (open ports, device matches, MAC
+  resolutions, errors, summary, persisted form inputs) so the user
+  can navigate from the Probing view to any other sidebar view —
+  Recon, Asset, Settings — and the probe keeps streaming results in
+  the background. Returning to Probing re-renders the latest state
+  with no replay or refetch.
 
 ---
 
@@ -315,28 +376,35 @@ row opens the detail view; high-finding hosts are colour-flagged.
 **Asset detail (`AssetDetailView`)** — two interchangeable modes
 (toggle persisted to `localStorage`):
 
-- **Panels mode** — responsive grid of seven panels:
+- **Panels mode** — responsive grid of eight panels:
   1. **Identity** — overview counts, primary IPs, /24 networks, DNS
      record table (A/AAAA/CNAME/MX/NS/TXT), first/last seen, ASN
      placeholder.
-  2. **Services** — probe-discovered open ports with service /
+  2. **Device** — latest SNMP device-fingerprint match for the host
+     (vendor + OS chip, device-type chip, source attribution,
+     `sysDescr` and `sysObjectID` evidence) plus the latest MAC
+     observation (MAC string + IEEE OUI vendor chip). Empty when no
+     SNMP probe has fired (or fired and missed) and no MAC was
+     captured. Sourced from `probe_device_match` and
+     `probe_host_mac` rows joined into the asset overview.
+  3. **Services** — probe-discovered open ports with service /
      product / version, CPE chips, JARM hash link.
-  3. **Stack** — Wappalyzer detections deduped by `(name, version)`
+  4. **Stack** — Wappalyzer detections deduped by `(name, version)`
      with category colouring and per-detection path counts.
-  4. **Endpoints** — `(method, path)` pairs derived from proxy
+  5. **Endpoints** — `(method, path)` pairs derived from proxy
      traffic, sorted by request volume, with last status and
      finding count per row. A **[Flat] / [Clustered]** toggle
      (persisted to `localStorage`) re-aggregates rows over endpoint
      patterns (e.g. `/api/users/:id`) using the same cluster engine
      that powers Traffic clustering.
-  5. **Findings** — deduplicated security findings by
+  6. **Findings** — deduplicated security findings by
      `(check_id, port, path, title)` with severity filters and
      occurrence counts. CVE rows expand to Exploit-DB hits.
-  6. **Related assets** — three discovery strategies stitched
+  7. **Related assets** — three discovery strategies stitched
      together: same JARM (TLS-fingerprint cluster, often the same
      load balancer), same registrable suffix (sibling subdomains),
      same /24 network (IPv4 neighbours).
-  7. **Timeline** — interleaved event log of probe runs, exchanges,
+  8. **Timeline** — interleaved event log of probe runs, exchanges,
      findings, recon discoveries, and scans, newest first, with
      deep links back to source records.
 
@@ -393,21 +461,52 @@ default scan?" briefings.
 A dedicated Nmap-class surface with two scan modes (`rapid` — TCP
 connect sweep; `deep` — protocol-aware probes with fingerprint
 matching), a ports expression box (`1-1000`, `80,443,8080-8090`, etc.),
-JARM toggle, and host concurrency. Targets accept IPv4/IPv6 literals,
-hostnames (DNS-resolved), CIDR blocks (`/8` safely capped at 65,536
-hosts), dash-ranges (`10.0.0.5-10.0.0.12`), short-octet ranges
+JARM toggle, **SNMP fingerprint** toggle, **MAC lookup** toggle, and
+host concurrency. Targets accept IPv4/IPv6 literals, hostnames
+(DNS-resolved), CIDR blocks (`/8` safely capped at 65,536 hosts),
+dash-ranges (`10.0.0.5-10.0.0.12`), short-octet ranges
 (`192.168.1.10-12`), and comma-separated lists.
 
 Each open port emits a `probe://{id}/open-port` event carrying service
 name, product, vendor, version, info banner, CPE list, TLS flag, JARM
-hash, and raw banner. The view has tabs for **Run** (live progress),
-**Configure** (persisted defaults read by the Dashboard's ScanForm),
-**Scan modes** (what Rapid vs Deep actually do), **Probe families**
-(scripted probes, static probes, fingerprint sets), **Datasets**
-(bundled + user-supplied probe files with counts), **JARM** (TLS
-fingerprint explainer + hash lookup), and **Directive format** (probe
-file syntax reference). Extra probe files are merged into the live
-probe DB on the fly. Open-port rows carry an `AssetLink` icon.
+hash, and raw banner. In addition, when SNMP fingerprinting is
+enabled (always on in Deep mode; opt-in in Rapid via the *SNMP device
+fingerprint* checkbox) the engine fires an SNMP v2c GET against
+UDP/161 in parallel with the TCP sweep, asks for `sysObjectID.0` /
+`sysDescr.0`, and runs the response through `corvex-devicedb`'s
+matcher (longest sysObjectID-prefix wins; sysDescr substrings and
+fancy-regex patterns AND inside a clause). A successful match emits
+a `probe://{id}/device-match` event carrying vendor, OS,
+device-type, source attribution (`sysObjectID` / `sysDescr` /
+`fallback`), and the raw evidence — surfaced as a per-host **Device**
+chip in the run table and persisted to `probe_device_match`. When
+**MAC lookup** is enabled (Deep mode default; opt-in in Rapid via
+the *MAC address scan* checkbox) the engine reads the OS ARP / NDP
+cache after the TCP scan completes, resolves the MAC against the
+bundled IEEE OUI table, and emits `probe://{id}/mac-resolved` with
+the MAC string + vendor chip — only L2-adjacent hosts return useful
+data, routed targets surface the upstream router's MAC instead.
+
+The view has tabs for **Run** (live progress, with per-host Device /
+MAC chips next to the open-port count), **Configure** (persisted
+defaults read by the Dashboard's ScanForm), **Scan modes** (what
+Rapid vs Deep actually do, including which Deep-only follow-up
+probes fire), **Probe families** (scripted probes, static probes,
+fingerprint sets), **Datasets** (bundled + user-supplied probe files
+with counts; cross-links to the Databases view's *Device signatures*
+tab for the SNMP catalog + IANA / IEEE reference tables), **JARM**
+(TLS fingerprint explainer + hash lookup), and **Directive format**
+(probe file syntax reference). Extra probe files are merged into the
+live probe DB on the fly. Open-port rows carry an `AssetLink` icon.
+
+A running probe **stays alive when the user navigates away.** The
+runner state lives in `ProbeRunningProvider` (a React context
+mounted at the app root, above the main view router) so switching
+to Recon / Asset / Settings keeps the listener attached, results
+keep streaming into `probe_open_ports` / `probe_device_match` /
+`probe_host_mac`, and returning to Probing re-renders the live
+state without replay or refetch. The Cancel button and the form
+inputs are persisted there too.
 
 ### 4.7 Recon (subdomain enumeration)
 
@@ -671,14 +770,53 @@ Four tabs:
 
 Eight tabs inspecting what ships inside the binary:
 
-- **Web signatures** — `db_tests` (7,236), `db_outdated` (1,257),
-  `db_favicon` (362), `db_server_msgs` (260), `db_realms` (170),
-  `db_variables`, `db_content_search`, `db_headers_common`,
-  `db_headers_suggested`, `db_multiple_index`, `db_options`,
-  `db_useragents`, `db_dictionary` (1,825), `db_404_strings`.
+- **Web signatures** — Surface for the embedded `rules.sqlite` catalog
+  consolidating **Nikto**, **OWASP ZAP**, and **Burp Suite BChecks**
+  into a single SQLite file (this is where the legacy bincode
+  `db_tests` / `db_outdated` / `db_favicon` / etc. tables used to be
+  surfaced — every web check now flows through `RulesPlugin` against
+  the unified catalog, so the standalone *Unified rules* tab from
+  v2.1 is folded in here). Shows the resolved on-disk path (after
+  cwd / exe-dir / extracted-blob lookup), schema version, builder
+  timestamp, total ingested vs total executable rule counts (rules
+  with non-NULL `match_spec_json` are runnable by `RulesPlugin`), an
+  invalid-JSON sanity counter, a per-source breakdown (rows ingested
+  + rows lowered + lowering coverage % + pinned upstream commit SHA
+  per tool), and a per-(source, severity) breakdown sorted critical
+  → info. When `rules.sqlite` is absent the tab renders a build
+  instruction
+  (`cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite`)
+  and reminds the user that the desktop falls back to legacy
+  bincode-only behaviour silently in that case. (The legacy
+  `db_summary` Tauri command is still wired for back-compat with
+  any out-of-tree consumers of the bincode counts but is no longer
+  read from this tab.)
 - **Probing** — Scripted probes (SSH, HTTP, TLS, SMTP, FTP, MySQL, …),
   static banner probes, fingerprint sets, and JARM-known entries.
-  Extra probe files configured in Settings are counted here.
+  Extra probe files configured in Settings are counted here. Cross-
+  links to the Device signatures tab for the SNMP-fingerprinting
+  side of probing.
+- **Device signatures** — Surface for the embedded `devices.sqlite`
+  catalog driving SNMP-based device fingerprinting and MAC-vendor
+  resolution. Shows total **SNMP device entries** (one per signature
+  YAML), distinct **vendors** and **device types** (`network`,
+  `firewall`, `pdu`, `printer`, `server`, `wireless`, …), total
+  **discovery clauses** (with a count of clauses disabled because
+  they require an active SNMP follow-up GET the matcher cannot
+  issue), totals for **sysObjectID prefixes**, **sysDescr
+  substrings**, and **sysDescr regexes** across the catalog, plus
+  the **IANA Private Enterprise Numbers** row count and the **IEEE
+  OUI registrations** row count (MA-L 24-bit + MA-M 28-bit + MA-S
+  36-bit). Provenance pane explains the build pipeline
+  (`corvex-devicedb-builder` over the YAMLs in
+  `crates/corvex-devicedb/data/devices/`, the canonical IANA text
+  file, and the IEEE OUI JSON), the reader's schema-version
+  rejection logic for stale extracted copies, and cross-links to
+  Probing for live fingerprinting controls. When the catalog
+  hasn't been built yet the tab renders a build instruction
+  (`.\scripts\build-devicedb-snapshot.ps1`) and reminds the user
+  that SNMP fingerprinting is effectively disabled until a real
+  catalog is embedded.
 - **SCA / VulnDB** — Row counts for CVEs, CPE matches, EPSS scores, fix
   availability. Buttons to run an NVD update (`daily` / `full`) via
   `vulndb_update`. Honors `NVD_API_KEY` for higher rate limits.
@@ -703,20 +841,6 @@ Eight tabs inspecting what ships inside the binary:
   (`exploitdb://progress`) drive a per-stage bar (download → parse →
   commit_lookup → done). A user-synced snapshot is preserved across
   app upgrades unless explicitly reset.
-- **Unified rules** — Surface for the embedded `rules.sqlite` catalog
-  consolidating **Nikto**, **OWASP ZAP**, and **Burp Suite BChecks**
-  into a single SQLite file. Shows the resolved on-disk path (after
-  cwd / exe-dir / extracted-blob lookup), schema version, builder
-  timestamp, total ingested vs total executable rule counts (rules
-  with non-NULL `match_spec_json` are runnable by `RulesPlugin`), an
-  invalid-JSON sanity counter, a per-source breakdown
-  (rows ingested + rows lowered + lowering coverage % + pinned
-  upstream commit SHA per tool), and a per-(source, severity)
-  breakdown sorted critical → info. When `rules.sqlite` is absent the
-  tab renders a build instruction
-  (`cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite`)
-  and reminds the user that the desktop falls back to legacy
-  bincode-only behaviour silently in that case.
 
 ### 4.12 Settings
 
@@ -748,7 +872,7 @@ highlighting.
 
 ## 5. Backend surface (Tauri commands)
 
-Every user action in the UI funnels through one of the following 78
+Every user action in the UI funnels through one of the following 79
 commands (registered in `main.rs` and defined in `commands.rs`,
 `proxy_cmd.rs`, `asset_cmd.rs`, and `recon_cmd.rs`). The rest is
 rendering.
@@ -779,10 +903,11 @@ rendering.
 | --- | --- |
 | `vulndb_summary` / `vulndb_update` | NVD+EPSS vulnerability DB inspector + refresher (daily / full mode). |
 | `sonar_summary` | Inventory of scripted/static probes + fingerprint sets, with user-supplied extra files merged in. |
+| `device_db_summary` | Roll-up for the embedded `devices.sqlite` SNMP catalog — entry / vendor / device-type / clause counts; sysObjectID-prefix, sysDescr-substring, sysDescr-regex totals; and IANA Private Enterprise Number + IEEE OUI row counts read from the same SQLite file. Backs the Databases → *Device signatures* tab. Returns `catalog_ready: false` (with zero counts) when no signature catalog is loaded so the tab can render a build-instruction state instead of erroring. |
 | `nuclei_summary` / `nuclei_template_list` / `nuclei_extras_download` / `nuclei_extras_remove` | Nuclei bundle inspector + tier-2 cache management. |
 | `wappalyzer_summary` | Fingerprint dataset (embedded + seed). |
 | `jarm_lookup` | Decompose a JARM hash into cipher/version + extensions digest and look up known matches. |
-| `probe_start` / `probe_cancel` | Standalone service probing (target expansion, per-host concurrency, live events). |
+| `probe_start` / `probe_cancel` | Standalone service probing (target expansion, per-host concurrency, live events). `ProbeParams` carries `snmp_fingerprint` and `mac_lookup` toggles (Deep mode treats both as true regardless of the input flag). |
 
 ### Recon
 
@@ -869,6 +994,8 @@ rendering.
 - `scan://{id}/close` — end-of-stream marker.
 - `scan://{id}/done` — terminal status (`done` / `cancelled` / `error`).
 - `probe://{id}/host-start` / `host-end` / `open-port` / `summary` / `error` — service-probing lifecycle.
+- `probe://{id}/device-match` — SNMP device-fingerprint hit for a host (vendor, OS, device-type, source attribution `sysObjectID` / `sysDescr` / `fallback`, and the raw `sysDescr` / `sysObjectID` values that triggered the match). Drives the Probing run table's per-host Device chip and the Asset detail Device panel. Fires only when SNMP fingerprinting is enabled (always on in Deep mode; opt-in in Rapid).
+- `probe://{id}/mac-resolved` — MAC-address observation for a host from the OS ARP / NDP cache, with the IEEE OUI vendor name resolved through `devices.sqlite`. Fires only when MAC capture is enabled (Deep mode default; opt-in in Rapid). Routed targets surface the upstream router's MAC; only L2-adjacent hosts return useful data.
 - `recon://event` — single multiplexed channel keyed by `run_id`. Event kinds: `source_started`, `source_finished`, `wildcard_detected`, `subdomain_discovered`, `record_discovered`, `zone_transfer`, `brute_progress`, `complete`, `failed`, `cancelled`.
 - `proxy://exchange-new` — every captured HTTP exchange (summary).
 - `proxy://ws-frame` — every captured WebSocket frame (exchange id, sequence, direction, opcode, FIN flag, base64 payload).
@@ -893,13 +1020,14 @@ refreshes on a slow 2 s cadence.)
 
 | Path (platform-resolved via `app_data_dir`) | Contents |
 | --- | --- |
-| `history.sqlite` | Scan history table (`scans` — with the new `saved` flag for opt-in retention; unsaved rows are purged at next launch); per-scan persisted findings (`scan_findings`, `ON DELETE CASCADE` from `scans` so the History view's inline-expand can re-render past runs); proxy sessions, exchanges, WebSocket frames, scope rules, retention setting, intercept mode, key/value settings, findings; recon runs and recon findings (`recon_runs` + `recon_findings`, FK cascade); CSRF rules (`proxy_csrf_rules`); conditional intercept rules (`proxy_intercept_rules`, with conditions stored as a tagged-enum JSON blob to avoid future schema migrations). WAL mode so every engine shares it safely. |
+| `history.sqlite` | Scan history table (`scans` — with the `saved` flag for opt-in retention; unsaved rows are purged at next launch); per-scan persisted findings (`scan_findings`, `ON DELETE CASCADE` from `scans` so the History view's inline-expand can re-render past runs); proxy sessions, exchanges, WebSocket frames, scope rules, retention setting, intercept mode, key/value settings, findings; recon runs and recon findings (`recon_runs` + `recon_findings`, FK cascade); CSRF rules (`proxy_csrf_rules`); conditional intercept rules (`proxy_intercept_rules`, with conditions stored as a tagged-enum JSON blob to avoid future schema migrations); standalone-probe state (`probe_runs`, `probe_open_ports`, `probe_device_match` for SNMP-derived vendor / OS / device-type matches, `probe_host_mac` for OS-ARP MAC observations + IEEE OUI vendor names — all with `ON DELETE CASCADE` from `probe_runs`). WAL mode so every engine shares it safely. |
 | `exploitdb.sqlite` | Exploit-DB snapshot — `exploits`, `exploit_cves`, `exploitdb_meta` tables. Seeded from a bundled snapshot on first launch and upgraded on app updates unless the user has run their own sync. Refreshable via the `exploitdb_update` command. |
 | `proxy/ca/ca.cert.pem` + `proxy/ca/ca.key.pem` | Locally-generated Certificate Authority for HTTPS MITM. Regenerated on first proxy start if missing. |
 | `proxy/bodies/<exchange-id>.{req,res}.bin` | Large request / response bodies that exceed the 512 KB inline cap are spilled here (up to the 32 MB per-side hard cap). Evicted alongside the parent exchange when retention trims. |
 | `corvex/nuclei-templates/<tag>/` | Tier-2 Nuclei template cache (only `http/` is unpacked from the GitHub tarball). |
 | `rules.sqlite` (extracted on first run, sibling of `history.sqlite`) | Embedded **unified rules catalog** consolidating Nikto + OWASP ZAP + Burp BCheck rules. The bytes are `include_bytes!`-baked into the desktop binary by `build.rs` and extracted on first launch (or after a binary upgrade — detected via length mismatch + first-4 KB compare). A cwd / exe-dir copy wins over the extracted blob so power users can swap catalogs without a rebuild. `RulesPlugin` opens this read-only at scan time. |
-| Bundled in binary | Web-signature DBs, Nuclei tier-1 curated templates, Wappalyzer seed + dataset, JARM known hashes, default config, OWASP `top10.yaml`, hidden-parameter wordlist, Wappalyzer → CPE map, Exploit-DB seed snapshot, default subdomain wordlist (~200 names), unified rules catalog (`rules.sqlite`, ~7 MB), gzip-compressed NVD + EPSS snapshot (when present at build time — extracted to `<app_data_dir>/corvex/vulndb.sqlite` on first run). |
+| `devices.sqlite` (extracted on first run, sibling of `history.sqlite`) | Embedded **SNMP device-signature catalog** — vendor / OS / device-type YAMLs lowered into matchable rows by `corvex-devicedb-builder`, plus the IANA Private Enterprise Numbers reference table and the IEEE OUI registry (MA-L / MA-M / MA-S). Same `include_bytes!` extraction shape as `rules.sqlite`: cwd > exe-dir > extracted blob, length + first-4 KB drift check on launch. Opened read-only by the probing engine and the `device_db_summary` command. |
+| Bundled in binary | Web-signature DBs, Nuclei tier-1 curated templates, Wappalyzer seed + dataset, JARM known hashes, default config, OWASP `top10.yaml`, hidden-parameter wordlist, Wappalyzer → CPE map, Exploit-DB seed snapshot, default subdomain wordlist (~200 names), unified rules catalog (`rules.sqlite`, ~7 MB), SNMP device-signature catalog + IANA PEN + IEEE OUI tables (`devices.sqlite`), gzip-compressed NVD + EPSS snapshot (when present at build time — extracted to `<app_data_dir>/corvex/vulndb.sqlite` on first run). |
 
 Nothing is written outside the user's data dir. No registry entries. No
 network calls unless the user explicitly clicks **Update VulnDB**,
@@ -1056,9 +1184,9 @@ first contact. Drop the rule when you're done.
 
 Anywhere you see a crosshair `AssetLink` icon (Findings, Traffic, Recon
 results, Probing rows, History) — click it. The Asset detail view
-opens with seven panels (Identity / Services / Stack / Endpoints /
-Findings / Related / Timeline) drawn from a single normalized host
-key. Switch to **Graph mode** for a radial overview, click a related
+opens with eight panels (Identity / Device / Services / Stack /
+Endpoints / Findings / Related / Timeline) drawn from a single
+normalized host key. Switch to **Graph mode** for a radial overview, click a related
 node (same JARM / same root domain / same /24) to recentre, and use
 the breadcrumb stack (depth 8) to navigate back. Same target,
 correlated across recon, probe, proxy, and dashboard scans, in one
@@ -1085,19 +1213,53 @@ glossary tooltips. The lazy-load is cached per row so collapsing /
 re-expanding is free. Pair with **Re-run** if you want to compare a
 fresh run against the historical baseline.
 
-### 8.19 "Confirm the unified rules catalog is loaded and healthy."
+### 8.19 "Identify what kind of device is sitting on a given IP."
 
-Databases → **Unified rules** tab. The header line shows whether
-`rules.sqlite` is loaded (and from where — cwd, exe-dir, or the
-extracted-blob path under app data), the schema version, and the
-builder timestamp. The grid below it tabulates per-source ingested vs
-executable counts (rules with non-NULL `match_spec_json` are runnable
-by `RulesPlugin`; the percentage tells you how much of each upstream
-catalogue is wired up), the pinned upstream commit SHAs for Nikto /
-ZAP / Burp, and an invalid-JSON row counter that should always read
-`0` on a healthy build. If the tab reports `loaded = false`, the
-desktop is silently running on the legacy bincode path — rebuild the
-catalog with
+Probing → enter the target → keep **Deep** mode (or stay on Rapid and
+tick **SNMP device fingerprint** + **MAC address scan**) → Run. SNMP
+fires in parallel with the TCP sweep against UDP/161 with community
+`public`, asks for `sysObjectID.0` / `sysDescr.0`, and runs the
+response through the bundled device catalog. A successful match
+shows up in the run table as a per-host **Device** chip
+(vendor + OS + device-type) and persists to `probe_device_match`.
+Pair with the MAC pass — captured from the OS ARP / NDP cache and
+resolved against the IEEE OUI table — for an L2-adjacency vendor
+read where applicable. Click the host's `AssetLink` icon to land on
+the Asset detail view; the new **Device** panel surfaces the
+`sysDescr` / `sysObjectID` evidence and the MAC + OUI vendor
+alongside the Identity / Services panels. Routed targets surface
+the upstream router's MAC instead of the host's — documented on the
+panel itself.
+
+### 8.20 "Start a probe and keep working while it runs."
+
+Probing → kick off a probe (`/24` of the target subnet, Deep mode,
+SNMP + MAC on) → switch to Recon to plan tomorrow's enumeration, or
+to the Asset view to pivot through what's already been discovered.
+The probe keeps streaming results in the background — the
+`ProbeRunningProvider` context owns the listener handles and result
+tables above the view router, so navigation doesn't tear anything
+down. Returning to Probing re-renders the live state with no replay
+or refetch; the form inputs are still where you left them, the
+Cancel button still works, and per-host Device / MAC chips have
+been filling in while you were away.
+
+### 8.21 "Confirm the unified rules catalog is loaded and healthy."
+
+Databases → **Web signatures** tab (this surface used to be a
+standalone *Unified rules* tab in v2.1; it's now the canonical Web
+view because every web check flows through `RulesPlugin` against
+this catalog). The header line shows whether `rules.sqlite` is
+loaded (and from where — cwd, exe-dir, or the extracted-blob path
+under app data), the schema version, and the builder timestamp. The
+grid below it tabulates per-source ingested vs executable counts
+(rules with non-NULL `match_spec_json` are runnable by `RulesPlugin`;
+the percentage tells you how much of each upstream catalogue is
+wired up), the pinned upstream commit SHAs for Nikto / ZAP / Burp,
+and an invalid-JSON row counter that should always read `0` on a
+healthy build. If the tab reports `loaded = false`, the desktop is
+silently running on the legacy bincode path — rebuild the catalog
+with
 `cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite`
 and re-launch.
 
@@ -1246,4 +1408,32 @@ and re-launch.
   A failed step keeps its red badge and the rest of the app loads —
   but the affected subsystem will surface a more specific error on
   first user interaction (e.g. proxy listener won't start without a
-  CA).
+  CA). Note: the splash gate covers the six heavy-init steps
+  (Recon DB, Exploit-DB, History, Probe store, Asset DB, Proxy &
+  CA); the **device-signature catalog** open is an in-line
+  registration in `setup()` (it has no per-step splash badge), and
+  the **vulndb warm-up** runs in the background after `setup()`
+  returns — neither is visible on the splash. A failed device
+  catalog open just leaves SNMP fingerprinting silently disabled.
+- **SNMP device fingerprinting** uses SNMP v2c with community
+  `public` and a small fixed timeout. Devices behind ACLs, or set
+  up with `private`-only / SNMPv3, return nothing — the Device
+  panel stays empty. The matcher is read-only: clauses that need an
+  active follow-up GET (e.g. drilling into `ifTable` to confirm
+  device class) are surfaced as the **disabled clauses** counter on
+  the Databases → Device signatures tab and never fire at scan
+  time. The catalog itself is community-curated and necessarily
+  incomplete — empty Device panels for unknown vendors are normal.
+- **MAC capture** reads the OS ARP / NDP cache after the TCP scan
+  has already exchanged SYNs with the target — it does not send raw
+  L2 frames or do its own ARP solicitations. As a consequence: only
+  L2-adjacent hosts return a useful MAC; routed targets return the
+  upstream router's MAC instead (documented in the Asset Device
+  panel and the run-table chip). IPv6 NDP cache entries follow the
+  same shape as IPv4 ARP entries on every supported platform.
+- **Standalone probing's runner state lives in the React root**
+  (`ProbeRunningProvider`). That keeps a probe alive across view
+  navigations but means a full page reload (Cmd-R / Ctrl-R) drops
+  the active run — there's no backend resume layer for standalone
+  probes, only a persisted result trail in `probe_runs` /
+  `probe_open_ports` / `probe_device_match` / `probe_host_mac`.
