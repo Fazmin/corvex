@@ -455,6 +455,59 @@ code {
     "form      content";
   gap: 16px;
   min-height: 0;
+  transition: grid-template-columns 180ms ease;
+}
+
+.dashboard.scan-form-collapsed {
+  grid-template-columns: 44px 1fr;
+}
+
+.dashboard.scan-form-collapsed .panel.scan-form .panel-body,
+.dashboard.scan-form-collapsed .panel.scan-form .panel-fixed-footer {
+  display: none;
+}
+
+.scan-form-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panel.scan-form.collapsed .scan-form-header {
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0;
+}
+
+.scan-form-toggle {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+  font-size: 0.95em;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scan-form-toggle:hover {
+  color: var(--accent);
+}
+
+.scan-form-vlabel {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-weight: 600;
+  font-size: 0.95em;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  white-space: nowrap;
+  text-transform: uppercase;
 }
 
 .dashboard > .scan-indicator {

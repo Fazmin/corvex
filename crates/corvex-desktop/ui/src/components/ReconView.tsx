@@ -302,7 +302,6 @@ export function ReconView({
   return (
     <div className="recon-view">
       <div className="recon-header">
-        <h2>Recon</h2>
         <div className="recon-tabs">
           <button
             type="button"

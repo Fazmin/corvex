@@ -48,20 +48,17 @@ export function AssetsView() {
         height: "100%",
       }}
     >
-      <header style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <h2 style={{ margin: 0 }}>Assets</h2>
-        <p
-          style={{
-            margin: 0,
-            color: "var(--muted)",
-            fontSize: "0.92em",
-          }}
-        >
-          One row per host the app has seen across recon, probing, the
-          proxy, and the dashboard scan history. Click a row to open the
-          asset detail view.
-        </p>
-      </header>
+      <p
+        style={{
+          margin: 0,
+          color: "var(--muted)",
+          fontSize: "0.92em",
+        }}
+      >
+        One row per host the app has seen across recon, probing, the
+        proxy, and the dashboard scan history. Click a row to open the
+        asset detail view.
+      </p>
 
       <input
         type="search"

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelScan,
-  dbSummary,
   historySetSaved,
   onDone,
   onFinding,
@@ -16,13 +15,10 @@ import {
   scopeGet,
   scopeSet,
   startScan,
-  versionInfo,
-  type DbSummary,
   type FindingPayload,
   type LogLine,
   type ScanParams,
   type ScanStats,
-  type VersionInfo,
 } from "./api";
 import { ScanForm } from "./components/ScanForm";
 import { ScanIndicator } from "./components/ScanIndicator";
@@ -136,8 +132,6 @@ export default function App() {
   const [findings, setFindings] = useState<FindingPayload[]>([]);
   const [stats, setStats] = useState<ScanStats | null>(null);
   const [log, setLog] = useState<string[]>([]);
-  const [version, setVersion] = useState<VersionInfo | null>(null);
-  const [dbs, setDbs] = useState<DbSummary | null>(null);
   const [requestRate, setRequestRate] = useState<number | null>(null);
   const [activeMode, setActiveMode] = useState(false);
   const [currentHost, setCurrentHost] = useState<string | null>(null);
@@ -195,6 +189,37 @@ export default function App() {
   const findingsContainerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+
+  // Scan-target column collapse — narrows the form to a slim vertical
+  // strip so findings get the reclaimed horizontal width. Auto-fires on
+  // the idle→running transition; manual toggle persists thereafter.
+  const SCAN_FORM_COLLAPSED_KEY = "corvexScanFormCollapsed";
+  const [scanFormCollapsed, setScanFormCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SCAN_FORM_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SCAN_FORM_COLLAPSED_KEY, scanFormCollapsed ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [scanFormCollapsed]);
+  const toggleScanFormCollapsed = useCallback(
+    () => setScanFormCollapsed((c) => !c),
+    []
+  );
+  const prevWebRunningRef = useRef(false);
+  useEffect(() => {
+    const webRunning = running && scanSource === "web";
+    if (!prevWebRunningRef.current && webRunning) {
+      setScanFormCollapsed(true);
+    }
+    prevWebRunningRef.current = webRunning;
+  }, [running, scanSource]);
 
   const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -269,9 +294,6 @@ export default function App() {
   // lives for the whole app lifetime, independent of any particular
   // scan.
   useEffect(() => {
-    versionInfo().then(setVersion);
-    dbSummary().then(setDbs);
-
     let unlisten: (() => void) | null = null;
     const logBatcher = createRafBatcher<string>((batch) => {
       setLog((prev) => {
@@ -478,16 +500,8 @@ export default function App() {
     : scanId
     ? "Last scan complete"
     : "Ready to scan";
-  const sub = version
-    ? `corvex-rust v${version.version}${
-        dbs
-          ? ` · ${dbs.tests.toLocaleString()} tests · ${dbs.outdated.toLocaleString()} outdated sigs`
-          : ""
-      }`
-    : "";
-
   const titleByView: Record<View, string> = {
-    home: "corvex-rust",
+    home: "Corvex",
     dashboard: "Web scan",
     history: "Scan history",
     plugins: "Plugins",
@@ -531,7 +545,6 @@ export default function App() {
             <header className="main-header">
               <div>
                 <h1>{titleByView[view]}</h1>
-                <div className="sub">{sub}</div>
               </div>
               <div
                 style={{
@@ -569,7 +582,7 @@ export default function App() {
           {view === "home" && <LandingView onNavigate={setView} />}
 
           {view === "dashboard" && (
-            <div className="dashboard">
+            <div className={`dashboard${scanFormCollapsed ? " scan-form-collapsed" : ""}`}>
               {/* `webRunning` is the dashboard's "is *my* run live?"
                   flag — true only for Web scans. A Fuzzing-view run
                   doesn't claim the dashboard; we surface a small
@@ -638,6 +651,8 @@ export default function App() {
                       running={webRunning}
                       onStart={handleStart}
                       onCancel={handleCancel}
+                      collapsed={scanFormCollapsed}
+                      onToggleCollapsed={toggleScanFormCollapsed}
                     />
                   </>
                 );

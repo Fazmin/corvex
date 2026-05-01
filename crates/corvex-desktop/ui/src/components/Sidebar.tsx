@@ -133,7 +133,7 @@ export function Sidebar({
     <aside className={`sidebar${collapsed ? " collapsed" : ""}`}>
       <div className="sidebar-brand">
         <img src="/corvex_logo.png" className="logo" alt="" aria-hidden />
-        {!collapsed && <span className="name">corvex-rust</span>}
+        {!collapsed && <span className="name">Corvex</span>}
         {!collapsed && <span className="version">v0.1.0</span>}
       </div>
 

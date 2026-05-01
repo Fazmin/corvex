@@ -52,7 +52,7 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar }: Props) {
             aria-hidden
             data-tauri-drag-region
           />
-          corvex-rust
+          Corvex
         </span>
         <span data-tauri-drag-region>· web vulnerability scanner</span>
       </div>

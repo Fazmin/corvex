@@ -84,9 +84,11 @@ interface Props {
   running: boolean;
   onStart: (params: ScanParams) => void;
   onCancel: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
-export function ScanForm({ running, onStart, onCancel }: Props) {
+export function ScanForm({ running, onStart, onCancel, collapsed, onToggleCollapsed }: Props) {
   const { extraProbeFiles } = useSettings();
   const [host, setHost] = useState("http://example.com");
   const [ports, setPorts] = useState("");
@@ -256,9 +258,23 @@ export function ScanForm({ running, onStart, onCancel }: Props) {
   };
 
   return (
-    <form className="panel scan-form" onSubmit={submit}>
-      <div className="panel-fixed-header">
-        <h2>Scan target</h2>
+    <form className={`panel scan-form${collapsed ? " collapsed" : ""}`} onSubmit={submit}>
+      <div className="panel-fixed-header scan-form-header">
+        <button
+          type="button"
+          className="scan-form-toggle"
+          onClick={onToggleCollapsed}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand scan target form" : "Collapse scan target form"}
+          title={collapsed ? "Expand scan target" : "Collapse scan target"}
+        >
+          {collapsed ? "▸" : "◂"}
+        </button>
+        {collapsed ? (
+          <span className="scan-form-vlabel">Scan target</span>
+        ) : (
+          <h2 style={{ margin: 0 }}>Scan target</h2>
+        )}
       </div>
       <div className="panel-body">
       <div className="field preset-row">

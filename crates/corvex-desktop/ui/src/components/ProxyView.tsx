@@ -320,7 +320,6 @@ export function ProxyView({ onSendToFuzzer }: ProxyViewProps = {}) {
       <div className="proxy-toolbar panel">
         <div className="proxy-toolbar-row">
           <div className="proxy-toolbar-left">
-            <h2 className="proxy-title">Intercept</h2>
             <span
               className="badge-inline"
               data-status={running ? "running" : "stopped"}
