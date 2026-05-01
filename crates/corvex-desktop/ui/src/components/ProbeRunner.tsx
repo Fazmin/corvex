@@ -6,7 +6,7 @@
  * back from the backend via `probe://<id>/...` Tauri events.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type {
   ProbeDeviceMatch,
   ProbeMacResolved,
@@ -445,7 +445,7 @@ example.com
       </div>
 
       {(running || Object.keys(hosts).length > 0) && (
-        <div className="form-panel" style={{ maxWidth: 1100 }}>
+        <div className="form-panel">
           <h3 style={{ margin: 0 }}>Hosts</h3>
           <HostTable
             hosts={hosts}
@@ -499,6 +499,35 @@ example.com
   );
 }
 
+function ipToSortKey(ip: string): number[] {
+  const parts = ip.split(".").map((p) => parseInt(p, 10));
+  return parts.length === 4 && parts.every((n) => Number.isFinite(n)) ? parts : [Infinity];
+}
+
+function compareIp(a: string, b: string): number {
+  const ka = ipToSortKey(a);
+  const kb = ipToSortKey(b);
+  for (let i = 0; i < Math.max(ka.length, kb.length); i++) {
+    const av = ka[i] ?? 0;
+    const bv = kb[i] ?? 0;
+    if (av !== bv) return av - bv;
+  }
+  return 0;
+}
+
+function cleanTargetLabel(h: HostStatus): string {
+  // Strip the trailing "[ip]" suffix the backend appends to display.
+  const stripped = h.display.replace(/\s*\[[^\]]+\]\s*$/, "").trim();
+  // If the prefix is a range/CIDR or empty, fall back to the per-host IP.
+  if (!stripped || /[/–-]/.test(stripped) || stripped === h.ip) {
+    return h.ip;
+  }
+  return stripped;
+}
+
+type HostSortKey = "ip" | "mac" | "open";
+type SortDir = "asc" | "desc";
+
 function HostTable({
   hosts,
   deviceMatches,
@@ -508,22 +537,84 @@ function HostTable({
   deviceMatches: Record<string, ProbeDeviceMatch>;
   macResolved: Record<string, ProbeMacResolved>;
 }) {
-  const rows = Object.values(hosts).sort((a, b) => a.ip.localeCompare(b.ip));
+  const [sortKey, setSortKey] = useState<HostSortKey>("ip");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const toggleSort = (key: HostSortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const rows = useMemo(() => {
+    const list = Object.values(hosts);
+    const dir = sortDir === "asc" ? 1 : -1;
+    return list.sort((a, b) => {
+      if (sortKey === "ip") return compareIp(a.ip, b.ip) * dir;
+      if (sortKey === "open") {
+        if (a.openCount !== b.openCount) return (a.openCount - b.openCount) * dir;
+        return compareIp(a.ip, b.ip);
+      }
+      const ma = macResolved[a.display]?.mac ?? "";
+      const mb = macResolved[b.display]?.mac ?? "";
+      // Empty MACs sort last regardless of direction.
+      if (!ma && mb) return 1;
+      if (ma && !mb) return -1;
+      return ma.localeCompare(mb) * dir;
+    });
+  }, [hosts, macResolved, sortKey, sortDir]);
+
+  const sortGlyph = (key: HostSortKey) =>
+    sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+  const sortableHeaderStyle = (key: HostSortKey): React.CSSProperties => ({
+    textAlign: "left",
+    padding: "6px 10px",
+    cursor: "pointer",
+    userSelect: "none",
+    color: sortKey === key ? "var(--accent)" : undefined,
+  });
+
   return (
     <table className="sub" style={{ width: "100%", marginTop: 8, borderCollapse: "collapse" }}>
       <thead>
         <tr style={{ borderBottom: "1px solid var(--border)" }}>
           <th style={{ textAlign: "left", padding: "6px 10px 6px 0" }}>Target</th>
-          <th style={{ textAlign: "left", padding: "6px 10px" }}>IP</th>
-          <th style={{ textAlign: "left", padding: "6px 10px" }}>MAC · Vendor</th>
+          <th
+            style={sortableHeaderStyle("ip")}
+            onClick={() => toggleSort("ip")}
+            title="Sort by IP"
+          >
+            IP{sortGlyph("ip")}
+          </th>
+          <th
+            style={sortableHeaderStyle("mac")}
+            onClick={() => toggleSort("mac")}
+            title="Sort by MAC"
+          >
+            MAC · Vendor{sortGlyph("mac")}
+          </th>
           <th style={{ textAlign: "left", padding: "6px 10px" }}>Device</th>
           <th style={{ textAlign: "left", padding: "6px 10px" }}>State</th>
-          <th style={{ textAlign: "right", padding: "6px 10px" }}>Open</th>
+          <th
+            style={{
+              ...sortableHeaderStyle("open"),
+              textAlign: "right",
+            }}
+            onClick={() => toggleSort("open")}
+            title="Sort by open port count"
+          >
+            Open{sortGlyph("open")}
+          </th>
           <th style={{ textAlign: "right", padding: "6px 0" }}>Elapsed</th>
         </tr>
       </thead>
       <tbody>
-        {rows.map((h) => (
+        {rows.map((h) => {
+          const target = cleanTargetLabel(h);
+          return (
           <tr key={h.display}>
             <td
               style={{
@@ -532,9 +623,9 @@ function HostTable({
                 color: "var(--fg)",
               }}
             >
-              {h.display}
+              {target}
               <span style={{ marginLeft: 6, verticalAlign: "middle" }}>
-                <AssetLink host={h.display} />
+                <AssetLink host={target} />
               </span>
             </td>
             <td
@@ -583,7 +674,8 @@ function HostTable({
               {formatElapsed(h.elapsedMs)}
             </td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );
