@@ -35,12 +35,11 @@ export function LandingView({ onNavigate }: Props) {
             Offence
           </div>
           <h1 className="landing-title">
-            Your unified{" "}
-            <span className="landing-title-accent">security workbench.</span>
+            The unified{" "}
+            <span className="landing-title-accent">security assessment workbench.</span>
           </h1>
           <p className="landing-tagline">
-            One calm interface for both sides of the fight — every tool a
-            security professional reaches for, without the juggle.
+            Offensive and defensive tooling, unified. Local by design.
           </p>
           <div className="landing-cta-row">
             <button
