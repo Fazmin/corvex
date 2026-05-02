@@ -4052,17 +4052,30 @@ Content-Length: 42
             </dd>
             <dt>Plugins</dt>
             <dd>
-              Select-all UI over the plugin registry. <code>@@DEFAULT</code>{" "}
-              resolves to the default-on subset. Uncheck individual plugins to
-              exclude them from the default set, or pick a narrow bespoke list.
-              The <em>Select all</em> / <em>Deselect all</em> shortcuts at the
-              top of the list flip the entire registry in one click:
-              {" "}<em>Select all</em> sets <code>@@ALL</code> (every plugin
-              including opt-in extras like <code>nuclei</code>,{" "}
-              <code>dictionary</code>, <code>siebel</code>), while{" "}
-              <em>Deselect all</em> expands to{" "}
-              <code>@@DEFAULT;-p1;-p2;…;-pN</code> — every checkbox off so you
-              can cherry-pick one or two plugins for a focused run.
+              Select-all UI over the plugin registry. Each row shows the
+              plugin's <strong>human-readable name</strong> (e.g.{" "}
+              <em>Software Composition Analysis</em>,{" "}
+              <em>DNS Enumeration</em>, <em>TLS Security Audit</em>); hover
+              the row for the short description and the underlying registry
+              id (<code>sca</code>, <code>dns_enum</code>,{" "}
+              <code>tls_audit</code>, …) used in selector strings. The small
+              <span className="badge">w<em>N</em></span> pill on the right is
+              the plugin's <strong>execution weight</strong> — lower values
+              run earlier within the same hook phase
+              (<code>w3</code> before <code>w15</code>); hover it to see
+              which hooks the plugin attaches to.
+              <br />
+              <br />
+              <code>@@DEFAULT</code> resolves to the default-on subset.
+              Uncheck individual plugins to exclude them from the default
+              set, or pick a narrow bespoke list. The <em>Select all</em> /{" "}
+              <em>Deselect all</em> shortcuts at the top of the list flip
+              the entire registry in one click: <em>Select all</em> sets{" "}
+              <code>@@ALL</code> (every plugin including opt-in extras like
+              {" "}<code>nuclei</code>, <code>dictionary</code>,{" "}
+              <code>siebel</code>), while <em>Deselect all</em> expands to{" "}
+              <code>@@DEFAULT;-p1;-p2;…;-pN</code> — every checkbox off so
+              you can cherry-pick one or two plugins for a focused run.
             </dd>
             <dt>Evasion</dt>
             <dd>

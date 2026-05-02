@@ -106,20 +106,33 @@ export function PluginPicker({ value, onChange, onLoaded }: Props) {
           short description of what it does. The <em>Select all</em> shortcut
           sets <dt style={{ display: "inline" }}>@@ALL</dt>;{" "}
           <em>Deselect all</em> excludes every registered plugin.
+          <br />
+          <br />
+          The small <span className="badge">w<em>N</em></span> pill is the
+          plugin's <strong>execution weight</strong> — lower values run earlier
+          within their hook phase (e.g. <em>w3</em> runs before <em>w15</em>).
+          Hover the pill to see which hooks the plugin attaches to.
         </InfoTip>
       </div>
       <div className="plugin-list">
         {plugins.map((p) => (
-          <div className="plugin-row" key={p.name} title={p.description}>
+          <div
+            className="plugin-row"
+            key={p.name}
+            title={p.description ? `${p.name} — ${p.description}` : p.name}
+          >
             <label className="checkbox">
               <input
                 type="checkbox"
                 checked={isChecked(p.name)}
                 onChange={() => toggle(p.name)}
               />
-              {p.name}
+              <span className="plugin-label">{p.full_name || p.name}</span>
             </label>
-            <span className="badge" title={`Hooks: ${p.hooks.join(", ")}`}>
+            <span
+              className="badge"
+              title={`Execution weight ${p.weight} — lower runs earlier. Hooks: ${p.hooks.join(", ")}`}
+            >
               w{p.weight}
             </span>
           </div>

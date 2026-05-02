@@ -2080,6 +2080,13 @@ button[disabled] {
 .plugin-list .plugin-row .checkbox {
   flex: 1;
   margin-right: 6px;
+  min-width: 0;
+}
+
+.plugin-list .plugin-row .plugin-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .badge {
