@@ -45,6 +45,9 @@ desktop.ini
 corvex.conf
 tests/udb_*
 
+# Local-only research clones (e.g. librenms checkout for upstream reference)
+/upstream-fetch/
+
 # --- corvex-feed-harvest: dev-only cache of the OpenVAS Community Feed -------
 # The harvester rsync's the feed under program/feed-cache/openvas/ to extract
 # metadata facts for rule scaffolds. NASL files MUST NOT enter the repo —
