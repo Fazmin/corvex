@@ -35,6 +35,30 @@ interface Cell {
   hint: string;
 }
 
+/**
+ * User-facing label for a `source_tool` value from rules.sqlite. Decoupled
+ * from the internal identifier so we can name sources in the UI without
+ * exposing their provenance — `openvas-port` rules surface as "Network".
+ * Everything else falls through to a Title-Case version of the raw value.
+ */
+function sourceLabel(sourceTool: string): string {
+  switch (sourceTool) {
+    case "openvas-port":
+      return "Network";
+    case "nikto":
+      return "Nikto";
+    case "zap":
+      return "ZAP";
+    case "burp":
+      return "Burp";
+    default:
+      return sourceTool
+        .split("-")
+        .map((p) => (p.length > 0 ? p[0].toUpperCase() + p.slice(1) : p))
+        .join(" ");
+  }
+}
+
 type DbTab =
   | "web"
   | "probing"
@@ -172,11 +196,12 @@ function WebTab() {
         <div className="sub" style={{ marginBottom: 10, lineHeight: 1.5 }}>
           The unified web-rules catalog (
           <code>program/rules/rules.sqlite</code>) consolidates checks
-          from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>, and{" "}
-          <strong>Burp Suite BChecks</strong> into one queryable SQLite
-          file embedded in the binary at compile time. Findings from
-          this catalog are emitted by <code>RulesPlugin</code> at scan
-          time.
+          from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>,{" "}
+          <strong>Burp Suite BChecks</strong>, and hand-authored{" "}
+          <strong>Network</strong> service rules into one queryable
+          SQLite file embedded in the binary at compile time. Findings
+          from this catalog are emitted by <code>RulesPlugin</code> at
+          scan time.
         </div>
         <div className="empty" style={{ padding: 16 }}>
           No <code>rules.sqlite</code> was found in the working
@@ -210,7 +235,7 @@ function WebTab() {
     {
       label: "Total rules ingested",
       value: totalIngested,
-      hint: "Rules parsed from rules-sources/{nikto,zap,burp}/ and persisted into rules.sqlite.",
+      hint: "Rules parsed from rules-sources/{nikto,zap,burp,openvas-port}/ and persisted into rules.sqlite.",
     },
     {
       label: "Total executable",
@@ -250,13 +275,14 @@ function WebTab() {
       <div className="sub" style={{ marginBottom: 10, lineHeight: 1.5 }}>
         The unified web-rules catalog (
         <code>program/rules/rules.sqlite</code>) consolidates checks
-        from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>, and{" "}
-        <strong>Burp Suite BChecks</strong>. <code>RulesPlugin</code>{" "}
+        from <strong>Nikto</strong>, <strong>OWASP ZAP</strong>,{" "}
+        <strong>Burp Suite BChecks</strong>, and hand-authored{" "}
+        <strong>Network</strong> service rules. <code>RulesPlugin</code>{" "}
         reads the executable subset at scan time. By default the
         desktop runs in side-by-side mode (legacy{" "}
         <code>TestsPlugin</code> owns Nikto; <code>RulesPlugin</code>{" "}
-        owns ZAP + Burp); the CLI flag <code>--rules-only</code> flips
-        ownership for parity validation.
+        owns ZAP + Burp + Network); the CLI flag{" "}
+        <code>--rules-only</code> flips ownership for parity validation.
       </div>
 
       <div className="info-grid">
@@ -319,8 +345,8 @@ function WebTab() {
                 key={src.source_tool}
                 style={{ borderBottom: "1px solid var(--border)" }}
               >
-                <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
-                  {src.source_tool}
+                <td style={{ padding: "6px 8px" }}>
+                  {sourceLabel(src.source_tool)}
                 </td>
                 <td style={{ padding: "6px 8px", textAlign: "right" }}>
                   {src.ingested.toLocaleString()}
@@ -387,8 +413,8 @@ function WebTab() {
               key={`${row.source_tool}-${row.severity}-${i}`}
               style={{ borderBottom: "1px solid var(--border)" }}
             >
-              <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
-                {row.source_tool}
+              <td style={{ padding: "6px 8px" }}>
+                {sourceLabel(row.source_tool)}
               </td>
               <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>
                 {row.severity}

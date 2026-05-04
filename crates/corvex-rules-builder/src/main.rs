@@ -183,6 +183,25 @@ fn run_build(cli: &Cli) -> Result<()> {
         }
     }
 
+    if want(SourceTool::OpenvasPort) {
+        let net_dir = cli.sources.join("openvas-port");
+        if net_dir.exists() {
+            println!("[Net]   reading {}", net_dir.display());
+            let (rules, stats) = parsers::openvas_port::parse_dir(&net_dir)
+                .with_context(|| format!("parse openvas-port dir {}", net_dir.display()))?;
+            println!(
+                "         ingested = {}  skipped = {}",
+                stats.ingested,
+                stats.skipped_total()
+            );
+            all_rules.extend(rules);
+            build_report.record(SourceTool::OpenvasPort, stats);
+        } else {
+            println!("[Net]   (no rules-sources/openvas-port/ — skipping)");
+            build_report.record(SourceTool::OpenvasPort, ParseStats::default());
+        }
+    }
+
     println!();
     println!("[insert] writing {} rules into {}", all_rules.len(), cli.output.display());
     let (written, lowering_stats) =

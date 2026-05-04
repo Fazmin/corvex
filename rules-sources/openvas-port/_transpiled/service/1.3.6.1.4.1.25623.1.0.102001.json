@@ -1,0 +1,53 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.102001",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "svc0",
+        "kind": "tcp_banner",
+        "method": "",
+        "payload": null,
+        "port": 5101,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "banner",
+          "regex": "YMSG",
+          "step": "svc0"
+        }
+      }
+    ]
+  },
+  "name": "Yahoo Messenger Detection",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "http://libyahoo2.sourceforge.net/ymsg-9.txt",
+      "http://www.astahost.com/info.php/yahoo-protocol-part-10-peer-peer-transfers_t11490.html",
+      "http://libyahoo2.sourceforge.net/README"
+    ],
+    "default_ports": [
+      5101
+    ],
+    "openvas_family": "Service detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.102001",
+    "transpiled": true
+  },
+  "references": [
+    "http://libyahoo2.sourceforge.net/ymsg-9.txt",
+    "http://www.astahost.com/info.php/yahoo-protocol-part-10-peer-peer-transfers_t11490.html",
+    "http://libyahoo2.sourceforge.net/README",
+    "http://www.ycoderscookbook.com/",
+    "http://www.venkydude.com/articles/yahoo.htm"
+  ],
+  "severity": "info"
+}

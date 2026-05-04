@@ -1,0 +1,35 @@
+{
+  "id": "corvex-net.backup-sql-dump-exposed",
+  "name": "Database dump file exposed in webroot",
+  "description": "A common database-dump filename (backup.sql / dump.sql / database.sql) is reachable via HTTP and the response body starts with the canonical mysqldump header. Database dumps in the webroot leak schema, credentials, and customer data. The detection looks for the standard mysqldump comment block at the head of the response.",
+  "severity": "critical",
+  "confidence": "high",
+  "category": "info-disclosure",
+  "owasp_2025": "A05",
+  "cwe": 538,
+  "references": [
+    "https://dev.mysql.com/doc/refman/8.0/en/mysqldump.html"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/backup.sql",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^200$" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "^-- MySQL dump" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://dev.mysql.com/doc/refman/8.0/en/mysqldump.html"
+    ],
+    "default_ports": [80, 443]
+  }
+}

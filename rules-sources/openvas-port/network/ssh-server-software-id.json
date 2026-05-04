@@ -1,0 +1,36 @@
+{
+  "id": "corvex-net.ssh-server-software-id",
+  "name": "SSH server banner discloses software identifier",
+  "description": "The SSH server returns its software identifier in the SSH-2.0 banner line. RFC 4253 requires the banner; the disclosure itself is informational, but the version string is the key fact every CVE-correlation pipeline keys off. This detection captures the banner so downstream advisory mapping has something to work with. (Phase C runtime executes this once the TCP-banner probe ships.)",
+  "severity": "info",
+  "confidence": "high",
+  "category": "service-exposure",
+  "owasp_2025": "A05",
+  "cwe": 200,
+  "references": [
+    "https://datatracker.ietf.org/doc/html/rfc4253#section-4.2"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "ssh0",
+        "method": "",
+        "uri": "",
+        "headers": [],
+        "body": null,
+        "payload": null,
+        "kind": "tcp_banner",
+        "port": 22
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "banner", "step": "ssh0", "regex": "^SSH-2\\.0-" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://datatracker.ietf.org/doc/html/rfc4253#section-4.2"
+    ],
+    "default_ports": [22]
+  }
+}

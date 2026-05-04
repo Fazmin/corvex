@@ -13,6 +13,7 @@ members = [
     "crates/vulndb-builder",
     "crates/corvex-rules",
     "crates/corvex-rules-builder",
+    "crates/corvex-feed-harvest",
     "crates/corvex-devicedb",
     "crates/corvex-devicedb-builder",
 ]

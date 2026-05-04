@@ -1,0 +1,93 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.20093",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/login_page.php"
+      },
+      {
+        "body": null,
+        "headers": [],
+        "id": "r1",
+        "method": "GET",
+        "payload": null,
+        "uri": "/bug_sponsorship_list_view_inc.php?t_core_path=../../../../../../../../../../"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "Copyright &copy;.*Mantis Group",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r1"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "Warning.+main\\(/",
+          "step": "r1"
+        }
+      }
+    ]
+  },
+  "name": "MantisBT < 0.19.3 Multiple Vulnerabilities",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2005-3091",
+      "https://nvd.nist.gov/vuln/detail/CVE-2005-3335",
+      "https://nvd.nist.gov/vuln/detail/CVE-2005-3336"
+    ],
+    "cve": [
+      "CVE-2005-3091",
+      "CVE-2005-3335",
+      "CVE-2005-3336",
+      "CVE-2005-3337",
+      "CVE-2005-3338",
+      "CVE-2005-3339"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Web application abuses",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.20093",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2005-3091",
+    "https://nvd.nist.gov/vuln/detail/CVE-2005-3335",
+    "https://nvd.nist.gov/vuln/detail/CVE-2005-3336",
+    "https://nvd.nist.gov/vuln/detail/CVE-2005-3337",
+    "https://nvd.nist.gov/vuln/detail/CVE-2005-3338",
+    "https://nvd.nist.gov/vuln/detail/CVE-2005-3339",
+    "http://secunia.com/secunia_research/2005-46/advisory/",
+    "http://www.securityfocus.com/bid/15210",
+    "http://www.securityfocus.com/bid/15212",
+    "http://sourceforge.net/mailarchive/forum.php?thread_id=8517463&forum_id=7369"
+  ],
+  "severity": "high"
+}

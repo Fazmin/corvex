@@ -1,0 +1,76 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.103293",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "Bad Gateway",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "^HTTP/1\\.[01] 400",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "^HTTP/1\\.[01] 200",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "Apache HTTP Server 'mod_proxy' Reverse Proxy Information Disclosure Vulnerability",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2011-3368",
+      "https://nvd.nist.gov/vuln/detail/CVE-2011-4317",
+      "http://www.securityfocus.com/bid/49957"
+    ],
+    "cve": [
+      "CVE-2011-3368",
+      "CVE-2011-4317"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Web Servers",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.103293",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2011-3368",
+    "https://nvd.nist.gov/vuln/detail/CVE-2011-4317",
+    "http://www.securityfocus.com/bid/49957",
+    "http://www.securityfocus.com/bid/50802",
+    "http://seclists.org/fulldisclosure/2011/Oct/232"
+  ],
+  "severity": "high"
+}

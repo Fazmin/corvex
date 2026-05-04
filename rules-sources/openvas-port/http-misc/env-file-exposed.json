@@ -1,0 +1,35 @@
+{
+  "id": "corvex-net.env-file-exposed",
+  "name": "Application .env file exposed",
+  "description": "A /.env file is reachable via HTTP and contains key=value lines typical of Laravel / Symfony / Node dotenv deployments. The dotenv project documents .env as a non-public configuration store; serving it leaks DB credentials, API keys, and signing secrets in cleartext.",
+  "severity": "critical",
+  "confidence": "medium",
+  "category": "info-disclosure",
+  "owasp_2025": "A05",
+  "cwe": 538,
+  "references": [
+    "https://github.com/motdotla/dotenv#should-i-commit-my-env-file"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/.env",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^200$" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "^[A-Z][A-Z0-9_]+=" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://github.com/motdotla/dotenv#should-i-commit-my-env-file"
+    ],
+    "default_ports": [80, 443]
+  }
+}

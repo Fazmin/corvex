@@ -1,0 +1,68 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.10440",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "Index of /",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "Forbidden",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "Apache HTTP Server Multiple '/' Vulnerability - Active Check",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2000-0505",
+      "https://nvd.nist.gov/vuln/detail/CVE-2001-0729",
+      "https://httpd.apache.org/security/vulnerabilities_13.html"
+    ],
+    "cve": [
+      "CVE-2000-0505",
+      "CVE-2001-0729"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Web Servers",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.10440",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2000-0505",
+    "https://nvd.nist.gov/vuln/detail/CVE-2001-0729",
+    "https://httpd.apache.org/security/vulnerabilities_13.html",
+    "https://web.archive.org/web/20210121153255/http://www.securityfocus.com/bid/1284/"
+  ],
+  "severity": "high"
+}

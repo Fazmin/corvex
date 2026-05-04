@@ -1,0 +1,51 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "tls-config",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.113045",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "tls0",
+        "kind": "tls",
+        "method": "",
+        "payload": null,
+        "port": 443,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "tls_version",
+          "regex": "^SSLv2$",
+          "step": "tls0"
+        }
+      }
+    ]
+  },
+  "name": "SSL/TLS: Expect Certificate Transparency (Expect-CT) Detection",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://owasp.org/www-project-secure-headers/#expect-ct",
+      "https://scotthelme.co.uk/a-new-security-header-expect-ct/",
+      "http://httpwg.org/http-extensions/expect-ct.html"
+    ],
+    "default_ports": [
+      443
+    ],
+    "openvas_family": "SSL and TLS",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.113045",
+    "transpiled": true
+  },
+  "references": [
+    "https://owasp.org/www-project-secure-headers/#expect-ct",
+    "https://scotthelme.co.uk/a-new-security-header-expect-ct/",
+    "http://httpwg.org/http-extensions/expect-ct.html"
+  ],
+  "severity": "medium"
+}

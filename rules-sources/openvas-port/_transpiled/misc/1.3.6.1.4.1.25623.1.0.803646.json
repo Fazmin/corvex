@@ -1,0 +1,82 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.803646",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/index.php"
+      },
+      {
+        "body": null,
+        "headers": [],
+        "id": "r1",
+        "method": "GET",
+        "payload": null,
+        "uri": "/redir.php?http://"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r1"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": ">http://[0-9.]+(.*)</a>",
+          "step": "r1"
+        }
+      }
+    ]
+  },
+  "name": "Telaen Multiple Vulnerabilities",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2013-2621",
+      "https://nvd.nist.gov/vuln/detail/CVE-2013-2623",
+      "https://nvd.nist.gov/vuln/detail/CVE-2013-2624"
+    ],
+    "cve": [
+      "CVE-2013-2621",
+      "CVE-2013-2623",
+      "CVE-2013-2624"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Web application abuses",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.803646",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2013-2621",
+    "https://nvd.nist.gov/vuln/detail/CVE-2013-2623",
+    "https://nvd.nist.gov/vuln/detail/CVE-2013-2624",
+    "http://seclists.org/bugtraq/2013/Jun/12",
+    "http://www.securityfocus.com/bid/60288",
+    "http://www.securityfocus.com/bid/60290",
+    "http://www.securityfocus.com/bid/60340",
+    "http://exploitsdownload.com/exploit/na/telaen-130-xss-open-redirection-disclosure",
+    "http://www.telaen.com"
+  ],
+  "severity": "high"
+}

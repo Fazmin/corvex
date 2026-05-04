@@ -1,0 +1,42 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.901121",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "svc0",
+        "kind": "tcp_banner",
+        "method": "",
+        "payload": null,
+        "port": 11300,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "banner",
+          "regex": "version: ([0-9.]+)",
+          "step": "svc0"
+        }
+      }
+    ]
+  },
+  "name": "Beanstalkd Version Detection",
+  "owasp_2025": null,
+  "provenance": {
+    "default_ports": [
+      11300
+    ],
+    "openvas_family": "Service detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.901121",
+    "transpiled": true
+  },
+  "references": [],
+  "severity": "info"
+}

@@ -1,0 +1,52 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.810317",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^[234]\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": ">Cluster Summary<",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "Apache Hadoop Detection (HTTP)",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://hadoop.apache.org/"
+    ],
+    "default_ports": [
+      50070
+    ],
+    "openvas_family": "Product detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.810317",
+    "transpiled": true
+  },
+  "references": [
+    "https://hadoop.apache.org/"
+  ],
+  "severity": "info"
+}

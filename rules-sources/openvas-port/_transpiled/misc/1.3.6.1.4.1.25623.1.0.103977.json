@@ -1,0 +1,52 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.103977",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/login/"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^[234]\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": ">Kloxo.* ([0-9.]+[a-z]-[0-9]+)<",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "LxCenter Kloxo Detection",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://github.com/lxcenter/kloxo"
+    ],
+    "default_ports": [
+      7778
+    ],
+    "openvas_family": "Product detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.103977",
+    "transpiled": true
+  },
+  "references": [
+    "https://github.com/lxcenter/kloxo"
+  ],
+  "severity": "info"
+}

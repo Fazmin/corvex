@@ -1,0 +1,53 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "tls-config",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.105876",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "tls0",
+        "kind": "tls",
+        "method": "",
+        "payload": null,
+        "port": 443,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "tls_version",
+          "regex": "^SSLv2$",
+          "step": "tls0"
+        }
+      }
+    ]
+  },
+  "name": "SSL/TLS: HTTP Strict Transport Security (HSTS) Detection",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://owasp.org/www-project-secure-headers/",
+      "https://owasp.org/www-project-cheat-sheets/cheatsheets/HTTP_Strict_Transport_Security_Cheat_Sheet.html",
+      "https://owasp.org/www-project-secure-headers/#http-strict-transport-security-hsts"
+    ],
+    "default_ports": [
+      443
+    ],
+    "openvas_family": "SSL and TLS",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.105876",
+    "transpiled": true
+  },
+  "references": [
+    "https://owasp.org/www-project-secure-headers/",
+    "https://owasp.org/www-project-cheat-sheets/cheatsheets/HTTP_Strict_Transport_Security_Cheat_Sheet.html",
+    "https://owasp.org/www-project-secure-headers/#http-strict-transport-security-hsts",
+    "https://tools.ietf.org/html/rfc6797",
+    "https://securityheaders.io/"
+  ],
+  "severity": "medium"
+}

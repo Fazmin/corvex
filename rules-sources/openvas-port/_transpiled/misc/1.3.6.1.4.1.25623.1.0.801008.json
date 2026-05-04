@@ -1,0 +1,81 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.801008",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/Index2.php"
+      },
+      {
+        "body": null,
+        "headers": [],
+        "id": "r1",
+        "method": "GET",
+        "payload": null,
+        "uri": "/CoupleDB.php?Parametre=0&DataDirectory=xyz/VT-RemoteFileInclusion.txt"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "> ([0-9.]+)",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r1"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "xyz/VT\\-RemoteFileInclusion\\.txt",
+          "step": "r1"
+        }
+      }
+    ]
+  },
+  "name": "PHPGenealogie 2.0 'CoupleDB.php' RFI Vulnerability",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2009-3541",
+      "http://www.milw0rm.com/exploits/9155",
+      "http://xforce.iss.net/xforce/xfdb/51728"
+    ],
+    "cve": [
+      "CVE-2009-3541"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Web application abuses",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.801008",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2009-3541",
+    "http://www.milw0rm.com/exploits/9155",
+    "http://xforce.iss.net/xforce/xfdb/51728"
+  ],
+  "severity": "medium"
+}

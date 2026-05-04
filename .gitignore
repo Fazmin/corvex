@@ -45,6 +45,15 @@ desktop.ini
 corvex.conf
 tests/udb_*
 
+# --- corvex-feed-harvest: dev-only cache of the OpenVAS Community Feed -------
+# The harvester rsync's the feed under program/feed-cache/openvas/ to extract
+# metadata facts for rule scaffolds. NASL files MUST NOT enter the repo —
+# rules are re-authored against vendor advisories under
+# rules-sources/openvas-port/. See crates/corvex-feed-harvest/LICENSE_NOTES.md.
+/program/feed-cache/
+**/program/feed-cache/
+*.nasl
+
 # --- Scan output written to the repo root -----------------------------------
 /*.json
 /*.xml

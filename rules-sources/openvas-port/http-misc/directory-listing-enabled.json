@@ -1,0 +1,35 @@
+{
+  "id": "corvex-net.directory-listing-enabled",
+  "name": "Directory listing enabled at webroot",
+  "description": "The webroot returns a directory listing rather than an index document. Apache, nginx, and IIS all document directory autoindex / autolisting as a feature that must be disabled in production because it reveals file structure, backup files, and any forgotten artefacts. The detection matches the canonical Apache <h1>Index of</h1> banner that ships with mod_autoindex.",
+  "severity": "medium",
+  "confidence": "high",
+  "category": "info-disclosure",
+  "owasp_2025": "A05",
+  "cwe": 548,
+  "references": [
+    "https://httpd.apache.org/docs/current/mod/mod_autoindex.html"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^200$" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "<h1>Index of /" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://httpd.apache.org/docs/current/mod/mod_autoindex.html"
+    ],
+    "default_ports": [80, 443]
+  }
+}

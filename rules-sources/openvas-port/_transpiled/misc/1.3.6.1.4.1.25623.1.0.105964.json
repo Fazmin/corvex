@@ -1,0 +1,52 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.105964",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/Login.aspx"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^[234]\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "SolarWinds Platform",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "SolarWinds Server & Application Monitor (SAM) Detection (HTTP)",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://www.solarwinds.com/server-application-monitor"
+    ],
+    "default_ports": [
+      8787
+    ],
+    "openvas_family": "Product detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.105964",
+    "transpiled": true
+  },
+  "references": [
+    "https://www.solarwinds.com/server-application-monitor"
+  ],
+  "severity": "info"
+}

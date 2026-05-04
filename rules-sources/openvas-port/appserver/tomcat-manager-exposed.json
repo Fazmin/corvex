@@ -1,0 +1,36 @@
+{
+  "id": "corvex-net.tomcat-manager-exposed",
+  "name": "Apache Tomcat Manager interface accessible",
+  "description": "The Tomcat /manager/html interface is reachable from this host. The Tomcat documentation explicitly requires that /manager/html be reachable only from trusted networks and protected by an authenticated manager-gui role; an exposed interface is a stepping stone to credential brute-force and arbitrary WAR deployment.",
+  "severity": "medium",
+  "confidence": "high",
+  "category": "service-exposure",
+  "owasp_2025": "A05",
+  "cwe": 284,
+  "references": [
+    "https://tomcat.apache.org/tomcat-9.0-doc/manager-howto.html"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/manager/html",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^(200|401)$" } },
+      { "matcher": { "kind": "header", "step": "r0", "name": "WWW-Authenticate", "regex": "Tomcat Manager Application" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://tomcat.apache.org/tomcat-9.0-doc/manager-howto.html"
+    ],
+    "default_ports": [8080, 8443],
+    "cpe_match": ["cpe:2.3:a:apache:tomcat:*:*:*:*:*:*:*:*"]
+  }
+}

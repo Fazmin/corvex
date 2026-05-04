@@ -66,12 +66,7 @@ pub async fn run_match(
     let known: std::collections::HashSet<&str> =
         spec.steps.iter().map(|s| s.id.as_str()).collect();
     for leaf in &spec.when {
-        let step_id = match &leaf.matcher {
-            Matcher::Status { step, .. }
-            | Matcher::Body { step, .. }
-            | Matcher::Header { step, .. }
-            | Matcher::Cookie { step, .. } => step,
-        };
+        let step_id = leaf_step_id(&leaf.matcher);
         if !known.contains(step_id.as_str()) {
             tracing::warn!(
                 target: "matcher",
@@ -80,6 +75,23 @@ pub async fn run_match(
             );
             return Ok(None);
         }
+    }
+
+    // Phase C/D guard: rules whose any step is a non-Http kind must wait
+    // for the corresponding runtime executor. Today we have only the HTTP
+    // executor; everything else fails closed (no fire) with a one-time
+    // warn so the rule still appears in the catalog and starts firing the
+    // moment Phase C/D protocol probes ship.
+    if spec
+        .steps
+        .iter()
+        .any(|s| !matches!(s.kind, super::spec::StepKind::Http))
+    {
+        tracing::trace!(
+            target: "matcher",
+            "rule deferred: contains non-HTTP step kind (Phase C/D runtime not yet shipped)"
+        );
+        return Ok(None);
     }
 
     let mut bindings: HashMap<String, String> = HashMap::new();
@@ -438,6 +450,36 @@ fn eval_leaf(
                 None => false,
             })
         }
+        // Phase C/D matchers: schema-only today. The runtime fires only
+        // after the corresponding probe executor lands; until then these
+        // leaves evaluate to `false` so a rule mixing HTTP and TLS leaves
+        // can't accidentally match on the HTTP-only verdict alone.
+        Matcher::TlsCipher { .. }
+        | Matcher::TlsVersion { .. }
+        | Matcher::TlsCertField { .. }
+        | Matcher::Banner { .. }
+        | Matcher::SshOutput { .. }
+        | Matcher::SmbField { .. }
+        | Matcher::SnmpOid { .. } => Ok(false),
+    }
+}
+
+/// Extract the `StepId` referenced by any `Matcher` variant. Centralised so
+/// new kinds (Phase C/D) only have to extend this helper rather than every
+/// caller that walks rules' leaves.
+pub fn leaf_step_id(m: &Matcher) -> &StepId {
+    match m {
+        Matcher::Status { step, .. }
+        | Matcher::Body { step, .. }
+        | Matcher::Header { step, .. }
+        | Matcher::Cookie { step, .. }
+        | Matcher::TlsCipher { step, .. }
+        | Matcher::TlsVersion { step, .. }
+        | Matcher::TlsCertField { step, .. }
+        | Matcher::Banner { step, .. }
+        | Matcher::SshOutput { step, .. }
+        | Matcher::SmbField { step, .. }
+        | Matcher::SnmpOid { step, .. } => step,
     }
 }
 

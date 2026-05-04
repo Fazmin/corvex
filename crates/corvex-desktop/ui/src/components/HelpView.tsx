@@ -4690,6 +4690,106 @@ Content-Length: 42
             different copy than the one you just built.
           </p>
 
+          <h4>Network rules (hand-authored)</h4>
+          <p>
+            The <strong>Network</strong> source covers service-banner,
+            version-exposure, and misconfiguration checks that don't fit
+            the Nikto / ZAP / Burp upstream formats. Rules live as
+            individual JSON files under{" "}
+            <code>rules-sources/openvas-port/</code>, one per detection,
+            each carrying a pre-built <code>match_spec</code>, severity,
+            OWASP mapping, and a provenance block citing the vendor
+            advisory the detection was authored against. They flow into{" "}
+            <code>rules.sqlite</code> through the same builder as every
+            other source and execute under{" "}
+            <code>RulesPlugin</code>.
+          </p>
+          <p>
+            <em>Authoring recipe:</em> identify the service or CVE you
+            want to detect; read the vendor advisory (NVD, vendor
+            bulletin, CISA KEV); express the detection as one or more
+            HTTP steps plus status / body / header / cookie matchers;
+            drop the JSON file under a family folder (<code>service/</code>,{" "}
+            <code>cms/</code>, <code>appserver/</code>, …); rebuild with{" "}
+            <code>cargo run -p corvex-rules-builder</code>.
+          </p>
+          <p>
+            <em>Example:</em> the seeded{" "}
+            <code>service/apache-mod-status-exposed.json</code> fires
+            when an Apache <code>/server-status</code> endpoint returns
+            200 with the body string{" "}
+            <code>"Apache Server Status for"</code>. One step, two
+            matchers, no payload — the simplest shape and the right
+            starting point for new authors.
+          </p>
+          <p>
+            <em>Clean-room discipline.</em> Rules can be scaffolded from
+            the OpenVAS Community Feed via the dev-only{" "}
+            <code>corvex-feed-harvest</code> tool, but the harvester
+            extracts only factual metadata (CVE / OID / CPE / default
+            ports). The detection logic itself is always re-authored
+            against the original vendor advisory — never copy-pasted from
+            NASL. See <code>crates/corvex-feed-harvest/LICENSE_NOTES.md</code>{" "}
+            for the policy and{" "}
+            <code>rules-sources/openvas-port/README.md</code> for the
+            file format.
+          </p>
+          <p>
+            <em>Step kinds.</em> Most Network rules today are HTTP — one
+            <code>GET</code> step + status / body / header / cookie
+            matchers. The schema also accepts non-HTTP step kinds:{" "}
+            <code>tls</code> (cipher / protocol / certificate matchers),{" "}
+            <code>tcp_banner</code> (raw socket banner read),{" "}
+            <code>ssh</code> / <code>smb</code> / <code>snmp</code>{" "}
+            (authenticated host-scan probes). A rule using one of these
+            kinds lowers and stores correctly in{" "}
+            <code>rules.sqlite</code>, but the runtime currently fires
+            only HTTP rules — non-HTTP steps fail closed with no match
+            until the protocol probes ship in a later release. The
+            seeded examples under{" "}
+            <code>rules-sources/openvas-port/network/</code> are
+            intentional placeholders that demonstrate the schema today
+            and start firing the moment the runtime catches up.
+          </p>
+          <p>
+            <em>Bulk-scaffold workflow:</em>
+          </p>
+          <pre style={{ padding: 8, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 4 }}>
+{`# 1. Pull the OpenVAS Community Feed into the gitignored cache
+cargo run -p corvex-feed-harvest -- sync
+
+# 2a. Auto-transpile the easy slice (single-regex banner / version /
+#     TLS-protocol VTs). Output lands at
+#     rules-sources/openvas-port/_transpiled/<family>/<oid>.json and is
+#     ingested by the builder alongside hand-authored rules. Safe to
+#     wipe and re-run.
+cargo run -p corvex-feed-harvest -- transpile
+
+# 2b. (or) Scaffold stubs for harder VTs and hand-author them
+cargo run -p corvex-feed-harvest -- scaffold --family wordpress --limit 25
+
+# 3. Hand-author each scaffold against the vendor advisory, then move
+#    it out of _scaffolds/ into the appropriate family folder.
+
+# 4. Lint to catch accidental NASL-string copies before committing
+cargo run -p corvex-feed-harvest -- lint
+
+# 5. Rebuild rules.sqlite
+cargo run -p corvex-rules-builder`}
+          </pre>
+          <p>
+            <em>Transpile vs. scaffold.</em> The transpiler is
+            conservative — it auto-emits a `MatchSpec` only for VTs
+            whose detection logic is one regex literal against a known
+            URL or banner port. Anything richer (multi-step probes,
+            conditional logic, helper-function calls) is rejected so it
+            doesn't produce wrong rules. Transpiled rules carry{" "}
+            <code>provenance.transpiled = true</code> and live under{" "}
+            <code>_transpiled/</code> so they are visually distinct in
+            review and can be regenerated with a single{" "}
+            <code>--force</code> run after a feed update.
+          </p>
+
           <h4>Why some rules are catalogued but not executable</h4>
           <p>
             The total-ingested and total-executable counts on the tab

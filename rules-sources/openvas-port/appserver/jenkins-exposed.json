@@ -1,0 +1,35 @@
+{
+  "id": "corvex-net.jenkins-exposed",
+  "name": "Jenkins controller UI reachable",
+  "description": "The Jenkins UI is reachable on the default /login path. The Jenkins security guide explicitly warns that the controller must not be reachable from untrusted networks because Script Console access yields RCE on the controller host. The detection matches the X-Jenkins header that Jenkins always returns, which is unforgeable from an external proxy.",
+  "severity": "medium",
+  "confidence": "high",
+  "category": "service-exposure",
+  "owasp_2025": "A05",
+  "cwe": 284,
+  "references": [
+    "https://www.jenkins.io/doc/book/security/securing-jenkins/"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/login",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^(200|403)$" } },
+      { "matcher": { "kind": "header", "step": "r0", "name": "X-Jenkins", "regex": "^[0-9]+\\." } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://www.jenkins.io/doc/book/security/securing-jenkins/"
+    ],
+    "default_ports": [8080, 8443]
+  }
+}

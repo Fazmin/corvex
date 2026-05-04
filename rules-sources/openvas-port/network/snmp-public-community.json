@@ -1,0 +1,38 @@
+{
+  "id": "corvex-net.snmp-public-community",
+  "name": "SNMP service responds to default 'public' community",
+  "description": "The SNMP agent responds to a v2c GET against the 'public' community string. RFC 1908 documents 'public' as the example default; modern guidance (e.g. NIST SP 800-123) treats any production SNMP service that still accepts 'public' as a misconfiguration because the community string is the only authentication on v1 / v2c. (Phase D runtime executes this rule once the SNMP probe and credential model ship — schema-only today.)",
+  "severity": "high",
+  "confidence": "medium",
+  "category": "default-creds",
+  "owasp_2025": "A07",
+  "cwe": 521,
+  "references": [
+    "https://datatracker.ietf.org/doc/html/rfc1908",
+    "https://csrc.nist.gov/pubs/sp/800/123/final"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "snmp0",
+        "method": "",
+        "uri": "",
+        "headers": [],
+        "body": null,
+        "payload": null,
+        "kind": "snmp",
+        "port": 161
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "snmp_oid", "step": "snmp0", "oid": "1.3.6.1.2.1.1.1.0", "regex": ".+" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://datatracker.ietf.org/doc/html/rfc1908",
+      "https://csrc.nist.gov/pubs/sp/800/123/final"
+    ],
+    "default_ports": [161]
+  }
+}

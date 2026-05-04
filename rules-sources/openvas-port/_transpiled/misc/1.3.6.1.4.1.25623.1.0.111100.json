@@ -1,0 +1,54 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.111100",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/api/admin/dashboard"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^[234]\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "(/nodebb\\.min\\.js|require\\(['forum/footer']\\);)",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "NodeBB Detection (HTTP)",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nodebb.org/",
+      "https://docs.nodebb.org/api/read/#section/Overview/Authentication"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Product detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.111100",
+    "transpiled": true
+  },
+  "references": [
+    "https://nodebb.org/",
+    "https://docs.nodebb.org/api/read/#section/Overview/Authentication"
+  ],
+  "severity": "info"
+}

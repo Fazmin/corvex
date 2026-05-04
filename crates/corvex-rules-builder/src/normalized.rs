@@ -8,6 +8,13 @@ pub enum SourceTool {
     Nikto,
     Zap,
     Burp,
+    /// Hand-authored network/service rules whose detection logic was
+    /// re-written from vendor advisories. The OpenVAS Community Feed is read
+    /// only as a *catalog of facts* (CVE IDs, OIDs, default ports, CPE
+    /// matches) by the dev-only `corvex-feed-harvest` tool — no NASL is
+    /// vendored, transpiled, or executed. See
+    /// `crates/corvex-feed-harvest/LICENSE_NOTES.md` for the policy.
+    OpenvasPort,
 }
 
 impl SourceTool {
@@ -16,6 +23,7 @@ impl SourceTool {
             SourceTool::Nikto => "nikto",
             SourceTool::Zap => "zap",
             SourceTool::Burp => "burp",
+            SourceTool::OpenvasPort => "openvas-port",
         }
     }
 
@@ -24,6 +32,7 @@ impl SourceTool {
             "nikto" => Some(SourceTool::Nikto),
             "zap" => Some(SourceTool::Zap),
             "burp" => Some(SourceTool::Burp),
+            "openvas-port" | "openvas_port" => Some(SourceTool::OpenvasPort),
             _ => None,
         }
     }

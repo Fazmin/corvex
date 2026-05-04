@@ -1,0 +1,42 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.149717",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "svc0",
+        "kind": "tcp_banner",
+        "method": "",
+        "payload": null,
+        "port": 9220,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "banner",
+          "regex": "^220 (HP|JetDirect) GGW server",
+          "step": "svc0"
+        }
+      }
+    ]
+  },
+  "name": "Generic Scan Gateway (GGW) Service Detection",
+  "owasp_2025": null,
+  "provenance": {
+    "default_ports": [
+      9220
+    ],
+    "openvas_family": "Service detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.149717",
+    "transpiled": true
+  },
+  "references": [],
+  "severity": "info"
+}

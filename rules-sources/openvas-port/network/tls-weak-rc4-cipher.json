@@ -1,0 +1,36 @@
+{
+  "id": "corvex-net.tls-weak-rc4-cipher",
+  "name": "TLS service negotiates an RC4-based cipher suite",
+  "description": "The TLS endpoint accepts and negotiates a cipher suite whose name contains RC4. RFC 7465 prohibits RC4 in TLS because of practical biases that allow plaintext recovery from many concurrent sessions. Modern TLS libraries disable RC4 by default; a host that still negotiates one is mis-configured.",
+  "severity": "medium",
+  "confidence": "high",
+  "category": "tls-config",
+  "owasp_2025": "A02",
+  "cwe": 327,
+  "references": [
+    "https://datatracker.ietf.org/doc/html/rfc7465"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "tls0",
+        "method": "",
+        "uri": "",
+        "headers": [],
+        "body": null,
+        "payload": null,
+        "kind": "tls",
+        "port": 443
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "tls_cipher", "step": "tls0", "regex": "(?i)RC4" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://datatracker.ietf.org/doc/html/rfc7465"
+    ],
+    "default_ports": [443, 8443]
+  }
+}

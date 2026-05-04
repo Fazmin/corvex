@@ -1,0 +1,67 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.801745",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/help/index.jsp"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "<title>Help \\- Eclipse",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "alert\\('XSS\\-Testing'\\)",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "Eclipse IDE < 3.6.2 Multiple XSS Vulnerabilities",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2010-4647",
+      "http://xforce.iss.net/xforce/xfdb/64833",
+      "http://r00tin.blogspot.com/2008/04/eclipse-local-web-server-exploitation.html"
+    ],
+    "cve": [
+      "CVE-2010-4647"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Web application abuses",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.801745",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2010-4647",
+    "http://xforce.iss.net/xforce/xfdb/64833",
+    "http://r00tin.blogspot.com/2008/04/eclipse-local-web-server-exploitation.html",
+    "http://yehg.net/lab/pr0js/advisories/eclipse/[eclipse_help_server]_cross_site_scripting"
+  ],
+  "severity": "high"
+}

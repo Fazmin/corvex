@@ -1,0 +1,53 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "tls-config",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.119215",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "tls0",
+        "kind": "tls",
+        "method": "",
+        "payload": null,
+        "port": 22,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "tls_cipher",
+          "regex": "(?i)DES",
+          "step": "tls0"
+        }
+      }
+    ]
+  },
+  "name": "PQC Key Exchange (KEX) Algorithm(s) Supported (SSH)",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://openssh.com/pq.html",
+      "https://quantumcomputingreport.com/openssh-10-0-introduces-default-post-quantum-key-exchange-algorithm/",
+      "https://www.nist.gov/news-events/news/2024/08/nist-releases-first-3-finalized-post-quantum-encryption-standards"
+    ],
+    "default_ports": [
+      22
+    ],
+    "openvas_family": "SSL and TLS",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.119215",
+    "transpiled": true
+  },
+  "references": [
+    "https://openssh.com/pq.html",
+    "https://quantumcomputingreport.com/openssh-10-0-introduces-default-post-quantum-key-exchange-algorithm/",
+    "https://www.nist.gov/news-events/news/2024/08/nist-releases-first-3-finalized-post-quantum-encryption-standards",
+    "https://csrc.nist.gov/News/2024/postquantum-cryptography-fips-approved",
+    "https://www.forescout.com/blog/post-quantum-cryptography-the-real-risks-of-not-adopting-it/"
+  ],
+  "severity": "medium"
+}

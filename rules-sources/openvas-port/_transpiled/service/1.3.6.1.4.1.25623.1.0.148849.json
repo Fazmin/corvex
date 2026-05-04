@@ -1,0 +1,47 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.148849",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "svc0",
+        "kind": "tcp_banner",
+        "method": "",
+        "payload": null,
+        "port": 4369,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "banner",
+          "regex": "name.*at port",
+          "step": "svc0"
+        }
+      }
+    ]
+  },
+  "name": "Erlang Port Mapper Daemon (epmd) Detection",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://www.erlang.org/doc/man/epmd.html"
+    ],
+    "default_ports": [
+      4369
+    ],
+    "openvas_family": "Service detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.148849",
+    "transpiled": true
+  },
+  "references": [
+    "https://www.erlang.org/doc/man/epmd.html"
+  ],
+  "severity": "info"
+}

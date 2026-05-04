@@ -1,0 +1,35 @@
+{
+  "id": "corvex-net.phpinfo-exposed",
+  "name": "phpinfo() output exposed",
+  "description": "A /phpinfo.php (or /info.php) endpoint returns the standard phpinfo() report, which lists every loaded extension, every config directive, the document root, and environment variables. The PHP manual warns that phpinfo() must never run on internet-facing hosts because it exposes the application's full configuration surface.",
+  "severity": "high",
+  "confidence": "high",
+  "category": "info-disclosure",
+  "owasp_2025": "A05",
+  "cwe": 200,
+  "references": [
+    "https://www.php.net/manual/en/function.phpinfo.php"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/phpinfo.php",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^200$" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "<title>phpinfo\\(\\)" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://www.php.net/manual/en/function.phpinfo.php"
+    ],
+    "default_ports": [80, 443]
+  }
+}

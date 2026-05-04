@@ -27,7 +27,14 @@
       "Bash(awk -F',' '{print NF}')",
       "Bash(grep -E \"\\\\.\\(rs|ts|tsx\\)$\")",
       "Bash(grep -E \"\\\\.\\(md|MD\\)$\")",
-      "Bash(grep -n \"TabType\\\\|Tab \\\\\\\\d\\\\|databasesView\\\\|TABS\\\\|RulesTab\\\\|rules-catalog\\\\|SignaturesTab\" \"d:/LocalWorkSpace/nikto-rust/crates/corvex-desktop/ui/src/components/DatabasesView.tsx\")"
+      "Bash(grep -n \"TabType\\\\|Tab \\\\\\\\d\\\\|databasesView\\\\|TABS\\\\|RulesTab\\\\|rules-catalog\\\\|SignaturesTab\" \"d:/LocalWorkSpace/nikto-rust/crates/corvex-desktop/ui/src/components/DatabasesView.tsx\")",
+      "Bash(docker info *)",
+      "Bash(./target/release/corvex-feed-harvest.exe sync *)",
+      "Bash(tee /tmp/sync5.log)",
+      "Read(//tmp/**)",
+      "Bash(./target/release/corvex-feed-harvest.exe transpile *)",
+      "Bash(tee /tmp/transpile5.log)",
+      "Bash(tee /tmp/transpile6.log)"
     ]
   }
 }

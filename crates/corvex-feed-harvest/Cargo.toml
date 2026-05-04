@@ -1,0 +1,21 @@
+[package]
+name = "corvex-feed-harvest"
+version.workspace = true
+edition.workspace = true
+description = "Dev-only tool that scaffolds rule stubs for hand-authoring under rules-sources/openvas-port/. Reads the OpenVAS Community Feed only as a catalog of facts (CVE / OID / CPE / default ports). NEVER bundled with the product."
+publish = false
+
+[[bin]]
+name = "corvex-feed-harvest"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+walkdir.workspace = true
+regex.workspace = true
+rayon = "1"

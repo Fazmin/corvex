@@ -4,4 +4,5 @@
 
 pub mod burp;
 pub mod nikto;
+pub mod openvas_port;
 pub mod zap;

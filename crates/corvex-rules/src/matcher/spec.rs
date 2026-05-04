@@ -74,6 +74,77 @@ pub struct StepSpec {
     pub payload: Option<Payload>,
     #[serde(default)]
     pub readonly_cookies: bool,
+    /// What kind of probe this step issues. Defaults to `Http` so existing
+    /// rules round-trip unchanged. Phase C/D add `Tls`, `TcpBanner`,
+    /// `Ssh`, `Smb`, `Snmp` — when the engine encounters a non-HTTP kind
+    /// it has not yet learned to execute, the rule fails closed (logs a
+    /// warning, returns no match) rather than mis-firing.
+    #[serde(default)]
+    pub kind: StepKind,
+    /// Optional service port override for non-HTTP steps. HTTP steps use
+    /// the target's existing port. TLS / banner / SSH / SMB / SNMP steps
+    /// commonly target a non-standard port (e.g. 8443 for TLS, 22 for
+    /// SSH). When unset the engine falls back to the matching default
+    /// (443 for `Tls`, 0 for `TcpBanner`, 22 for `Ssh`, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+}
+
+impl StepSpec {
+    /// Build an HTTP step with the legacy four required fields. Convenience
+    /// for the per-source lowerers (Nikto / ZAP / Burp / openvas-port);
+    /// new step kinds use direct struct literals.
+    pub fn http(
+        id: StepId,
+        method: impl Into<String>,
+        uri: impl Into<String>,
+        headers: Vec<(String, String)>,
+        body: Option<String>,
+        payload: Option<Payload>,
+    ) -> Self {
+        Self {
+            id,
+            method: method.into(),
+            uri: uri.into(),
+            headers,
+            body,
+            payload,
+            readonly_cookies: false,
+            kind: StepKind::Http,
+            port: None,
+        }
+    }
+}
+
+/// What kind of probe a step issues. The HTTP variant is the default and
+/// covers every rule the runtime executes today; the other variants are
+/// schema-only at the moment — rules can be *authored* against them and
+/// will land in `rules.sqlite` correctly, but the engine returns
+/// `Ok(None)` until the protocol-specific executors land in Phase C/D.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepKind {
+    /// HTTP request. Today's universal default — produced by every
+    /// existing rule (Nikto / ZAP / Burp / openvas-port).
+    #[default]
+    Http,
+    /// Single TLS handshake against the target's port (default 443 if
+    /// unset). The engine collects negotiated cipher / protocol /
+    /// certificate details and exposes them to `Matcher::Tls*` predicates.
+    /// Runtime executor is Phase C work.
+    Tls,
+    /// Single TCP-banner read. Engine opens a connection, optionally
+    /// sends a small probe payload (in `body`), reads up to N bytes, and
+    /// surfaces the result via `Matcher::Banner`. Runtime is Phase C.
+    TcpBanner,
+    /// Authenticated SSH session step. Out of scope for the current
+    /// runtime — rules using this kind are accepted by the schema but
+    /// never fire until Phase D ships an SSH probe and credential model.
+    Ssh,
+    /// SMB protocol step. Same Phase D scope caveat as `Ssh`.
+    Smb,
+    /// SNMP probe step. Same Phase D scope caveat as `Ssh`.
+    Snmp,
 }
 
 /// One AND-joined matcher. Leaves only; no recursion. `negate` flips the
@@ -104,6 +175,56 @@ pub enum Matcher {
     Cookie {
         step: StepId,
         name: String,
+        regex: String,
+    },
+
+    // --- Phase C: TLS / banner predicates (schema only today) ---------------
+    /// Negotiated TLS cipher suite name (e.g. `TLS_RSA_WITH_RC4_128_SHA`)
+    /// matches `regex`. Bound to a `StepKind::Tls` step — referencing an
+    /// HTTP step is a lowering bug. The engine fails closed (no match)
+    /// when the runtime hasn't collected TLS data for this step.
+    TlsCipher {
+        step: StepId,
+        regex: String,
+    },
+    /// Negotiated TLS protocol version (e.g. `TLSv1.0`, `TLSv1.3`).
+    TlsVersion {
+        step: StepId,
+        regex: String,
+    },
+    /// Subject / issuer / SAN field on the negotiated server certificate.
+    /// `field` is one of `subject`, `issuer`, `san`, `not_after`,
+    /// `not_before`, `serial`, `signature_algorithm`.
+    TlsCertField {
+        step: StepId,
+        field: String,
+        regex: String,
+    },
+    /// First N bytes returned after the TCP connect (and optional
+    /// `body`-as-probe write). Bound to a `StepKind::TcpBanner` step.
+    Banner {
+        step: StepId,
+        regex: String,
+    },
+
+    // --- Phase D: protocol-credential predicates (schema only today) -------
+    /// Result of `uname -a` / `cat /etc/os-release` / similar via SSH.
+    /// Concrete subjects land when Phase D ships the SSH executor.
+    SshOutput {
+        step: StepId,
+        subject: String,
+        regex: String,
+    },
+    /// SMB share / dialect / signing-mode / null-session result.
+    SmbField {
+        step: StepId,
+        field: String,
+        regex: String,
+    },
+    /// SNMP OID value match.
+    SnmpOid {
+        step: StepId,
+        oid: String,
         regex: String,
     },
 }
@@ -152,7 +273,10 @@ mod tests {
                 body: None,
                 payload: None,
                 readonly_cookies: false,
+                kind: StepKind::Http,
+                port: None,
             }],
+            when_cond: None,
             when: vec![
                 LeafCond {
                     matcher: Matcher::Status {

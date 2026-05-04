@@ -1,0 +1,59 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.902462",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": ">CA ARCserve D2D",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "CA ARCserver D2D GWT RPC Request Multiple Vulnerabilities",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2011-3011",
+      "http://packetstormsecurity.org/files/view/103426/caarcserve-exec.txt",
+      "http://www.securityfocus.com/bid/48897"
+    ],
+    "cve": [
+      "CVE-2011-3011"
+    ],
+    "default_ports": [
+      8014
+    ],
+    "openvas_family": "Web Servers",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.902462",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2011-3011",
+    "http://packetstormsecurity.org/files/view/103426/caarcserve-exec.txt",
+    "http://www.securityfocus.com/bid/48897"
+  ],
+  "severity": "high"
+}

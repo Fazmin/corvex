@@ -1,0 +1,36 @@
+{
+  "id": "corvex-net.apache-server-info-exposed",
+  "name": "Apache mod_info /server-info page exposed",
+  "description": "An unrestricted /server-info endpoint returns the live Apache configuration, including module list, virtual hosts, and directive paths. Apache documents the page as a debugging view that must be restricted via Require directives in mod_info configuration.",
+  "severity": "medium",
+  "confidence": "high",
+  "category": "info-disclosure",
+  "owasp_2025": "A05",
+  "cwe": 16,
+  "references": [
+    "https://httpd.apache.org/docs/current/mod/mod_info.html"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/server-info",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^200$" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "Apache Server Information" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://httpd.apache.org/docs/current/mod/mod_info.html"
+    ],
+    "default_ports": [80, 443, 8080],
+    "cpe_match": ["cpe:2.3:a:apache:http_server:*:*:*:*:*:*:*:*"]
+  }
+}

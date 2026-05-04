@@ -1,0 +1,64 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.803773",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/index.php"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": ">WebCollab<",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "WebCollab 'item' Parameter HTTP Response Splitting Vulnerability",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2013-2652",
+      "http://secunia.com/advisories/55235",
+      "http://www.securityfocus.com/bid/63247"
+    ],
+    "cve": [
+      "CVE-2013-2652"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Web application abuses",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.803773",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2013-2652",
+    "http://secunia.com/advisories/55235",
+    "http://www.securityfocus.com/bid/63247",
+    "http://seclists.org/bugtraq/2013/Oct/119",
+    "http://packetstormsecurity.com/files/123771",
+    "http://freecode.com/projects/webcollab/releases/358621",
+    "http://sourceforge.net/p/webcollab/mailman/message/31536457",
+    "http://exploitsdownload.com/exploit/na/webcollab-330-http-response-splitting"
+  ],
+  "severity": "high"
+}

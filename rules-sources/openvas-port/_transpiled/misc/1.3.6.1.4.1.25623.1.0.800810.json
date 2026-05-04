@@ -1,0 +1,44 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.800810",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/admingui/version/copyright"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^[234]\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "^Server\\s*:\\s*Sun-Java-System-Web-Server",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "Sun/Oracle Web Server Detection (HTTP)",
+  "owasp_2025": null,
+  "provenance": {
+    "openvas_family": "Product detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.800810",
+    "transpiled": true
+  },
+  "references": [],
+  "severity": "info"
+}

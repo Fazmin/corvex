@@ -1,0 +1,57 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.10695",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/NULL.ida"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "^.*HTML.*IDQ.*NULL\\.ida.*$",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "Microsoft IIS .IDA ISAPI Filter Applied - Active Check",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2001-0500",
+      "http://www.securityfocus.com/bid/2880"
+    ],
+    "cve": [
+      "CVE-2001-0500"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Web Servers",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.10695",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2001-0500",
+    "http://www.securityfocus.com/bid/2880"
+  ],
+  "severity": "medium"
+}

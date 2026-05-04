@@ -1,0 +1,47 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.806900",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/en/index.html"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^[234]\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "/js/jquery.ztree.core-([0-9.]+).js",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "zTree Version Detection",
+  "owasp_2025": null,
+  "provenance": {
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Product detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.806900",
+    "transpiled": true
+  },
+  "references": [],
+  "severity": "info"
+}

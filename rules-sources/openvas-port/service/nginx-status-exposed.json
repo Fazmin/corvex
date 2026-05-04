@@ -1,0 +1,35 @@
+{
+  "id": "corvex-net.nginx-status-exposed",
+  "name": "Nginx /nginx_status stub-status exposed",
+  "description": "The nginx ngx_http_stub_status_module endpoint at /nginx_status is reachable. The nginx documentation describes the stub-status output as an internal monitoring view that must be restricted via allow / deny directives in the location block. An exposed endpoint leaks active connection counts and request rates that aid reconnaissance.",
+  "severity": "low",
+  "confidence": "high",
+  "category": "info-disclosure",
+  "owasp_2025": "A05",
+  "cwe": 16,
+  "references": [
+    "https://nginx.org/en/docs/http/ngx_http_stub_status_module.html"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/nginx_status",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^200$" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "^Active connections: " } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://nginx.org/en/docs/http/ngx_http_stub_status_module.html"
+    ],
+    "default_ports": [80, 443]
+  }
+}

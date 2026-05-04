@@ -1,0 +1,36 @@
+{
+  "id": "corvex-net.smb-null-session",
+  "name": "SMB service permits null-session enumeration",
+  "description": "The SMB endpoint accepts an anonymous (null) session and returns a non-empty share enumeration. Microsoft KB 246261 and CIS Windows benchmarks both require the RestrictAnonymous registry value to forbid null-session share enumeration; an exposed enumeration leaks share names and ACL hints. (Phase D runtime executes this rule once the SMB probe ships — schema-only today.)",
+  "severity": "medium",
+  "confidence": "high",
+  "category": "info-disclosure",
+  "owasp_2025": "A01",
+  "cwe": 287,
+  "references": [
+    "https://learn.microsoft.com/en-us/troubleshoot/windows-server/networking/restrict-anonymous-access"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "smb0",
+        "method": "",
+        "uri": "",
+        "headers": [],
+        "body": null,
+        "payload": null,
+        "kind": "smb",
+        "port": 445
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "smb_field", "step": "smb0", "field": "null_session_shares", "regex": ".+" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://learn.microsoft.com/en-us/troubleshoot/windows-server/networking/restrict-anonymous-access"
+    ],
+    "default_ports": [139, 445]
+  }
+}

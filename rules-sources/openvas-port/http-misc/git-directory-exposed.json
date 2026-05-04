@@ -1,0 +1,35 @@
+{
+  "id": "corvex-net.git-directory-exposed",
+  "name": ".git directory exposed over HTTP",
+  "description": "The /.git/HEAD file is reachable via HTTP. When a deployment serves the working .git tree, a client can reconstruct the full source repository (and any committed credentials) using public tools. Git's deployment guidance is that the .git directory must never be served to clients.",
+  "severity": "high",
+  "confidence": "high",
+  "category": "info-disclosure",
+  "owasp_2025": "A05",
+  "cwe": 538,
+  "references": [
+    "https://git-scm.com/docs/gitrepository-layout"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/.git/HEAD",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^200$" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "^ref: refs/" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://git-scm.com/docs/gitrepository-layout"
+    ],
+    "default_ports": [80, 443]
+  }
+}

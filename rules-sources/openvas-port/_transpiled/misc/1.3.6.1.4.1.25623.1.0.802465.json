@@ -1,0 +1,72 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.802465",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/index.html"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": ">Oracle Identity Management",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": " \\&\\& res \\&\\& ",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": ">Your username '",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "Oracle Identity Management 'username' Cross Site Scripting Vulnerability",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "http://cxsecurity.com/issue/WLB-2012100042",
+      "http://www.zeroscience.mk/codes/oim_xss.txt",
+      "http://www.zeroscience.mk/en/vulnerabilities/ZSL-2012-5110.php"
+    ],
+    "default_ports": [
+      443
+    ],
+    "openvas_family": "Web application abuses",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.802465",
+    "transpiled": true
+  },
+  "references": [
+    "http://cxsecurity.com/issue/WLB-2012100042",
+    "http://www.zeroscience.mk/codes/oim_xss.txt",
+    "http://www.zeroscience.mk/en/vulnerabilities/ZSL-2012-5110.php",
+    "http://dl.packetstormsecurity.net/1210-exploits/ZSL-2012-5110.txt",
+    "http://www.exploitsdownload.com/exploit/na/oracle-identity-management-10g-cross-site-scripting"
+  ],
+  "severity": "high"
+}

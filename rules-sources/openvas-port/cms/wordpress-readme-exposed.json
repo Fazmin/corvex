@@ -1,0 +1,37 @@
+{
+  "id": "corvex-net.wordpress-readme-exposed",
+  "name": "WordPress readme.html exposes installed version",
+  "description": "The WordPress readme.html file is reachable and contains the installed version string. The WordPress hardening guidance recommends removing or restricting readme.html because the disclosed version trivially maps to the public CVE record for that release.",
+  "severity": "low",
+  "confidence": "high",
+  "category": "info-disclosure",
+  "owasp_2025": "A06",
+  "cwe": 200,
+  "references": [
+    "https://wordpress.org/documentation/article/hardening-wordpress/"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/readme.html",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^200$" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "Version [0-9]+\\.[0-9]+" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "WordPress" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://wordpress.org/documentation/article/hardening-wordpress/"
+    ],
+    "default_ports": [80, 443],
+    "cpe_match": ["cpe:2.3:a:wordpress:wordpress:*:*:*:*:*:*:*:*"]
+  }
+}

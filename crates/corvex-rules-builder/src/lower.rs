@@ -22,7 +22,8 @@
 use anyhow::Result;
 use corvex_core::dsl;
 use corvex_rules::matcher::{
-    Alphabet, CondGraph, CondNode, LeafCond, MatchSpec, Matcher, Payload, StepId, StepSpec,
+    Alphabet, CondGraph, CondNode, LeafCond, MatchSpec, Matcher, Payload, StepId, StepKind,
+    StepSpec,
 };
 
 use crate::normalized::{NormalizedRule, SourceTool};
@@ -35,7 +36,22 @@ pub fn try_lower(rule: &NormalizedRule) -> Result<Option<MatchSpec>> {
         SourceTool::Nikto => Ok(lower_nikto(rule)),
         SourceTool::Zap => Ok(lower_zap(rule)),
         SourceTool::Burp => Ok(lower_burp(rule)),
+        SourceTool::OpenvasPort => Ok(lower_openvas_port(rule)),
     }
+}
+
+// --- OpenVAS-port lowering --------------------------------------------------
+
+/// `openvas-port` rules are hand-authored in JSON with a pre-built `MatchSpec`
+/// embedded under `detection.match_spec`. The parser already validated the
+/// JSON shape; lowering is just a deserialization passthrough.
+///
+/// Returning `None` flags a rule whose `match_spec` field is missing or
+/// malformed — the writer counts it as `openvas_port_missing_match_spec` so
+/// authors get visibility in the build report.
+fn lower_openvas_port(rule: &NormalizedRule) -> Option<MatchSpec> {
+    let raw = rule.detection.get("match_spec")?;
+    serde_json::from_value::<MatchSpec>(raw.clone()).ok()
 }
 
 fn lower_nikto(rule: &NormalizedRule) -> Option<MatchSpec> {
@@ -71,6 +87,8 @@ fn lower_nikto(rule: &NormalizedRule) -> Option<MatchSpec> {
         body: rule.request_body.clone(),
         payload: None,
         readonly_cookies: false,
+        kind: StepKind::Http,
+        port: None,
     };
 
     Some(MatchSpec {
@@ -205,6 +223,8 @@ fn lower_zap(rule: &NormalizedRule) -> Option<MatchSpec> {
         body: None,
         payload,
         readonly_cookies: false,
+        kind: StepKind::Http,
+        port: None,
     };
 
     Some(MatchSpec {
@@ -352,6 +372,8 @@ fn lower_burp_passive(body: &str) -> Option<MatchSpec> {
         body: None,
         payload: None,
         readonly_cookies: false,
+        kind: StepKind::Http,
+        port: None,
     };
     Some(MatchSpec {
         steps: vec![step],
@@ -734,6 +756,21 @@ fn leaf_key(leaf: &LeafCond) -> String {
         Matcher::Body { regex, .. } => format!("body::{regex}"),
         Matcher::Header { name, regex, .. } => format!("header::{name}::{regex}"),
         Matcher::Cookie { name, regex, .. } => format!("cookie::{name}::{regex}"),
+        // Phase C/D matchers — Burp's DSL doesn't produce these, so the
+        // dedup key only needs to be stable per variant. The fallthrough
+        // is defensive: if a future lowerer adds these to a Burp rule the
+        // key still uniquely identifies them.
+        Matcher::TlsCipher { regex, .. } => format!("tls_cipher::{regex}"),
+        Matcher::TlsVersion { regex, .. } => format!("tls_version::{regex}"),
+        Matcher::TlsCertField { field, regex, .. } => {
+            format!("tls_cert::{field}::{regex}")
+        }
+        Matcher::Banner { regex, .. } => format!("banner::{regex}"),
+        Matcher::SshOutput { subject, regex, .. } => {
+            format!("ssh::{subject}::{regex}")
+        }
+        Matcher::SmbField { field, regex, .. } => format!("smb::{field}::{regex}"),
+        Matcher::SnmpOid { oid, regex, .. } => format!("snmp::{oid}::{regex}"),
     }
 }
 
@@ -877,6 +914,8 @@ fn lower_burp_multistep(body: &str) -> Option<MatchSpec> {
             body: None,
             payload,
             readonly_cookies: false,
+            kind: StepKind::Http,
+            port: None,
         });
 
         // Each send's predicates contribute their leaves / sub-trees,
@@ -975,6 +1014,23 @@ fn retarget_leaf(leaf: &mut LeafCond, step_name: &str) {
         Matcher::Body { regex, .. } => Matcher::Body { step, regex },
         Matcher::Header { name, regex, .. } => Matcher::Header { step, name, regex },
         Matcher::Cookie { name, regex, .. } => Matcher::Cookie { step, name, regex },
+        // Phase C/D matchers — Burp's DSL doesn't produce these, so this
+        // path won't run today. The arms exist so the match stays
+        // exhaustive and future Burp-derived TLS/banner leaves rebind to
+        // the right step id automatically.
+        Matcher::TlsCipher { regex, .. } => Matcher::TlsCipher { step, regex },
+        Matcher::TlsVersion { regex, .. } => Matcher::TlsVersion { step, regex },
+        Matcher::TlsCertField { field, regex, .. } => {
+            Matcher::TlsCertField { step, field, regex }
+        }
+        Matcher::Banner { regex, .. } => Matcher::Banner { step, regex },
+        Matcher::SshOutput { subject, regex, .. } => {
+            Matcher::SshOutput { step, subject, regex }
+        }
+        Matcher::SmbField { field, regex, .. } => {
+            Matcher::SmbField { step, field, regex }
+        }
+        Matcher::SnmpOid { oid, regex, .. } => Matcher::SnmpOid { step, oid, regex },
     };
 }
 
@@ -1021,6 +1077,8 @@ fn lower_burp_active(body: &str) -> Option<MatchSpec> {
         body: None,
         payload,
         readonly_cookies: false,
+        kind: StepKind::Http,
+        port: None,
     };
     Some(MatchSpec {
         steps: vec![step],

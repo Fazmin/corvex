@@ -1,0 +1,37 @@
+{
+  "id": "corvex-net.ftp-anonymous-allowed",
+  "name": "FTP service banner accepts anonymous login",
+  "description": "The FTP service banner advertises that anonymous logins are accepted. RFC 1635 documented the anonymous FTP convention but modern guidance treats anonymous read access as a misconfiguration outside of intentional public mirrors; anonymous write access is always a misconfiguration. The banner check fires on the standard 220-line followed by the 230 anonymous-accept response.",
+  "severity": "low",
+  "confidence": "medium",
+  "category": "service-exposure",
+  "owasp_2025": "A05",
+  "cwe": 287,
+  "references": [
+    "https://datatracker.ietf.org/doc/html/rfc1635"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "ftp0",
+        "method": "",
+        "uri": "",
+        "headers": [],
+        "body": "USER anonymous\r\n",
+        "payload": null,
+        "kind": "tcp_banner",
+        "port": 21
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "banner", "step": "ftp0", "regex": "^220 " } },
+      { "matcher": { "kind": "banner", "step": "ftp0", "regex": "^230 " } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://datatracker.ietf.org/doc/html/rfc1635"
+    ],
+    "default_ports": [21]
+  }
+}

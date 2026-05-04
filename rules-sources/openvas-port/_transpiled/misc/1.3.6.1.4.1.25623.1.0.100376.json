@@ -1,0 +1,52 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.100376",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/awstats.pl?config="
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^[234]\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "/awstats\\.pl\\?config=([a-z0-9.]+)",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "AWStats Detection (HTTP)",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://awstats.sourceforge.io/"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Product detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.100376",
+    "transpiled": true
+  },
+  "references": [
+    "https://awstats.sourceforge.io/"
+  ],
+  "severity": "info"
+}

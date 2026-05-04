@@ -1,0 +1,84 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.803989",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/"
+      },
+      {
+        "body": null,
+        "headers": [],
+        "id": "r1",
+        "method": "GET",
+        "payload": null,
+        "uri": "/?jumpurl="
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "TYPO3 Release Team",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r1"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "jumpurl Secure: Calculated juHash, ([a-z0-9]+), did not match",
+          "step": "r1"
+        }
+      }
+    ]
+  },
+  "name": "TYPO3 jumpUrl File Disclosure Vulnerability (TYPO3-SA-2009-002)",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2009-0815",
+      "https://nvd.nist.gov/vuln/detail/CVE-2009-0816",
+      "https://typo3.org/security/advisory/typo3-sa-2009-002"
+    ],
+    "cve": [
+      "CVE-2009-0815",
+      "CVE-2009-0816"
+    ],
+    "default_ports": [
+      80
+    ],
+    "openvas_family": "Web application abuses",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.803989",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2009-0815",
+    "https://nvd.nist.gov/vuln/detail/CVE-2009-0816",
+    "https://typo3.org/security/advisory/typo3-sa-2009-002",
+    "http://www.securitytracker.com/id?1021710",
+    "http://www.securityfocus.com/bid/33714"
+  ],
+  "severity": "high"
+}

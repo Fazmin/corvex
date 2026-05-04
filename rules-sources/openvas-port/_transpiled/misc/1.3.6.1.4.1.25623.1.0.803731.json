@@ -1,0 +1,70 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.803731",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/main_internet.php"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": ">WESTERN DIGITAL",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "WIRELESS ROUTER",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "Western Digital My Net Devices Information Disclosure Vulnerability",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2013-5006",
+      "http://seclists.org/bugtraq/2013/Aug/10",
+      "http://www.securityfocus.com/bid/61361"
+    ],
+    "cve": [
+      "CVE-2013-5006"
+    ],
+    "default_ports": [
+      8080
+    ],
+    "openvas_family": "Web application abuses",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.803731",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2013-5006",
+    "http://seclists.org/bugtraq/2013/Aug/10",
+    "http://www.securityfocus.com/bid/61361",
+    "http://xforce.iss.net/xforce/xfdb/85903",
+    "http://www.securityfocus.com/archive/1/527433",
+    "http://archives.neohapsis.com/archives/bugtraq/2013-07/0146.html",
+    "http://www.wdc.com/en"
+  ],
+  "severity": "high"
+}

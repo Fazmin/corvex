@@ -1,0 +1,36 @@
+{
+  "id": "corvex-net.tls-protocol-tlsv1-0",
+  "name": "TLS service negotiates legacy TLSv1.0",
+  "description": "The TLS endpoint completes a handshake using TLSv1.0. RFC 8996 deprecates TLSv1.0 and TLSv1.1 because they lack modern AEAD ciphers and key-derivation functions, and PCI-DSS 3.2.1 requires their disablement on payment-card endpoints. A host that still negotiates TLSv1.0 will not pass current compliance audits.",
+  "severity": "medium",
+  "confidence": "high",
+  "category": "tls-config",
+  "owasp_2025": "A02",
+  "cwe": 326,
+  "references": [
+    "https://datatracker.ietf.org/doc/html/rfc8996"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "tls0",
+        "method": "",
+        "uri": "",
+        "headers": [],
+        "body": null,
+        "payload": null,
+        "kind": "tls",
+        "port": 443
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "tls_version", "step": "tls0", "regex": "^TLSv1\\.0$" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://datatracker.ietf.org/doc/html/rfc8996"
+    ],
+    "default_ports": [443, 8443]
+  }
+}

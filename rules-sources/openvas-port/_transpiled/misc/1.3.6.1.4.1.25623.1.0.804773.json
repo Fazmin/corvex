@@ -1,0 +1,75 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "info-disclosure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.804773",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "r0",
+        "method": "GET",
+        "payload": null,
+        "uri": "/operations_gui/"
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "status",
+          "regex": "^2\\d\\d$",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": ">JobScheduler<",
+          "step": "r0"
+        }
+      },
+      {
+        "matcher": {
+          "kind": "body",
+          "regex": "The system cannot find the file specified",
+          "step": "r0"
+        }
+      }
+    ]
+  },
+  "name": "JobScheduler Multiple Vulnerabilities (Oct 2014)",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2014-5391",
+      "https://nvd.nist.gov/vuln/detail/CVE-2014-5392",
+      "https://nvd.nist.gov/vuln/detail/CVE-2014-5393"
+    ],
+    "cve": [
+      "CVE-2014-5391",
+      "CVE-2014-5392",
+      "CVE-2014-5393"
+    ],
+    "default_ports": [
+      40444
+    ],
+    "openvas_family": "Web application abuses",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.804773",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2014-5391",
+    "https://nvd.nist.gov/vuln/detail/CVE-2014-5392",
+    "https://nvd.nist.gov/vuln/detail/CVE-2014-5393",
+    "http://www.sos-berlin.com/modules/news/article.php?storyid=73",
+    "http://www.securityfocus.com/bid/69660",
+    "http://www.securityfocus.com/bid/69661",
+    "http://www.securityfocus.com/bid/69664",
+    "http://www.sos-berlin.com/modules/news/article.php?storyid=74",
+    "http://www.christian-schneider.net/advisories/CVE-2014-5392.txt",
+    "http://www.sos-berlin.com/modules/cjaycontent/index.php?id=osource_scheduler_introduction_en.htm"
+  ],
+  "severity": "high"
+}

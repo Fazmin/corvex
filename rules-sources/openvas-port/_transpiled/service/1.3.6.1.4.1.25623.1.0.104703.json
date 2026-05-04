@@ -1,0 +1,47 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "service-exposure",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.104703",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "svc0",
+        "kind": "tcp_banner",
+        "method": "",
+        "payload": null,
+        "port": 1801,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "banner",
+          "regex": "TestThis",
+          "step": "svc0"
+        }
+      }
+    ]
+  },
+  "name": "Microsoft Message Queuing (MSMQ) Detection (TCP)",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-mqqb/85498b96-f2c8-43b3-a108-c9d6269dc4af"
+    ],
+    "default_ports": [
+      1801
+    ],
+    "openvas_family": "Service detection",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.104703",
+    "transpiled": true
+  },
+  "references": [
+    "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-mqqb/85498b96-f2c8-43b3-a108-c9d6269dc4af"
+  ],
+  "severity": "info"
+}

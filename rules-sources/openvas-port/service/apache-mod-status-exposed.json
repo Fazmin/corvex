@@ -1,0 +1,36 @@
+{
+  "id": "corvex-net.apache-mod-status-exposed",
+  "name": "Apache mod_status server-status page exposed",
+  "description": "An unrestricted /server-status page returns live Apache request data, including remote IPs and request URIs. Apache documents this endpoint as an internal monitoring view that must be restricted via Require directives in mod_status configuration.",
+  "severity": "medium",
+  "confidence": "high",
+  "category": "info-disclosure",
+  "owasp_2025": "A05",
+  "cwe": 16,
+  "references": [
+    "https://httpd.apache.org/docs/current/mod/mod_status.html"
+  ],
+  "match_spec": {
+    "steps": [
+      {
+        "id": "r0",
+        "method": "GET",
+        "uri": "/server-status",
+        "headers": [],
+        "body": null,
+        "payload": null
+      }
+    ],
+    "when": [
+      { "matcher": { "kind": "status", "step": "r0", "regex": "^200$" } },
+      { "matcher": { "kind": "body",   "step": "r0", "regex": "Apache Server Status for" } }
+    ]
+  },
+  "provenance": {
+    "advisory_urls": [
+      "https://httpd.apache.org/docs/current/mod/mod_status.html"
+    ],
+    "default_ports": [80, 443, 8080],
+    "cpe_match": ["cpe:2.3:a:apache:http_server:*:*:*:*:*:*:*:*"]
+  }
+}

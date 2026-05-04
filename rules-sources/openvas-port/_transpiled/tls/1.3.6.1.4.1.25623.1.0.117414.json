@@ -1,0 +1,57 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "tls-config",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.117414",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "tls0",
+        "kind": "tls",
+        "method": "",
+        "payload": null,
+        "port": 443,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "tls_cipher",
+          "regex": "(?i)DES",
+          "step": "tls0"
+        }
+      }
+    ]
+  },
+  "name": "SSL/TLS: BREACH attack against HTTP compression",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2013-3587",
+      "http://breachattack.com/",
+      "http://www.kb.cert.org/vuls/id/987798"
+    ],
+    "cve": [
+      "CVE-2013-3587"
+    ],
+    "default_ports": [
+      443
+    ],
+    "openvas_family": "SSL and TLS",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.117414",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2013-3587",
+    "http://breachattack.com/",
+    "http://www.kb.cert.org/vuls/id/987798",
+    "http://www.openwall.com/lists/oss-security/2013/08/07/1",
+    "https://bugzilla.redhat.com/show_bug.cgi?id=995168",
+    "https://en.wikipedia.org/wiki/HTTP_compression"
+  ],
+  "severity": "medium"
+}

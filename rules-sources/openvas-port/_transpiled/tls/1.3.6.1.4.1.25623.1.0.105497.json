@@ -1,0 +1,96 @@
+{
+  "_TRANSPILED": "Auto-emitted by corvex-feed-harvest. Regenerate via `transpile --force`. Hand-author when promoted out of _transpiled/.",
+  "category": "tls-config",
+  "cwe": null,
+  "description": null,
+  "id": "openvas-1.3.6.1.4.1.25623.1.0.105497",
+  "match_spec": {
+    "steps": [
+      {
+        "body": null,
+        "headers": [],
+        "id": "tls0",
+        "kind": "tls",
+        "method": "",
+        "payload": null,
+        "port": 22,
+        "uri": ""
+      }
+    ],
+    "when": [
+      {
+        "matcher": {
+          "kind": "tls_cipher",
+          "regex": "(?i)DES",
+          "step": "tls0"
+        }
+      }
+    ]
+  },
+  "name": "Known/Static SSH Host Key Used (TCP)",
+  "owasp_2025": null,
+  "provenance": {
+    "advisory_urls": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2008-0166",
+      "https://nvd.nist.gov/vuln/detail/CVE-2009-4510",
+      "https://nvd.nist.gov/vuln/detail/CVE-2015-6358"
+    ],
+    "cve": [
+      "CVE-2008-0166",
+      "CVE-2009-4510",
+      "CVE-2015-6358",
+      "CVE-2015-7255",
+      "CVE-2015-7256",
+      "CVE-2015-7276",
+      "CVE-2015-8251",
+      "CVE-2015-8260",
+      "CVE-2020-15312",
+      "CVE-2020-15313",
+      "CVE-2020-15314",
+      "CVE-2020-15315",
+      "CVE-2020-15316",
+      "CVE-2020-15317",
+      "CVE-2020-15318",
+      "CVE-2020-15319"
+    ],
+    "default_ports": [
+      22
+    ],
+    "openvas_family": "SSL and TLS",
+    "openvas_oid": "1.3.6.1.4.1.25623.1.0.105497",
+    "transpiled": true
+  },
+  "references": [
+    "https://nvd.nist.gov/vuln/detail/CVE-2008-0166",
+    "https://nvd.nist.gov/vuln/detail/CVE-2009-4510",
+    "https://nvd.nist.gov/vuln/detail/CVE-2015-6358",
+    "https://nvd.nist.gov/vuln/detail/CVE-2015-7255",
+    "https://nvd.nist.gov/vuln/detail/CVE-2015-7256",
+    "https://nvd.nist.gov/vuln/detail/CVE-2015-7276",
+    "https://nvd.nist.gov/vuln/detail/CVE-2015-8251",
+    "https://nvd.nist.gov/vuln/detail/CVE-2015-8260",
+    "https://nvd.nist.gov/vuln/detail/CVE-2020-15312",
+    "https://nvd.nist.gov/vuln/detail/CVE-2020-15313",
+    "https://nvd.nist.gov/vuln/detail/CVE-2020-15314",
+    "https://nvd.nist.gov/vuln/detail/CVE-2020-15315",
+    "https://nvd.nist.gov/vuln/detail/CVE-2020-15316",
+    "https://nvd.nist.gov/vuln/detail/CVE-2020-15317",
+    "https://nvd.nist.gov/vuln/detail/CVE-2020-15318",
+    "https://nvd.nist.gov/vuln/detail/CVE-2020-15319",
+    "https://blog.shodan.io/duplicate-ssh-keys-everywhere/",
+    "https://www.kb.cert.org/vuls/id/566724",
+    "https://blogs.intevation.de/thomas/hetzner-duplicate-ed25519-ssh-host-keys/",
+    "https://web.archive.org/web/20180626201156/https://www.vsecurity.com/download/advisories/20100409-2.txt",
+    "https://wiki.debian.org/SSLkeys",
+    "https://www.debian.org/security/2008/dsa-1571",
+    "https://github.com/g0tmi1k/debian-ssh",
+    "https://pierrekim.github.io/blog/2020-03-09-zyxel-secumanager-0day-vulnerabilities.html#ssh-servers-keys",
+    "https://www.zyxel.com/global/en/support/security-advisories/zyxel-security-advisory-for-vulnerabilities-of-cloudcnm-secumanager",
+    "https://sec-consult.com/blog/detail/house-of-keys-industry-wide-https/",
+    "https://sec-consult.com/blog/detail/house-of-keys-9-months-later-40-worse/",
+    "https://github.com/sec-consult/houseofkeys",
+    "https://web.archive.org/web/20180610144949/https://www.sec-consult.com/download/ssh_host_keys.html",
+    "https://web.archive.org/web/20180610144950/https://sec-consult.com/download/certificates.html"
+  ],
+  "severity": "medium"
+}

@@ -105,6 +105,7 @@ pub fn insert_rules(
                         SourceTool::Nikto => "nikto_unlowerable",
                         SourceTool::Zap => "zap_no_extractable_signal",
                         SourceTool::Burp => "burp_unsupported_dsl_shape",
+                        SourceTool::OpenvasPort => "openvas_port_missing_match_spec",
                     };
                     stats.note_skip(rule.source_tool, reason);
                     None
