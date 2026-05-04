@@ -30,10 +30,9 @@
 > `HTTP 308`, `returned 404`, etc. inside finding messages with
 > one-line explanations on hover.
 >
-> **v2.2 addendum (current build):** four further changes have landed
-> since v2.1 and are reflected in the sections below — (i) an embedded
-> **SNMP device-signature catalog** (`devices.sqlite`, ingested from
-> `corvex-devicedb` YAMLs + IANA Private Enterprise Numbers + the
+> **v2.2 addendum:** four further changes had landed since v2.1 — (i) an
+> embedded **SNMP device-signature catalog** (`devices.sqlite`, ingested
+> from `corvex-devicedb` YAMLs + IANA Private Enterprise Numbers + the
 > IEEE OUI registry) that fires automatically in Deep probes (and is
 > opt-in for Rapid probes), driving an eighth **Device** panel on the
 > asset detail view and surfacing per-host SNMP / MAC chips on the
@@ -46,9 +45,52 @@
 > bincode-based "Web signatures" tab now reads from `rules.sqlite`
 > directly (the standalone "Unified rules" tab is folded into it),
 > and a new **Device signatures** tab exposes the SNMP catalog plus
-> the IANA / IEEE reference tables. The Tauri command count is now
-> **79** (was "65" in v1, "74" in the original v2, "78" in v2.1 — one
-> new command: `device_db_summary`).
+> the IANA / IEEE reference tables.
+>
+> **v2.3 addendum (current build):** seven further changes have landed
+> since v2.2 and are reflected in the sections below — (A) a new
+> **Network rule source** ingested into `rules.sqlite` alongside Nikto +
+> ZAP + Burp BCheck. Rules are hand-authored (or auto-transpiled from
+> the OpenVAS Community Feed via the new dev-only **`corvex-feed-harvest`**
+> crate, which runs as a clean-room harvester — `sync` /  `transpile` /
+> `scaffold` / `lint` subcommands — that extracts only factual
+> metadata and never copies NASL detection logic) under
+> `rules-sources/openvas-port/` and surface in the UI as **Network**
+> service / banner / misconfig checks; rules.sqlite has grown from
+> ~7 MB to ~8.6 MB to absorb the new rows. (B) The matcher schema gains
+> **non-HTTP step kinds** — `Tls`, `TcpBanner`, `Ssh`, `Smb`, `Snmp` —
+> plus the predicates `TlsCipher`, `TlsVersion`, `TlsCertField`,
+> `Banner`, `SshOutput`, `SmbField`, `SnmpOid`. Rules using these kinds
+> lower and store correctly today; the runtime fails closed (no match,
+> debug log) until the Phase C/D protocol executors ship, so seeded
+> placeholders like `tls-protocol-tlsv1-0` round-trip the schema
+> without firing yet. (C) A user-facing **brand rename** — every visible
+> instance of "corvex-rust" is now **Corvex** (titlebar, sidebar, landing
+> hero); package / Tauri identifiers and the bundle product name are
+> intentionally left unchanged so configs and crash reports keep working.
+> (D) The **landing hero** copy was rewritten — "The unified security
+> assessment workbench." with the tagline "Offensive and defensive
+> tooling, unified. Local by design." (E) The **page header subline**
+> ("corvex-rust v0.1.0 · N tests · M outdated sigs") that previously
+> appeared under every view's title was dropped, and duplicate `<h2>`
+> page titles inside Assets / Recon / Intercept were removed (the
+> App-level page header is now the single source). (F) The Dashboard's
+> **scan-target column auto-collapses** to a 44px vertical strip on the
+> idle→running transition for web scans, reclaiming ~336px of width for
+> the findings panel; the collapse state persists in `localStorage` as
+> `corvexScanFormCollapsed`, and the user can toggle it back open
+> mid-scan. (G) Polish: the Probing host table now fills the content-area
+> width, shows clean target labels (strips the `[ip]` suffix, falls
+> back to per-host IPs for range / CIDR expansions, and feeds the clean
+> value to `AssetLink` so the crosshair button actually navigates), and
+> grew **sortable IP / MAC / Open column headers** (natural numeric IP
+> sort, ▲/▼ indicators); the Web-scan plugin picker renders each plugin's
+> `full_name` ("Software Composition Analysis", "DNS Enumeration",
+> "TLS Security Audit", "OS Fingerprinting", "HTTP Headers", "Server
+> Messages", "Outdated Software", …) as the row label with the raw
+> registry id (`sca`, `dns_enum`, …) preserved in the hover tooltip,
+> and the `wN` weight badge tooltip now reads "Execution weight N —
+> lower runs earlier". The Tauri command count is unchanged at **79**.
 
 ---
 
@@ -123,7 +165,8 @@ Wappalyzer-compatible fingerprints, a curated Nuclei template set, the
 OWASP Top 10 v2025 taxonomy, a 13-group / ~220-name hidden-parameter
 wordlist, a curated Wappalyzer → CPE map for banner-CVE lookups, an
 Exploit-DB snapshot, a default subdomain wordlist, the unified rules
-catalog (`rules.sqlite`), the SNMP device-signature catalog
+catalog (`rules.sqlite`, Nikto + ZAP + Burp BCheck + first-party
+Network rules), the SNMP device-signature catalog
 (`devices.sqlite`, including the IANA Private Enterprise Numbers
 table and the IEEE OUI registry), and a private CA generator. No
 SaaS, no cloud, no telemetry.
@@ -133,16 +176,22 @@ same Rust engines power both the headless CLI (`corvex`) and the desktop
 binary (`corvex-desktop`) — the UI is a thin command surface, not a
 re-implementation.
 
-> **Crates vs engines.** The codebase is organised into ten Rust crates
-> (`corvex-core`, `corvex-checks`, `corvex-recon`, `corvex-intel`,
-> `corvex-nuclei`, `corvex-sonar`, `corvex-proxy`, `corvex-plugins`,
-> `corvex-rules`, `corvex-devicedb`) that do **not** map one-to-one
-> onto the seven user-facing engines — `corvex-nuclei`, for instance,
-> is a crate consumed by the Checks engine rather than a standalone
-> engine; `corvex-rules` is the runtime executor for the unified
-> Nikto + ZAP + Burp BCheck catalog and is consumed by both the
-> signature scanner and the legacy `TestsPlugin`; `corvex-devicedb`
-> is the SNMP signature matcher consumed by the probing engine.
+> **Crates vs engines.** The codebase is organised into ten runtime
+> Rust crates (`corvex-core`, `corvex-checks`, `corvex-recon`,
+> `corvex-intel`, `corvex-nuclei`, `corvex-sonar`, `corvex-proxy`,
+> `corvex-plugins`, `corvex-rules`, `corvex-devicedb`) that do **not**
+> map one-to-one onto the seven user-facing engines — `corvex-nuclei`,
+> for instance, is a crate consumed by the Checks engine rather than a
+> standalone engine; `corvex-rules` is the runtime executor for the
+> unified Nikto + ZAP + Burp BCheck + Network catalog and is consumed
+> by both the signature scanner and the legacy `TestsPlugin`;
+> `corvex-devicedb` is the SNMP signature matcher consumed by the
+> probing engine. A separate dev-only crate `corvex-feed-harvest`
+> (clean-room OpenVAS Community Feed harvester / transpiler /
+> scaffolder / linter) sits in the workspace but does **not** ship in
+> the desktop binary — it produces rule JSON under
+> `rules-sources/openvas-port/` that the builder later folds into
+> `rules.sqlite`.
 > Crate boundaries follow code-reuse needs (the same engines power
 > both the desktop GUI and the CLI); engine boundaries follow
 > user-facing workflow surfaces.
@@ -248,7 +297,12 @@ lives mostly in `corvex-plugins` driven from `corvex-core`.
   `<app_data_dir>/dev.fazminnizam.corvex-rust/rules.sqlite`, with a
   cwd / exe-dir override path so power users can swap catalogs without
   rebuilding. The catalog ingests **Nikto + OWASP ZAP + Burp Suite
-  BChecks** through `corvex-rules-builder`, lowers each rule to a
+  BChecks** plus a fourth, hand-authored **Network** source
+  (`rules-sources/openvas-port/` — service-banner, version-exposure,
+  and misconfiguration checks scaffolded against vendor advisories,
+  optionally seeded by the dev-only **`corvex-feed-harvest`** crate's
+  conservative single-regex transpiler over the OpenVAS Community
+  Feed) through `corvex-rules-builder`, lowers each rule to a
   `match_spec_json` blob, and is consumed at scan time by `RulesPlugin`
   alongside the legacy `TestsPlugin`. The desktop runs both in
   side-by-side mode by default; the CLI flag `--rules-only` flips
@@ -339,7 +393,12 @@ a `StatsBar` (requests, findings, errors, rate, progress), a
 global `tracing` subscriber. A running scan shows a pulsing dot in the
 sidebar Engine section and a dashboard-level ScanIndicator with a
 cancel button. CVE-bearing findings expand to show matching public
-exploits via the Exploit-DB integration. Status codes referenced in a
+exploits via the Exploit-DB integration. The scan-target column
+**auto-collapses to a 44px vertical strip** on the idle→running
+transition for web scans (with a "SCAN TARGET" rotated label), giving
+~336px of reclaimed width to the findings panel; the toggle is
+manual after that and the state persists in `localStorage` as
+`corvexScanFormCollapsed`. Status codes referenced in a
 finding message (`HTTP 308`, `returned 404`, `MOVED PERMANENTLY (301)`,
 …) are decorated by an in-UI **HTTP status glossary**
 (`util/httpStatus.ts`) so users hover any code to see a one-line
@@ -451,10 +510,19 @@ historical data.
 ### 4.5 Plugins
 
 Read-only listing of the compile-time scan plugin registry shipped in
-this build. Each row shows the plugin name, hook types (`start`,
-`recon`, `scan`, `prefetch`, `postfetch`, `active`), description, full
-name, and priority weight. Used for "what exactly runs during a
-default scan?" briefings.
+this build. Each row shows the plugin's **full name** as the primary
+label ("Software Composition Analysis", "DNS Enumeration", "TLS
+Security Audit", "OS Fingerprinting", "HTTP Headers", "Server
+Messages", "Outdated Software", …) with the raw registry id (`sca`,
+`dns_enum`, `tls_audit`, …) preserved in the row's hover title for
+selector / `--plugins` use; hook types (`start`, `recon`, `scan`,
+`prefetch`, `postfetch`, `active`); a description; and a `wN`
+**execution-weight badge** whose tooltip reads "Execution weight N —
+lower runs earlier. Hooks: …" — so a reader instantly sees why
+`sca` (w3) fires before `tls_audit` (w12) inside the Recon hook.
+The same picker is reused as the Web-scan plugin selector on the
+Dashboard form. Used for "what exactly runs during a default scan?"
+briefings.
 
 ### 4.6 Probing (service fingerprinting)
 
@@ -488,7 +556,14 @@ the MAC string + vendor chip — only L2-adjacent hosts return useful
 data, routed targets surface the upstream router's MAC instead.
 
 The view has tabs for **Run** (live progress, with per-host Device /
-MAC chips next to the open-port count), **Configure** (persisted
+MAC chips next to the open-port count). The host table fills the
+content-area width, shows clean target labels (the engine's `[ip]`
+suffix is stripped, and range / CIDR expansions fall back to the
+per-host IP so the row's `AssetLink` crosshair button navigates to
+the right host), and exposes **sortable column headers** for
+**IP**, **MAC**, and **Open** with natural numeric IP sort and ▲/▼
+indicators so a fresh row stream can be re-ordered without losing
+incoming events. Other tabs: **Configure** (persisted
 defaults read by the Dashboard's ScanForm), **Scan modes** (what
 Rapid vs Deep actually do, including which Deep-only follow-up
 probes fire), **Probe families** (scripted probes, static probes,
@@ -771,20 +846,25 @@ Four tabs:
 Eight tabs inspecting what ships inside the binary:
 
 - **Web signatures** — Surface for the embedded `rules.sqlite` catalog
-  consolidating **Nikto**, **OWASP ZAP**, and **Burp Suite BChecks**
-  into a single SQLite file (this is where the legacy bincode
-  `db_tests` / `db_outdated` / `db_favicon` / etc. tables used to be
-  surfaced — every web check now flows through `RulesPlugin` against
-  the unified catalog, so the standalone *Unified rules* tab from
-  v2.1 is folded in here). Shows the resolved on-disk path (after
-  cwd / exe-dir / extracted-blob lookup), schema version, builder
-  timestamp, total ingested vs total executable rule counts (rules
-  with non-NULL `match_spec_json` are runnable by `RulesPlugin`), an
-  invalid-JSON sanity counter, a per-source breakdown (rows ingested
-  + rows lowered + lowering coverage % + pinned upstream commit SHA
-  per tool), and a per-(source, severity) breakdown sorted critical
-  → info. When `rules.sqlite` is absent the tab renders a build
-  instruction
+  consolidating **Nikto**, **OWASP ZAP**, **Burp Suite BChecks**, and
+  hand-authored **Network** service / banner / misconfig checks
+  (`rules-sources/openvas-port/`, surfaced in the UI under the
+  user-friendly label *Network* via `sourceLabel()` so the internal
+  `openvas-port` identifier never leaks into the table) into a single
+  SQLite file (this is where the legacy bincode `db_tests` /
+  `db_outdated` / `db_favicon` / etc. tables used to be surfaced —
+  every web check now flows through `RulesPlugin` against the unified
+  catalog, so the standalone *Unified rules* tab from v2.1 is folded
+  in here). Shows the resolved on-disk path (after cwd / exe-dir /
+  extracted-blob lookup), schema version, builder timestamp, total
+  ingested vs total executable rule counts (rules with non-NULL
+  `match_spec_json` are runnable by `RulesPlugin`), an invalid-JSON
+  sanity counter, a per-source breakdown (rows ingested + rows
+  lowered + lowering coverage % + pinned upstream commit SHA per
+  tool — the Network row carries no upstream commit because the
+  rules are first-party), and a per-(source, severity) breakdown
+  sorted critical → info. When `rules.sqlite` is absent the tab
+  renders a build instruction
   (`cargo run -p corvex-rules-builder -- --sources rules-sources --output rules.sqlite`)
   and reminds the user that the desktop falls back to legacy
   bincode-only behaviour silently in that case. (The legacy
@@ -1025,9 +1105,9 @@ refreshes on a slow 2 s cadence.)
 | `proxy/ca/ca.cert.pem` + `proxy/ca/ca.key.pem` | Locally-generated Certificate Authority for HTTPS MITM. Regenerated on first proxy start if missing. |
 | `proxy/bodies/<exchange-id>.{req,res}.bin` | Large request / response bodies that exceed the 512 KB inline cap are spilled here (up to the 32 MB per-side hard cap). Evicted alongside the parent exchange when retention trims. |
 | `corvex/nuclei-templates/<tag>/` | Tier-2 Nuclei template cache (only `http/` is unpacked from the GitHub tarball). |
-| `rules.sqlite` (extracted on first run, sibling of `history.sqlite`) | Embedded **unified rules catalog** consolidating Nikto + OWASP ZAP + Burp BCheck rules. The bytes are `include_bytes!`-baked into the desktop binary by `build.rs` and extracted on first launch (or after a binary upgrade — detected via length mismatch + first-4 KB compare). A cwd / exe-dir copy wins over the extracted blob so power users can swap catalogs without a rebuild. `RulesPlugin` opens this read-only at scan time. |
+| `rules.sqlite` (extracted on first run, sibling of `history.sqlite`) | Embedded **unified rules catalog** consolidating Nikto + OWASP ZAP + Burp BCheck rules plus the first-party **Network** source (`openvas-port`). The bytes are `include_bytes!`-baked into the desktop binary by `build.rs` and extracted on first launch (or after a binary upgrade — detected via length mismatch + first-4 KB compare). A cwd / exe-dir copy wins over the extracted blob so power users can swap catalogs without a rebuild. `RulesPlugin` opens this read-only at scan time. |
 | `devices.sqlite` (extracted on first run, sibling of `history.sqlite`) | Embedded **SNMP device-signature catalog** — vendor / OS / device-type YAMLs lowered into matchable rows by `corvex-devicedb-builder`, plus the IANA Private Enterprise Numbers reference table and the IEEE OUI registry (MA-L / MA-M / MA-S). Same `include_bytes!` extraction shape as `rules.sqlite`: cwd > exe-dir > extracted blob, length + first-4 KB drift check on launch. Opened read-only by the probing engine and the `device_db_summary` command. |
-| Bundled in binary | Web-signature DBs, Nuclei tier-1 curated templates, Wappalyzer seed + dataset, JARM known hashes, default config, OWASP `top10.yaml`, hidden-parameter wordlist, Wappalyzer → CPE map, Exploit-DB seed snapshot, default subdomain wordlist (~200 names), unified rules catalog (`rules.sqlite`, ~7 MB), SNMP device-signature catalog + IANA PEN + IEEE OUI tables (`devices.sqlite`), gzip-compressed NVD + EPSS snapshot (when present at build time — extracted to `<app_data_dir>/corvex/vulndb.sqlite` on first run). |
+| Bundled in binary | Web-signature DBs, Nuclei tier-1 curated templates, Wappalyzer seed + dataset, JARM known hashes, default config, OWASP `top10.yaml`, hidden-parameter wordlist, Wappalyzer → CPE map, Exploit-DB seed snapshot, default subdomain wordlist (~200 names), unified rules catalog (`rules.sqlite`, ~8.6 MB — Nikto + ZAP + Burp + Network), SNMP device-signature catalog + IANA PEN + IEEE OUI tables (`devices.sqlite`), gzip-compressed NVD + EPSS snapshot (when present at build time — extracted to `<app_data_dir>/corvex/vulndb.sqlite` on first run). |
 
 Nothing is written outside the user's data dir. No registry entries. No
 network calls unless the user explicitly clicks **Update VulnDB**,
@@ -1437,3 +1517,34 @@ and re-launch.
   the active run — there's no backend resume layer for standalone
   probes, only a persisted result trail in `probe_runs` /
   `probe_open_ports` / `probe_device_match` / `probe_host_mac`.
+- **Network rules: HTTP runtime today, schema-only for non-HTTP
+  kinds.** The matcher schema accepts `Tls`, `TcpBanner`, `Ssh`,
+  `Smb`, and `Snmp` step kinds (with paired `TlsCipher` /
+  `TlsVersion` / `TlsCertField` / `Banner` / `SshOutput` /
+  `SmbField` / `SnmpOid` predicates) so rules can be authored
+  against them and stored correctly in `rules.sqlite`, but the
+  runtime currently fires only HTTP rules — non-HTTP steps fail
+  closed (`Ok(None)`, debug log) until the Phase C protocol probes
+  (TLS handshake / TCP banner read) and Phase D credentialed probes
+  (SSH / SMB / SNMP) ship. Seeded examples like
+  `network/tls-protocol-tlsv1-0.json` and
+  `network/snmp-public-community.json` round-trip the schema today
+  and start firing the moment the runtime catches up; until then
+  the per-source executable % on the *Web signatures* tab will be
+  visibly lower for the Network source than for Nikto / ZAP / Burp.
+- **OpenVAS feed harvesting is dev-only and conservative.** The
+  `corvex-feed-harvest` crate is not bundled into the desktop
+  binary — it's a workspace tool authors run locally to scaffold
+  Network rules under `rules-sources/openvas-port/_scaffolds/` /
+  `_transpiled/` from the OpenVAS Community Feed before re-building
+  `rules.sqlite`. The transpiler only auto-emits a `MatchSpec` when
+  the underlying VT's detection logic is one regex literal against
+  a known URL or banner port; multi-step probes, conditional logic,
+  and helper-function calls are rejected so the harvester never
+  produces wrong rules. Transpiled rules carry
+  `provenance.transpiled = true` and live under `_transpiled/`
+  (visually distinct in review, regenerable with `--force`).
+  The clean-room policy in `corvex-feed-harvest/LICENSE_NOTES.md`
+  forbids copy-pasting NASL detection logic; rules using harvested
+  metadata must always be re-authored against the original vendor
+  advisory.

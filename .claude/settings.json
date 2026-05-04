@@ -34,7 +34,10 @@
       "Read(//tmp/**)",
       "Bash(./target/release/corvex-feed-harvest.exe transpile *)",
       "Bash(tee /tmp/transpile5.log)",
-      "Bash(tee /tmp/transpile6.log)"
+      "Bash(tee /tmp/transpile6.log)",
+      "Bash(git submodule *)",
+      "Bash(git ls-tree *)",
+      "PowerShell(git config --get-regexp '^submodule\\\\.')"
     ]
   }
 }
