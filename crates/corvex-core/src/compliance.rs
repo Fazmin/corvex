@@ -1,5 +1,7 @@
 //! Shared types for the compliance and configuration auditing system.
 
+use std::collections::BTreeMap;
+
 use crate::report::Severity;
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +15,14 @@ pub struct ComplianceFinding {
     pub recommendation: String,
 }
 
+/// Per-category point totals so the UI can render a breakdown without
+/// reverse-engineering weights from the failing-finding list.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CategoryScore {
+    pub earned: u32,
+    pub max: u32,
+}
+
 /// Aggregate compliance score for a host.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComplianceScore {
@@ -20,6 +30,8 @@ pub struct ComplianceScore {
     pub points: u32,
     pub max_points: u32,
     pub findings: Vec<ComplianceFinding>,
+    #[serde(default)]
+    pub categories: BTreeMap<String, CategoryScore>,
 }
 
 impl ComplianceScore {
@@ -29,6 +41,7 @@ impl ComplianceScore {
             points: 0,
             max_points: 0,
             findings: Vec::new(),
+            categories: BTreeMap::new(),
         }
     }
 
@@ -44,8 +57,11 @@ impl ComplianceScore {
         recommendation: impl Into<String>,
     ) {
         self.max_points += weight;
+        let cat = self.categories.entry(category.to_string()).or_default();
+        cat.max += weight;
         if pass {
             self.points += weight;
+            cat.earned += weight;
         } else {
             self.findings.push(ComplianceFinding {
                 category: category.to_string(),

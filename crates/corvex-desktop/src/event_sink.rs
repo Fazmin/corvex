@@ -59,6 +59,7 @@ pub struct FindingPayload {
     pub fix_version: Option<String>,
     pub component: Option<String>,
     pub component_version: Option<String>,
+    pub details: Option<String>,
 }
 
 impl FindingPayload {
@@ -80,6 +81,7 @@ impl FindingPayload {
             fix_version: item.fix_version.clone(),
             component: item.component.clone(),
             component_version: item.component_version.clone(),
+            details: if item.data.is_empty() { None } else { Some(item.data.clone()) },
         }
     }
 }
@@ -205,6 +207,7 @@ impl ReportSink for TauriEventSink {
                     item.fix_version.as_deref(),
                     item.component.as_deref(),
                     item.component_version.as_deref(),
+                    if item.data.is_empty() { None } else { Some(item.data.as_str()) },
                 ) {
                     tracing::warn!(
                         target: "history",

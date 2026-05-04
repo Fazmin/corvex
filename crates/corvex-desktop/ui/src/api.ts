@@ -149,6 +149,57 @@ export interface FindingPayload {
   fix_version: string | null;
   component: string | null;
   component_version: string | null;
+  // Free-form JSON detail blob attached by the producing plugin. Currently
+  // only the COMPLIANCE-GRADE-* summary populates this with a serialized
+  // ComplianceScore; other plugins leave it null.
+  details?: string | null;
+}
+
+// Mirrors `ComplianceFinding` in crates/corvex-core/src/compliance.rs.
+export interface ComplianceFinding {
+  category: string;
+  severity: SeverityLevel;
+  message: string;
+  recommendation: string;
+}
+
+// Mirrors `CategoryScore` in crates/corvex-core/src/compliance.rs.
+export interface ComplianceCategoryScore {
+  earned: number;
+  max: number;
+}
+
+// Mirrors `ComplianceScore` in crates/corvex-core/src/compliance.rs.
+export interface ComplianceScore {
+  grade: string;
+  points: number;
+  max_points: number;
+  findings: ComplianceFinding[];
+  categories: Record<string, ComplianceCategoryScore>;
+}
+
+export function parseComplianceDetails(
+  raw: string | null | undefined,
+): ComplianceScore | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as ComplianceScore;
+    if (
+      typeof parsed?.grade === "string" &&
+      typeof parsed?.points === "number" &&
+      typeof parsed?.max_points === "number" &&
+      Array.isArray(parsed?.findings)
+    ) {
+      // Older blobs may lack `categories`; default to empty object.
+      if (!parsed.categories || typeof parsed.categories !== "object") {
+        parsed.categories = {};
+      }
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export interface SummaryPayload {

@@ -1235,6 +1235,124 @@ button.browse-btn:active {
   color: var(--accent);
 }
 
+.compliance-breakdown {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: calc(var(--font-base) - 1px);
+}
+
+.compliance-breakdown .dim {
+  color: var(--muted);
+}
+
+.compliance-score strong {
+  font-size: var(--font-base);
+  color: var(--fg-strong);
+}
+
+.compliance-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.compliance-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  font-family: var(--mono);
+  font-size: calc(var(--font-base) - 2px);
+}
+
+.compliance-issues > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: calc(var(--font-base) - 1px);
+  padding: 2px 0;
+  list-style: none;
+}
+
+.compliance-issues > summary::-webkit-details-marker {
+  display: none;
+}
+
+.compliance-issues > summary::before {
+  content: "\25B8 ";
+  display: inline-block;
+  width: 1em;
+}
+
+.compliance-issues[open] > summary::before {
+  content: "\25BE ";
+}
+
+.compliance-issues ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.compliance-issues li {
+  padding: 6px 10px;
+  border-left: 2px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 4px;
+}
+
+.compliance-issue-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  line-height: 1.4;
+}
+
+.compliance-issue-cat {
+  font-family: var(--mono);
+  font-size: calc(var(--font-base) - 2px);
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
+.compliance-issue-msg {
+  flex: 1;
+  min-width: 0;
+}
+
+.compliance-issue-rec {
+  margin-top: 2px;
+  font-size: calc(var(--font-base) - 2px);
+}
+
+.compliance-disclaimer {
+  font-size: calc(var(--font-base) - 2px);
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  border-left: 2px solid var(--border);
+}
+
+.compliance-disclaimer code {
+  font-family: var(--mono);
+  font-size: calc(var(--font-base) - 3px);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg);
+}
+
 .empty-row td {
   text-align: center;
   color: var(--muted);

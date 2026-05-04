@@ -84,12 +84,12 @@ export function LandingView({ onNavigate }: Props) {
           <div className="landing-disclaimer-body">
             <strong>Use only on systems you own or have written authorisation
             to test.</strong>{" "}
-            corvex-rust ships exploit lookups and active fuzzing because that's
-            what real security work needs. Running these against unauthorised
-            targets is illegal in most jurisdictions and an unambiguous breach
-            of every responsible-disclosure norm. The tool surfaces information;
-            actioning it is your responsibility. By using corvex-rust you agree
-            that you are solely responsible for your own conduct, and that the
+            corvex ships exploit lookups and active fuzzing because that's what
+            real security work needs. Running these against unauthorised targets
+            is illegal in most jurisdictions and an unambiguous breach of every
+            responsible-disclosure norm. The tool surfaces information;
+            actioning it is your responsibility. By using corvex you agree that
+            you are solely responsible for your own conduct, and that the
             authors accept no liability for misuse.
           </div>
         </section>

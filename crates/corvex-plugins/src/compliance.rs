@@ -526,6 +526,8 @@ impl Plugin for CompliancePlugin {
             )
         };
 
+        let details_json = serde_json::to_string(&score).unwrap_or_default();
+
         items.push(ReportItem {
             corvex_id: format!("COMPLIANCE-GRADE-{}", score.grade),
             method: "GET".into(),
@@ -535,7 +537,7 @@ impl Plugin for CompliancePlugin {
                 score.grade, issue_summary,
             ),
             refs: String::new(),
-            data: String::new(),
+            data: details_json,
             plugin: INFO.name.to_string(),
             severity: grade_severity,
             ..Default::default()

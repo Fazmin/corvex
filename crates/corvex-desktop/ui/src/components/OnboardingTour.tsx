@@ -33,13 +33,15 @@ interface Step {
 
 const STEPS: Step[] = [
   {
-    title: "Welcome to corvex-rust",
+    title: "Welcome to corvex",
     body: (
       <>
         <p>
-          A web vulnerability scanner with an active fuzzing engine, software
-          composition analysis, and a CVE/EPSS-backed vulnerability database —
-          all wrapped in a local desktop UI.
+          A unified offensive and defensive security workbench. Web vulnerability
+          scanning, active fuzzing, software composition analysis, network and
+          service probes (including ARP/MAC discovery), and a unified
+          ZAP/Burp/Nikto rule catalog backed by CVE and EPSS data. All local,
+          all in one desktop UI.
         </p>
         <p>
           The tour below takes about a minute. You can re-open it anytime from
@@ -59,8 +61,10 @@ const STEPS: Step[] = [
           table once findings arrive.
         </p>
         <p>
-          Save common configurations as named <strong>Presets</strong> from the
-          dropdown at the top of the form.
+          Each plugin shows its execution weight (for example W3, W5, W12) so you
+          can see the order it runs within its hook phase. Lower weights run
+          earlier. Save common configurations as named <strong>Presets</strong>
+          from the dropdown at the top of the form.
         </p>
       </>
     ),
@@ -70,14 +74,14 @@ const STEPS: Step[] = [
     body: (
       <>
         <p>
-          The <strong>Active Fuzzing</strong> view lets you run crawl-based active
-          scans (including SQL injection) without touching the Web scan form.
-          The same view also documents every injection module, tamper script, and
-          supported DBMS.
+          The <strong>Active Fuzzing</strong> view runs crawl-based active scans
+          (including SQL injection with multi-step matchers) without touching the
+          Web scan form. The same view documents every injection module, tamper
+          script, and supported DBMS.
         </p>
         <p>
-          Use the <strong>Run</strong> tab to launch a focused fuzzing session —
-          findings appear inline.
+          Use the <strong>Run</strong> tab to launch a focused fuzzing session.
+          Findings appear inline.
         </p>
       </>
     ),
@@ -87,15 +91,15 @@ const STEPS: Step[] = [
     body: (
       <>
         <p>
-          Every scan is persisted to a local SQLite database. Open the{" "}
-          <strong>History</strong> view to see past runs and click{" "}
-          <strong>Re-run</strong> to repeat any scan with its original parameters —
-          useful for tracking regressions.
+          Scans are persisted to a local SQLite database (the default in this
+          build). Open the <strong>History</strong> view to see past runs, then
+          click <strong>Re-run</strong> to repeat any scan with its original
+          parameters. Useful for tracking regressions over time.
         </p>
         <p>
           The <strong>Databases</strong> view shows how many CVE/EPSS entries and
-          embedded test signatures you have loaded, and lets you update the NVD
-          feed (set <code>NVD_API_KEY</code> first for faster pulls).
+          embedded ZAP/Burp/Nikto rule signatures are loaded, and lets you update
+          the NVD feed. Set <code>NVD_API_KEY</code> in Settings for faster pulls.
         </p>
       </>
     ),
@@ -105,14 +109,15 @@ const STEPS: Step[] = [
     body: (
       <>
         <p>
-          The <strong>Assets</strong> view is one host = one page. It joins
+          The <strong>Assets</strong> view is one host equals one page. It joins
           recon, probing, the proxy, and findings into a single asset-centered
-          page with related-host clustering and a Panels / Graph toggle.
+          page with related-host clustering, sortable host tables, and a
+          Panels / Graph toggle.
         </p>
         <p>
-          Every row in Findings, Proxy → Traffic, Recon, Probing, and History
-          has a small crosshair icon — click it to drop into the asset view
-          centered on that host. Breadcrumbs let you walk back.
+          Every row in Findings, Proxy &rarr; Traffic, Recon, Probing, and
+          History has a small crosshair icon. Click it to drop into the asset
+          view centered on that host. Breadcrumbs let you walk back.
         </p>
       </>
     ),

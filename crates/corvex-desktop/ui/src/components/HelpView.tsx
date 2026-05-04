@@ -23,6 +23,7 @@ const SECTIONS: Section[] = [
   { id: "exploitdb", title: "Exploit-DB enrichment" },
   { id: "unified-rules", title: "Unified rules catalog" },
   { id: "nuclei-catalog", title: "Bundled Nuclei templates" },
+  { id: "compliance-audit", title: "Compliance audit" },
   { id: "glossary", title: "Glossary" },
   { id: "limitations", title: "Known limitations" },
   { id: "troubleshooting", title: "Troubleshooting" },
@@ -4830,6 +4831,132 @@ cargo run -p corvex-rules-builder`}
             slow down the rest of the Help view.
           </p>
           <NucleiCatalog />
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        <section id="compliance-audit">
+          <h3>Compliance audit</h3>
+          <p>
+            The <code>compliance</code> plugin inspects each HTTP response and
+            grades the host on its security headers, <code>Set-Cookie</code>{" "}
+            attributes, Content-Security-Policy string, and CORS configuration.
+            It runs as a Postfetch hook (one summary emitted per host) and
+            produces a single <code>COMPLIANCE-GRADE-A..F</code> finding plus
+            one per failing check (<code>COMPLIANCE-HEADERS</code>,{" "}
+            <code>COMPLIANCE-CSP</code>, ...). Expand the grade row in the
+            Findings table to see the per-category breakdown and the same
+            disclaimer surfaced below.
+          </p>
+
+          <h4>Rubric</h4>
+          <p>
+            Letter grade is the percentage of points earned across every check
+            that ran for the host:
+          </p>
+          <ul className="kv">
+            <li>
+              <code>A</code> &ge; 90% &nbsp;·&nbsp; <code>B</code> &ge; 80%
+              &nbsp;·&nbsp; <code>C</code> &ge; 65% &nbsp;·&nbsp;{" "}
+              <code>D</code> &ge; 50% &nbsp;·&nbsp; <code>F</code> &lt; 50%
+            </li>
+          </ul>
+
+          <h4>Per-check weights</h4>
+          <p>
+            The number after each check is the maximum points it contributes
+            when it passes. The sum of <em>maxes</em> for checks that ran on a
+            given host becomes the denominator in the score.
+          </p>
+          <dl className="kv">
+            <dt>headers</dt>
+            <dd>
+              HSTS max-age &ge; 1 year (<code>3</code>), HSTS{" "}
+              <code>includeSubDomains</code> (<code>1</code>),{" "}
+              <code>X-Content-Type-Options: nosniff</code> (<code>2</code>),{" "}
+              <code>X-Frame-Options</code> set (<code>2</code>),{" "}
+              <code>Referrer-Policy</code> set (<code>1</code>),{" "}
+              <code>Permissions-Policy</code> set (<code>1</code>).
+            </dd>
+            <dt>csp</dt>
+            <dd>
+              <code>default-src</code> present (<code>3</code>), no{" "}
+              <code>'unsafe-inline'</code> (<code>3</code>), no{" "}
+              <code>'unsafe-eval'</code> (<code>2</code>), no wildcard source (
+              <code>2</code>), <code>frame-ancestors</code> set (
+              <code>1</code>).
+            </dd>
+            <dt>cookies</dt>
+            <dd>
+              Per cookie: <code>Secure</code> flag (<code>2</code>),{" "}
+              <code>HttpOnly</code> flag (<code>2</code>),{" "}
+              <code>SameSite</code> attribute (<code>1</code>).
+            </dd>
+            <dt>cors</dt>
+            <dd>
+              No wildcard origin with credentials (<code>4</code>, HIGH if it
+              fires), no wildcard origin (<code>2</code>, LOW if it fires).
+            </dd>
+          </dl>
+
+          <h4>Limitations and false positives</h4>
+          <p className="callout">
+            This is a heuristic header-level audit, not a vulnerability scan.
+            Treat the grade as a hardening checklist over the response surface
+            this scan saw, not an exploit count. Several checks legitimately
+            misfire depending on context:
+          </p>
+          <ul className="kv">
+            <li>
+              <strong>HSTS / <code>Secure</code> cookies</strong> only have
+              meaning over HTTPS. On a plain-HTTP target the absence of HSTS
+              and the absence of <code>Secure</code> on cookies are both
+              correct, not defects.
+            </li>
+            <li>
+              <strong>CSP <code>'unsafe-inline'</code></strong> is a documented
+              best practice when paired with a per-page nonce in{" "}
+              <code>script-src</code>; modern browsers ignore{" "}
+              <code>'unsafe-inline'</code> when a nonce is also present. The
+              substring check does not credit nonce usage.
+            </li>
+            <li>
+              <strong>CSP wildcard source</strong> severity is
+              directive-dependent. <code>script-src *</code> is dangerous;{" "}
+              <code>img-src *</code> or <code>font-src *</code> usually is not.
+              The current check flags any wildcard regardless of directive.
+            </li>
+            <li>
+              <strong>Missing <code>X-Frame-Options</code></strong> is fine
+              when CSP <code>frame-ancestors</code> is set.{" "}
+              <code>frame-ancestors</code> supersedes XFO in every modern
+              browser.
+            </li>
+            <li>
+              <strong>Missing <code>SameSite</code></strong> on a cookie no
+              longer leaves it cross-site by default. Modern browsers apply{" "}
+              <code>SameSite=Lax</code> when the attribute is absent.
+            </li>
+            <li>
+              <strong>CORS <code>*</code></strong> on a fully public,
+              unauthenticated, read-only API is intentional and correct. The
+              HIGH-severity case (<code>*</code> + <code>Allow-Credentials:
+              true</code>) is a real bug because browsers reject that
+              combination; the LOW-severity wildcard-alone case is often a
+              deliberate design choice.
+            </li>
+            <li>
+              <strong>Reverse proxy / TLS termination</strong> can move the
+              hardening headers off the origin corvex is talking to. If you
+              are scanning an internal origin behind a public edge that adds
+              HSTS / CSP at the proxy layer, the origin will fail these checks
+              even though the public surface is fine.
+            </li>
+          </ul>
+          <p>
+            Real exploitability of any flagged item requires manual
+            confirmation; the per-issue rows are a triage starting point, not
+            an exploit list.
+          </p>
         </section>
 
         {/* ------------------------------------------------------------------ */}

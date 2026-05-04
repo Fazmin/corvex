@@ -15,6 +15,7 @@ use corvex_core::target::Mark;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -32,8 +33,20 @@ static LINK_RX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)(?:href|src|action)\s*=\s*["']?([^"'\s>]+)"#).unwrap()
 });
 
-#[derive(Default)]
-pub struct PathsPlugin;
+pub struct PathsPlugin {
+    /// One-shot guard so the "extracted N targets" finding fires once per
+    /// scan instead of once per Postfetch hit on `/`. The plugin registry
+    /// is rebuilt per scan, so a per-instance `AtomicBool` is per-scan.
+    emitted: AtomicBool,
+}
+
+impl Default for PathsPlugin {
+    fn default() -> Self {
+        Self {
+            emitted: AtomicBool::new(false),
+        }
+    }
+}
 
 #[async_trait]
 impl Plugin for PathsPlugin {
@@ -49,6 +62,13 @@ impl Plugin for PathsPlugin {
         resp: &Response,
     ) -> Result<Vec<ReportItem>> {
         if req.uri != "/" || resp.status != 200 {
+            return Ok(Vec::new());
+        }
+        if self
+            .emitted
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             return Ok(Vec::new());
         }
         let body = resp.body_str();

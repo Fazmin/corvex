@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { FindingPayload, SeverityLevel } from "../api";
+import type { ComplianceScore, FindingPayload, SeverityLevel } from "../api";
+import { parseComplianceDetails } from "../api";
 import { ExploitHits } from "./ExploitHits";
 import { AssetLink } from "./asset/AssetLink";
 import { extractStatusCodes } from "../util/httpStatus";
@@ -697,11 +698,98 @@ function FindingRow({ finding, isOpen, onToggle }: RowProps) {
                   </>
                 )}
               </dl>
+              <ComplianceBreakdown finding={finding} />
             </div>
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+function ComplianceBreakdown({ finding }: { finding: FindingPayload }) {
+  const score = useMemo<ComplianceScore | null>(() => {
+    if (!finding.corvex_id.startsWith("COMPLIANCE-GRADE-")) return null;
+    return parseComplianceDetails(finding.details);
+  }, [finding.corvex_id, finding.details]);
+
+  if (!score) return null;
+
+  const pct =
+    score.max_points > 0
+      ? Math.round((score.points / score.max_points) * 100)
+      : 0;
+
+  const failingByCategory = score.findings.reduce<Record<string, number>>(
+    (acc, f) => {
+      acc[f.category] = (acc[f.category] ?? 0) + 1;
+      return acc;
+    },
+    {},
+  );
+
+  const categoryChips = Object.entries(score.categories)
+    .filter(([, c]) => c.max > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  return (
+    <div className="compliance-breakdown">
+      <div className="compliance-score">
+        <strong>Grade {score.grade}</strong>
+        <span className="dim"> · {score.points} / {score.max_points} pts · {pct}%</span>
+      </div>
+
+      {categoryChips.length > 0 && (
+        <div className="compliance-categories">
+          {categoryChips.map(([name, c]) => {
+            const failed = failingByCategory[name] ?? 0;
+            return (
+              <span key={name} className="compliance-chip">
+                {name} {c.earned}/{c.max}
+                {failed > 0 && <span className="dim"> ({failed})</span>}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {score.findings.length > 0 && (
+        <details className="compliance-issues">
+          <summary>
+            Show {score.findings.length} failing check
+            {score.findings.length === 1 ? "" : "s"}
+          </summary>
+          <ul>
+            {score.findings.map((f, i) => (
+              <li key={i}>
+                <div className="compliance-issue-head">
+                  <SeverityBadge severity={f.severity} />
+                  <span className="compliance-issue-cat">{f.category}</span>
+                  <span className="compliance-issue-msg">{f.message}</span>
+                </div>
+                {f.recommendation && (
+                  <div className="compliance-issue-rec dim">
+                    Recommendation: {f.recommendation}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <div className="compliance-disclaimer dim">
+        Heuristic check on HTTP response headers only. Many of these can
+        false-positive: HSTS / <code>Secure</code> cookie absence is correct
+        over plain HTTP; <code>'unsafe-inline'</code> is fine when paired with
+        a nonce; missing <code>X-Frame-Options</code> is fine when CSP{" "}
+        <code>frame-ancestors</code> is set; CORS <code>*</code> may be
+        intentional for public APIs. Treat the grade as a hardening checklist,
+        not a vulnerability count. See Help &rarr; Compliance audit for the
+        full caveat list. Each issue also appears as its own row (filter by
+        plugin = COMPLIANCE).
+      </div>
+    </div>
   );
 }
 

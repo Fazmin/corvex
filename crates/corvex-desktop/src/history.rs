@@ -52,6 +52,7 @@ pub struct ScanFindingRow {
     pub fix_version: Option<String>,
     pub component: Option<String>,
     pub component_version: Option<String>,
+    pub details: Option<String>,
 }
 
 const SCHEMA: &str = r#"
@@ -93,6 +94,7 @@ CREATE TABLE IF NOT EXISTS scan_findings (
     fix_version        TEXT,
     component          TEXT,
     component_version  TEXT,
+    details            TEXT,
     created_at         INTEGER NOT NULL,
     FOREIGN KEY (scan_id) REFERENCES scans(id) ON DELETE CASCADE
 );
@@ -134,6 +136,15 @@ impl HistoryDb {
                 "ALTER TABLE scans ADD COLUMN saved INTEGER NOT NULL DEFAULT 0",
                 [],
             )?;
+        }
+
+        // Migration for DBs created before per-finding `details` JSON.
+        let has_details: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info('scan_findings') WHERE name = 'details'")?
+            .query_row([], |_| Ok(true))
+            .unwrap_or(false);
+        if !has_details {
+            conn.execute("ALTER TABLE scan_findings ADD COLUMN details TEXT", [])?;
         }
 
         // Opt-in retention: anything not explicitly saved by the user
@@ -232,7 +243,7 @@ impl HistoryDb {
             "SELECT host, port, corvex_id, method, uri, message, refs,
                     plugin, severity, cve, cvss, epss_score,
                     epss_percentile, fix_version, component,
-                    component_version
+                    component_version, details
                FROM scan_findings
               WHERE scan_id = ?1
               ORDER BY id",
@@ -255,6 +266,7 @@ impl HistoryDb {
                 fix_version: row.get(13)?,
                 component: row.get(14)?,
                 component_version: row.get(15)?,
+                details: row.get(16)?,
             })
         })?;
         rows.collect()
@@ -295,6 +307,7 @@ impl HistoryDb {
         fix_version: Option<&str>,
         component: Option<&str>,
         component_version: Option<&str>,
+        details: Option<&str>,
     ) -> SqlResult<()> {
         let conn = self.conn.lock().expect("history mutex");
         let mut stmt = conn.prepare_cached(
@@ -302,9 +315,9 @@ impl HistoryDb {
                 (scan_id, host, port, method, uri, plugin, corvex_id,
                  severity, message, refs, cve, cvss, epss_score,
                  epss_percentile, fix_version, component,
-                 component_version, created_at)
+                 component_version, details, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                     ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                     ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         )?;
         stmt.execute(params![
             scan_id,
@@ -324,6 +337,7 @@ impl HistoryDb {
             fix_version,
             component,
             component_version,
+            details,
             now_secs(),
         ])?;
         Ok(())
