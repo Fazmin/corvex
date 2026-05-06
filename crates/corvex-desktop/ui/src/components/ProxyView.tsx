@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRafBatcher } from "../util/rafBatch";
 import { AssetLink } from "./asset/AssetLink";
+import { InfoTip } from "./InfoTip";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   browserBack,
@@ -86,6 +87,74 @@ const TAB_LABELS: Record<Tab, string> = {
   replay: "Replay",
   checks: "Checks",
   settings: "Settings",
+};
+
+const TAB_HELP: Record<Tab, React.ReactNode> = {
+  traffic: (
+    <>
+      <strong>Traffic</strong>
+      Live, read-only log of every HTTP/HTTPS exchange the proxy
+      captured during the active session. Each row shows method,
+      status, host, path, and timing. Click a row to expand the full
+      raw request and response bytes with body decoding. From there
+      you can <em>Send to Replay</em> (re-fire the request with
+      edits), <em>Send to Checks</em> (queue it for active or
+      passive vulnerability checks), or copy any header / cookie /
+      body for use elsewhere. Group by endpoint to fold variants of
+      the same URL into clusters.
+    </>
+  ),
+  intercept: (
+    <>
+      <strong>Intercept</strong>
+      Pause in-scope traffic mid-flight so you can inspect, edit, or
+      drop it before it reaches the upstream (Request mode) or the
+      client (Response mode). Pick a mode chip to turn it on, then
+      paused exchanges show up in the <em>Pending</em> queue for you
+      to step through. The <em>Browser</em> sub-tab hosts an embedded
+      WebView2 routed through the corvex proxy, so you can drive a
+      target without touching system proxy settings.
+    </>
+  ),
+  replay: (
+    <>
+      <strong>Replay</strong>
+      Take any captured request, edit the raw bytes (method, path,
+      headers, body), and re-fire it through the proxy. Useful for
+      probing how an endpoint reacts to mutated input (IDOR, type
+      confusion, missing fields), for re-running a request after a
+      session refresh, or for crafting a one-off PoC payload. Replays
+      reuse the captured cookies and the live CSRF token store, so
+      you do not have to rebuild auth state by hand.
+    </>
+  ),
+  checks: (
+    <>
+      <strong>Checks</strong>
+      Vulnerability checks organized by OWASP category. Two flavours:
+      <em> passive</em> checks read captured exchanges and flag issues
+      from headers, bodies, and cookies (missing security headers,
+      verbose errors, dangerous CORS, etc.); <em>active</em> checks
+      send extra crafted requests to probe behaviour (XSS reflection,
+      open redirect, SSRF probes, IDOR comparisons, and so on). Queue
+      specific exchanges via <em>Send to Checks</em> from the Traffic
+      tab, then run individual checks or whole categories from here.
+    </>
+  ),
+  settings: (
+    <>
+      <strong>Settings</strong>
+      Per-session knobs that control how the proxy behaves: listen
+      address and port, scope rules (which hosts and paths the proxy
+      treats as in-scope for capture vs pass-through), conditional
+      intercept rules (narrow what the mode toggle pauses), CSRF
+      token automation (auto-extract and re-inject CSRF tokens
+      across requests), retention policy (max exchanges per session
+      before old rows roll off), and the one-time CA export for
+      installing the corvex root certificate into your system trust
+      store.
+    </>
+  ),
 };
 
 /**
@@ -416,14 +485,21 @@ export function ProxyView({ onSendToFuzzer }: ProxyViewProps = {}) {
       <div className="proxy-tabs panel">
         <div className="proxy-tab-row">
           {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
-            <button
+            <span
               key={t}
-              type="button"
-              className={`chip${tab === t ? " active" : ""}`}
-              onClick={() => setTab(t)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
             >
-              {TAB_LABELS[t]}
-            </button>
+              <button
+                type="button"
+                className={`chip${tab === t ? " active" : ""}`}
+                onClick={() => setTab(t)}
+              >
+                {TAB_LABELS[t]}
+              </button>
+              <InfoTip label={`${TAB_LABELS[t]} tab help`}>
+                {TAB_HELP[t]}
+              </InfoTip>
+            </span>
           ))}
         </div>
 
@@ -3509,10 +3585,54 @@ const INTERCEPT_MODES: { value: InterceptMode; label: string }[] = [
   { value: "both", label: "Both" },
 ];
 
-type InterceptSubTab = "pending" | "browser";
+const INTERCEPT_MODE_HELP: Record<InterceptMode, React.ReactNode> = {
+  off: (
+    <>
+      <strong>Off — pass-through</strong>
+      Nothing pauses. Traffic still gets <em>captured</em> (Traffic tab,
+      Checks, Replay all keep working) but every request flows straight
+      through to the upstream and back. This is the default. Switch
+      back to Off when you're done editing live traffic so you don't
+      accidentally hold up your own browser session.
+    </>
+  ),
+  request: (
+    <>
+      <strong>Request — pause before forwarding</strong>
+      The most common mode. In-scope requests pause in the{" "}
+      <em>Pending</em> queue <em>before</em> they leave for the
+      upstream. You can edit the method, path, headers, or body, then
+      Forward to send your edited bytes upstream. Use this for
+      authorization-bypass probes (flip a role field), CSRF tests
+      (drop a token), or anything where you want to mutate what the
+      server sees.
+    </>
+  ),
+  response: (
+    <>
+      <strong>Response — pause before delivery to the client</strong>
+      Lets the request go upstream untouched, then pauses the{" "}
+      <em>reply</em> in the queue before the client (your browser)
+      receives it. Edit status code, headers, or body to simulate
+      error states, flip feature-flag JSON, strip security headers
+      to see how the client copes, or hand the browser a response the
+      server never sent.
+    </>
+  ),
+  both: (
+    <>
+      <strong>Both — pause at request and response</strong>
+      Each in-scope exchange hits the queue twice: once with the{" "}
+      <code>→ req</code> badge (going out), once with{" "}
+      <code>← resp</code> (coming back). Heavier on attention but the
+      only mode that lets you observe how the upstream reacted to
+      your edited request and then mutate the reply before the client
+      sees it.
+    </>
+  ),
+};
 
 function ProxyInterceptTab() {
-  const [subTab, setSubTab] = useState<InterceptSubTab>("pending");
   const [mode, setMode] = useState<InterceptMode>("off");
   const [pending, setPending] = useState<PendingIntercept[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -3633,175 +3753,271 @@ function ProxyInterceptTab() {
 
   return (
     <div className="proxy-intercept">
-      <section>
-        <h3>Intercept mode</h3>
-        <div className="proxy-mode-row">
-          {INTERCEPT_MODES.map((m) => (
+      <div
+        className="proxy-mode-row"
+        style={{ alignItems: "center", marginBottom: 6, rowGap: 4 }}
+      >
+        <span
+          className="muted"
+          style={{ fontSize: "0.85em", marginRight: 4 }}
+        >
+          Intercept mode:
+        </span>
+        {INTERCEPT_MODES.map((m) => (
+          <span
+            key={m.value}
+            style={{ display: "inline-flex", alignItems: "center", gap: 2 }}
+          >
             <button
-              key={m.value}
               type="button"
               className={`chip${mode === m.value ? " active" : ""}`}
               onClick={() => handleModeChange(m.value)}
             >
               {m.label}
             </button>
-          ))}
+            <InfoTip label={`${m.label} mode help`}>
+              {INTERCEPT_MODE_HELP[m.value]}
+            </InfoTip>
+          </span>
+        ))}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
           <button
             type="button"
             className="chip"
             onClick={handleDropAll}
             disabled={pending.length === 0}
-            title="Release every pending intercept with Forward"
           >
             Drop all
           </button>
-          {activeRuleCount > 0 && (
-            <span
-              className="chip"
-              data-status="warn"
-              title="Active intercept rules narrow what the mode toggle pauses. Configure under Settings → Intercept rules."
-            >
-              ⚠ {activeRuleCount} rule{activeRuleCount === 1 ? "" : "s"} active
-            </span>
-          )}
-        </div>
-        <p className="muted">
-          When intercept is on, in-scope exchanges pause here. The
-          <strong> Request</strong> phase pauses before forwarding
-          upstream — you edit the request line, headers, or body before
-          it leaves. The <strong>Response</strong> phase pauses after the
-          upstream reply arrives but before it reaches the client —
-          useful for tweaking status codes, headers, or response bodies
-          on the fly. Out-of-scope traffic is never paused; configure
-          scope rules on the Settings tab. <strong>Intercept rules</strong>{" "}
-          (Settings → Intercept rules) further narrow what the mode
-          pauses — e.g. only POSTs to <code>/auth</code>, or skip every{" "}
-          <code>.png</code> request.
-        </p>
-        {error && <div className="proxy-error">{error}</div>}
-      </section>
-
-      <div className="proxy-mode-row" role="tablist" aria-label="Intercept sub-views">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={subTab === "pending"}
-          className={`chip${subTab === "pending" ? " active" : ""}`}
-          onClick={() => setSubTab("pending")}
-        >
-          Pending ({pending.length})
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={subTab === "browser"}
-          className={`chip${subTab === "browser" ? " active" : ""}`}
-          onClick={() => setSubTab("browser")}
-          title="Drive a real browser through the corvex MITM proxy without touching system proxy settings"
-        >
-          Browser
-        </button>
+          <InfoTip label="Drop all help">
+            <strong>Drop all</strong>
+            Returns a <code>502 Bad Gateway</code> to the client for
+            every exchange currently sitting in the Pending queue
+            and clears the queue. The upstream is never contacted
+            for those requests. Use this when you've turned on
+            Intercept by accident and a long page load piled up
+            dozens of paused subresources you don't want to step
+            through one-by-one. Disabled when the queue is empty.
+          </InfoTip>
+        </span>
+        {activeRuleCount > 0 && (
+          <span
+            className="chip"
+            data-status="warn"
+            title="Active intercept rules narrow what the mode toggle pauses. Configure under Settings, Intercept rules."
+          >
+            ⚠ {activeRuleCount} rule{activeRuleCount === 1 ? "" : "s"} active
+          </span>
+        )}
       </div>
+      {error && <div className="proxy-error">{error}</div>}
 
-      {subTab === "browser" ? (
-        <InterceptBrowserPane />
-      ) : (
+      <div
+        className="proxy-intercept-split"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(360px, 1fr) minmax(360px, 1fr)",
+          gap: 12,
+          alignItems: "stretch",
+        }}
+      >
+        <div
+          className="proxy-intercept-pending-col"
+          style={{ display: "flex", flexDirection: "column", minWidth: 0 }}
+        >
+          <div
+            className="proxy-mode-row"
+            style={{ alignItems: "center", marginBottom: 4 }}
+          >
+            <strong style={{ fontSize: "0.9em" }}>
+              Pending ({pending.length})
+            </strong>
+            <InfoTip label="Pending queue help">
+              <strong>Pending</strong>
+              The queue of in-scope exchanges currently paused awaiting
+              your verdict. Each row is one paused side of one exchange:
+              an outbound request held before forwarding (
+              <code>→ req</code> badge), or an upstream reply held
+              before delivery to the client (<code>← resp</code> badge).
+              Click a row to load the raw bytes into the editor on the
+              right, then Forward (with or without edits) or Drop. The
+              queue stays empty when Intercept mode is Off, or when no
+              in-scope traffic is hitting a phase the active mode
+              covers. Forgotten rows auto-forward after 5 minutes so
+              upstream sockets do not leak.
+            </InfoTip>
+          </div>
       <div className="proxy-intercept-layout">
         <aside className="proxy-intercept-queue">
-          <h4>Pending ({pending.length})</h4>
           {pending.length === 0 ? (
             <p className="muted">No paused exchanges.</p>
           ) : (
             <ul>
               {pending.map((p) => (
-                <li
-                  key={p.id}
-                  className={`proxy-intercept-item phase-${p.phase}${
-                    selectedId === p.id ? " active" : ""
-                  }`}
-                  onClick={() => setSelectedId(p.id)}
-                >
-                  <span
-                    className={`badge-inline phase-${p.phase}`}
-                    title={
-                      p.phase === "response"
-                        ? "Upstream reply paused before delivery to the client"
-                        : "Request paused before forwarding upstream"
-                    }
+                <Fragment key={p.id}>
+                  <li
+                    className={`proxy-intercept-item phase-${p.phase}${
+                      selectedId === p.id ? " active" : ""
+                    }`}
+                    onClick={() => setSelectedId(p.id)}
                   >
-                    {p.phase === "response" ? "← resp" : "→ req"}
-                  </span>
-                  <span className="badge-inline">{p.method}</span>
-                  <span className="proxy-intercept-url">
-                    {p.scheme}://{p.host}:{p.port}
-                    {p.uri}
-                  </span>
-                </li>
+                    <span
+                      className={`badge-inline phase-${p.phase}`}
+                      title={
+                        p.phase === "response"
+                          ? "Upstream reply paused before delivery to the client"
+                          : "Request paused before forwarding upstream"
+                      }
+                    >
+                      {p.phase === "response" ? "← resp" : "→ req"}
+                    </span>
+                    <span className="badge-inline">{p.method}</span>
+                    <span className="proxy-intercept-url">
+                      {p.scheme}://{p.host}:{p.port}
+                      {p.uri}
+                    </span>
+                  </li>
+                  {selectedId === p.id && selected && (
+                    <li className="proxy-intercept-inline-editor">
+                      <div className="proxy-intercept-editor">
+                        <div className="proxy-intercept-toolbar">
+                          <span className="muted">
+                            {selected.phase === "response" ? (
+                              <>
+                                Editing the raw{" "}
+                                <strong>response</strong>: status line
+                                first (e.g.{" "}
+                                <code>HTTP/1.1 200 OK</code>), then
+                                headers, blank line, body. Forward
+                                sends the edited reply to the client;
+                                Drop returns a 502 instead.
+                              </>
+                            ) : (
+                              <>
+                                Editing the raw{" "}
+                                <strong>request</strong>: request line
+                                first (e.g.{" "}
+                                <code>GET /path HTTP/1.1</code>), then
+                                headers, blank line, body. Forward
+                                sends the edited request upstream;
+                                Drop returns a 502 to the client.
+                              </>
+                            )}
+                          </span>
+                        </div>
+                        <textarea
+                          className="proxy-wire-editor"
+                          value={editor}
+                          spellCheck={false}
+                          onChange={(e) => {
+                            setEditor(e.target.value);
+                            setDirty(true);
+                          }}
+                        />
+                        <div className="proxy-intercept-actions">
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <button
+                              type="button"
+                              className="chip active"
+                              onClick={handleForward}
+                            >
+                              {dirty
+                                ? selected.phase === "response"
+                                  ? "Forward edited response"
+                                  : "Forward edited request"
+                                : selected.phase === "response"
+                                  ? "Forward response"
+                                  : "Forward request"}
+                            </button>
+                            <InfoTip label="Forward help">
+                              {selected.phase === "response" ? (
+                                <>
+                                  <strong>Forward response</strong>
+                                  Releases the paused upstream reply
+                                  and lets it reach the client. If you
+                                  edited the textarea, the button
+                                  label flips to <em>Forward edited
+                                  response</em>: corvex re-parses
+                                  your bytes, rewrites{" "}
+                                  <code>Content-Length</code>, and the
+                                  client receives your edited reply
+                                  instead of what the server actually
+                                  sent. Untouched bytes forward
+                                  verbatim with zero re-parse cost.
+                                </>
+                              ) : (
+                                <>
+                                  <strong>Forward request</strong>
+                                  Releases the paused outbound request
+                                  to the upstream. If you edited the
+                                  textarea, the button label flips to{" "}
+                                  <em>Forward edited request</em>:
+                                  corvex re-parses your bytes,
+                                  recomputes the body length, and
+                                  forwards your edited request. The
+                                  exchange shows up in the Traffic tab
+                                  with a{" "}
+                                  <code>request-edited</code> intercept
+                                  flag so you can audit what you
+                                  changed later.
+                                </>
+                              )}
+                            </InfoTip>
+                          </span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <button type="button" className="chip" onClick={handleDrop}>
+                              {selected.phase === "response"
+                                ? "Drop response"
+                                : "Drop request"}
+                            </button>
+                            <InfoTip label="Drop help">
+                              {selected.phase === "response" ? (
+                                <>
+                                  <strong>Drop response</strong>
+                                  Discards the upstream reply you were
+                                  about to edit. The client receives a
+                                  synthetic{" "}
+                                  <code>502 Bad Gateway</code> instead.
+                                  The upstream already saw and
+                                  processed the request, so Drop only
+                                  affects what the client gets back.
+                                  Use this to simulate a flaky upstream
+                                  or connection reset.
+                                </>
+                              ) : (
+                                <>
+                                  <strong>Drop request</strong>
+                                  Discards the paused request without
+                                  forwarding. The upstream is never
+                                  contacted. The client receives a
+                                  synthetic <code>502 Bad Gateway</code>.
+                                  Use this to test how the client
+                                  reacts to a failed network call, or
+                                  to silently kill a request you don't
+                                  want hitting the server.
+                                </>
+                              )}
+                            </InfoTip>
+                          </span>
+                        </div>
+                      </div>
+                    </li>
+                  )}
+                </Fragment>
               ))}
             </ul>
           )}
         </aside>
+      </div>
+        </div>
 
-        <div className="proxy-intercept-editor">
-          {selected ? (
-            <>
-              <div className="proxy-intercept-toolbar">
-                <span className="muted">
-                  {selected.phase === "response" ? (
-                    <>
-                      Editing the raw <strong>response</strong> — status
-                      line first (e.g.{" "}
-                      <code>HTTP/1.1 200 OK</code>), then headers, blank
-                      line, body. Forward sends the edited reply to the
-                      client; Drop returns a 502 instead.
-                    </>
-                  ) : (
-                    <>
-                      Editing the raw <strong>request</strong> — request
-                      line first (e.g.{" "}
-                      <code>GET /path HTTP/1.1</code>), then headers,
-                      blank line, body. Forward sends the edited request
-                      upstream; Drop returns a 502 to the client.
-                    </>
-                  )}
-                </span>
-              </div>
-              <textarea
-                className="proxy-wire-editor"
-                value={editor}
-                spellCheck={false}
-                onChange={(e) => {
-                  setEditor(e.target.value);
-                  setDirty(true);
-                }}
-              />
-              <div className="proxy-intercept-actions">
-                <button
-                  type="button"
-                  className="chip active"
-                  onClick={handleForward}
-                >
-                  {dirty
-                    ? selected.phase === "response"
-                      ? "Forward edited response"
-                      : "Forward edited request"
-                    : selected.phase === "response"
-                      ? "Forward response"
-                      : "Forward request"}
-                </button>
-                <button type="button" className="chip" onClick={handleDrop}>
-                  {selected.phase === "response"
-                    ? "Drop response"
-                    : "Drop request"}
-                </button>
-              </div>
-            </>
-          ) : (
-            <p className="muted">Pick a pending exchange to inspect.</p>
-          )}
+        <div
+          className="proxy-intercept-browser-col"
+          style={{ display: "flex", flexDirection: "column", minWidth: 0 }}
+        >
+          <InterceptBrowserPane />
         </div>
       </div>
-      )}
     </div>
   );
 }

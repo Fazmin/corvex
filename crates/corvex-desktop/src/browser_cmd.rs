@@ -110,20 +110,18 @@ fn isolated_data_dir(app: &AppHandle) -> AppResult<PathBuf> {
     Ok(dir)
 }
 
-/// Pick the proxy URL for the embedded browser to route through.
+/// Pick the proxy listen address for the embedded browser.
 ///
 /// Prefers the live listener address when the proxy is running so the
 /// browser tracks user-chosen ports. Falls back to the default
 /// `127.0.0.1:8888` only when status() returns `None`, which keeps
 /// `browser_create` total even in races against `proxy_stop`.
-async fn proxy_url_for(state: &ProxyState) -> AppResult<Url> {
-    let addr: SocketAddr = state
+async fn proxy_listen_addr(state: &ProxyState) -> SocketAddr {
+    state
         .status()
         .await
         .listen
-        .unwrap_or_else(|| DEFAULT_PROXY_FALLBACK.parse().expect("literal addr"));
-    Url::parse(&format!("http://{}", addr))
-        .map_err(|e| AppError::Other(format!("proxy url: {e}")))
+        .unwrap_or_else(|| DEFAULT_PROXY_FALLBACK.parse().expect("literal addr"))
 }
 
 #[tauri::command]
@@ -140,7 +138,7 @@ pub async fn browser_create(
     }
     let initial = Url::parse(&url)
         .map_err(|e| AppError::Other(format!("invalid initial url: {e}")))?;
-    let proxy_url = proxy_url_for(&proxy).await?;
+    let proxy_addr = proxy_listen_addr(&proxy).await;
 
     let main_window = app
         .get_window("main")
@@ -154,18 +152,27 @@ pub async fn browser_create(
     // hood. Without this we get HRESULT 0x8007139F at create time.
     let isolated_data_dir = isolated_data_dir(&app)?;
 
+    // wry's WebView2 backend has a sharp edge: if you pass *any*
+    // `additional_browser_args`, it skips injecting the proxy from
+    // `proxy_url` entirely (see wry/src/webview2/mod.rs's
+    // `unwrap_or_else` on additional_browser_args). So we have to
+    // bake `--proxy-server=...` into the args string ourselves,
+    // alongside the disable-quic flag and wry's default safe args.
+    // Skipping proxy_url here on purpose — it would be a no-op given
+    // these args.
+    let browser_args = format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,\
+         IsolateOrigins,site-per-process \
+         --disable-quic \
+         --proxy-server=http://{proxy_addr}"
+    );
+
     // The on_navigation callback runs on a Tauri worker thread; clone
     // the AppHandle so it can emit without holding any Tauri state.
     let app_for_nav = app.clone();
     let builder = WebviewBuilder::new(BROWSER_LABEL, WebviewUrl::External(initial))
-        .proxy_url(proxy_url)
         .data_directory(isolated_data_dir)
-        // Disable QUIC/HTTP3 — the corvex proxy speaks HTTP/1.1, /2,
-        // and WebSocket over TCP CONNECT. Without this, WebView2 can
-        // attempt UDP-based QUIC for some hosts and bypass the proxy.
-        .additional_browser_args(
-            "--disable-quic --disable-features=IsolateOrigins,site-per-process",
-        )
+        .additional_browser_args(&browser_args)
         .on_navigation(move |navigated| {
             let _ = app_for_nav.emit(
                 "browser://navigated",

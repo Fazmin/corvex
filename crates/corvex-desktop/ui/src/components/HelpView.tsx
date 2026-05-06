@@ -966,13 +966,15 @@ export function HelpView() {
             "capture everything, intercept none" until you add rules.
           </p>
           <p>
-            The Intercept tab also has a <strong>Browser</strong>{" "}
-            sub-tab that hosts an embedded WebView2 browser pre-routed
-            through the corvex MITM proxy — no need to point an
+            The Intercept tab also hosts an embedded{" "}
+            <strong>Browser</strong> in its right column, pre-routed
+            through the corvex MITM proxy. No need to point an
             external browser at <code>127.0.0.1:8888</code> or change
-            system proxy settings. See <em>Scenario recipes → 19. Browse
-            a target without touching system proxy settings</em> for
-            the click-through.
+            system proxy settings. The Pending queue stays visible on
+            the left so you can intercept the embedded browser's
+            traffic in the same view. See{" "}
+            <em>Scenario recipes, 19. Browse a target without touching
+            system proxy settings</em> for the click-through.
           </p>
           <p>
             When an exchange pauses, a row appears in the <em>Pending</em>{" "}
@@ -4023,9 +4025,9 @@ Content-Length: 42
           </p>
           <ol className="numbered">
             <li>
-              Open <strong>Proxy → Intercept</strong>. Click the{" "}
-              <strong>Browser</strong> sub-tab next to{" "}
-              <em>Pending</em>.
+              Open <strong>Proxy → Intercept</strong>. The right column
+              of the Intercept view hosts the embedded browser
+              alongside the Pending queue on the left.
             </li>
             <li>
               First-time only: a yellow banner asks to install the

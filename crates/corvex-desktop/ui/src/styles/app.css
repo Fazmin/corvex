@@ -3445,10 +3445,32 @@ button[disabled] {
 }
 
 .proxy-intercept-layout {
-  display: grid;
-  grid-template-columns: minmax(240px, 320px) 1fr;
-  gap: 14px;
-  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.proxy-intercept-queue {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.proxy-intercept-inline-editor {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.proxy-intercept-inline-editor .proxy-intercept-editor {
+  margin: 4px 0 8px 12px;
+  padding: 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--panel);
+  border-radius: var(--radius-sm);
 }
 
 .proxy-intercept-queue h4 {
