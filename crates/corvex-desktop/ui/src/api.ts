@@ -1640,3 +1640,79 @@ export function assetTimeline(
 ): Promise<AssetTimelineEvent[]> {
   return invoke<AssetTimelineEvent[]>("asset_timeline", { host, limit });
 }
+
+// --- Embedded intercept browser ----------------------------------------
+
+export interface BrowserBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserCaInstallResult {
+  installed: boolean;
+  already_present: boolean;
+  message: string;
+}
+
+export interface BrowserCaStatus {
+  present_in_store: boolean;
+}
+
+export function browserCreate(
+  url: string,
+  bounds: BrowserBounds,
+): Promise<void> {
+  return invoke<void>("browser_create", { url, bounds });
+}
+
+export function browserNavigate(url: string): Promise<void> {
+  return invoke<void>("browser_navigate", { url });
+}
+
+export function browserBack(): Promise<void> {
+  return invoke<void>("browser_back");
+}
+
+export function browserForward(): Promise<void> {
+  return invoke<void>("browser_forward");
+}
+
+export function browserReload(): Promise<void> {
+  return invoke<void>("browser_reload");
+}
+
+export function browserStop(): Promise<void> {
+  return invoke<void>("browser_stop");
+}
+
+export function browserSetBounds(bounds: BrowserBounds): Promise<void> {
+  return invoke<void>("browser_set_bounds", { bounds });
+}
+
+export function browserShow(): Promise<void> {
+  return invoke<void>("browser_show");
+}
+
+export function browserHide(): Promise<void> {
+  return invoke<void>("browser_hide");
+}
+
+export function browserClose(): Promise<void> {
+  return invoke<void>("browser_close");
+}
+
+export function browserInstallCa(): Promise<BrowserCaInstallResult> {
+  return invoke<BrowserCaInstallResult>("browser_install_ca");
+}
+
+export function browserCaStatus(): Promise<BrowserCaStatus> {
+  return invoke<BrowserCaStatus>("browser_ca_status");
+}
+
+export function onBrowserNavigated(
+  cb: (payload: { url: string }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ url: string }>("browser://navigated", (e) => cb(e.payload));
+}

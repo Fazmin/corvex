@@ -1,8 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRafBatcher } from "../util/rafBatch";
 import { AssetLink } from "./asset/AssetLink";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
+  browserBack,
+  browserCaStatus,
+  browserClose,
+  browserCreate,
+  browserForward,
+  browserHide,
+  browserInstallCa,
+  browserNavigate,
+  browserReload,
+  browserSetBounds,
+  browserShow,
+  browserStop,
   checksList,
   checksRun,
   clusterInstances,
@@ -22,6 +34,7 @@ import {
   interceptRulesGet,
   interceptRulesSet,
   interceptSetMode,
+  onBrowserNavigated,
   onCsrfObserved,
   onInterceptPending,
   onProxyExchange,
@@ -3496,7 +3509,10 @@ const INTERCEPT_MODES: { value: InterceptMode; label: string }[] = [
   { value: "both", label: "Both" },
 ];
 
+type InterceptSubTab = "pending" | "browser";
+
 function ProxyInterceptTab() {
+  const [subTab, setSubTab] = useState<InterceptSubTab>("pending");
   const [mode, setMode] = useState<InterceptMode>("off");
   const [pending, setPending] = useState<PendingIntercept[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -3665,6 +3681,31 @@ function ProxyInterceptTab() {
         {error && <div className="proxy-error">{error}</div>}
       </section>
 
+      <div className="proxy-mode-row" role="tablist" aria-label="Intercept sub-views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={subTab === "pending"}
+          className={`chip${subTab === "pending" ? " active" : ""}`}
+          onClick={() => setSubTab("pending")}
+        >
+          Pending ({pending.length})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={subTab === "browser"}
+          className={`chip${subTab === "browser" ? " active" : ""}`}
+          onClick={() => setSubTab("browser")}
+          title="Drive a real browser through the corvex MITM proxy without touching system proxy settings"
+        >
+          Browser
+        </button>
+      </div>
+
+      {subTab === "browser" ? (
+        <InterceptBrowserPane />
+      ) : (
       <div className="proxy-intercept-layout">
         <aside className="proxy-intercept-queue">
           <h4>Pending ({pending.length})</h4>
@@ -3760,6 +3801,263 @@ function ProxyInterceptTab() {
           )}
         </div>
       </div>
+      )}
+    </div>
+  );
+}
+
+interface BrowserCaState {
+  present_in_store: boolean;
+}
+
+function InterceptBrowserPane() {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const [urlInput, setUrlInput] = useState("");
+  const [currentUrl, setCurrentUrl] = useState<string>("");
+  const [caState, setCaState] = useState<BrowserCaState | null>(null);
+  const [caInstalling, setCaInstalling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  // Look up CA trust state once per mount. The result is cheap to
+  // re-query but we only need it to decide whether to show the install
+  // banner.
+  useEffect(() => {
+    let cancelled = false;
+    browserCaStatus()
+      .then((s) => {
+        if (!cancelled) setCaState(s);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Subscribe to navigation events so the URL bar tracks in-page
+  // redirects, history.back(), and JS-driven location changes.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    onBrowserNavigated(({ url }) => {
+      setCurrentUrl(url);
+      setUrlInput(url);
+    })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  // Create the child webview on first mount; reposition + show on
+  // every subsequent mount (the native rectangle persists across React
+  // renders). Hide on unmount so the WebView2 surface doesn't bleed
+  // over other tabs while the user is elsewhere.
+  useEffect(() => {
+    const el = mountRef.current;
+    if (!el) return;
+    let active = true;
+    let pendingRaf: number | null = null;
+    let started = false;
+
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    };
+
+    const sync = () => {
+      if (!active) return;
+      pendingRaf = null;
+      browserSetBounds(measure()).catch(() => {});
+    };
+
+    const queueSync = () => {
+      if (pendingRaf !== null) cancelAnimationFrame(pendingRaf);
+      pendingRaf = requestAnimationFrame(sync);
+    };
+
+    const init = async () => {
+      const bounds = measure();
+      try {
+        // about:blank is a clean baseline — the user navigates from
+        // the URL bar. browser_create is idempotent so re-mounts just
+        // re-show the existing surface.
+        await browserCreate("about:blank", bounds);
+        if (!active) return;
+        await browserSetBounds(bounds).catch(() => {});
+        await browserShow().catch(() => {});
+        started = true;
+      } catch (e) {
+        if (active) setError(String(e));
+      }
+    };
+    init();
+
+    const ro = new ResizeObserver(queueSync);
+    ro.observe(el);
+    window.addEventListener("scroll", queueSync, true);
+    window.addEventListener("resize", queueSync);
+
+    return () => {
+      active = false;
+      if (pendingRaf !== null) cancelAnimationFrame(pendingRaf);
+      ro.disconnect();
+      window.removeEventListener("scroll", queueSync, true);
+      window.removeEventListener("resize", queueSync);
+      if (started) {
+        // Hide rather than close — the user may flip back to the
+        // Browser sub-tab and expect their session intact.
+        browserHide().catch(() => {});
+      }
+    };
+  }, []);
+
+  const submitNav = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setError(null);
+      let target = urlInput.trim();
+      if (!target) return;
+      if (!/^[a-z]+:\/\//i.test(target) && target !== "about:blank") {
+        target = "https://" + target;
+      }
+      try {
+        await browserNavigate(target);
+        setUrlInput(target);
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [urlInput],
+  );
+
+  const handleInstallCa = useCallback(async () => {
+    setCaInstalling(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const result = await browserInstallCa();
+      setCaState({ present_in_store: true });
+      setInfo(
+        result.already_present
+          ? "CA was already trusted."
+          : "CA installed into Windows CurrentUser Root store. HTTPS sites will now load without certificate warnings.",
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setCaInstalling(false);
+    }
+  }, []);
+
+  return (
+    <div className="proxy-intercept-browser">
+      {caState && !caState.present_in_store && (
+        <div className="proxy-error" role="alert" style={{ background: "var(--surface-warn, rgba(255,170,0,0.12))" }}>
+          HTTPS pages will show certificate warnings until the corvex root
+          CA is trusted by Windows.{" "}
+          <button
+            type="button"
+            className="chip active"
+            disabled={caInstalling}
+            onClick={handleInstallCa}
+          >
+            {caInstalling ? "Installing…" : "Install CA into Windows trust store"}
+          </button>{" "}
+          <span className="muted">
+            (no admin required — writes to your CurrentUser Root store)
+          </span>
+        </div>
+      )}
+      {info && <div className="proxy-error" role="status">{info}</div>}
+      {error && <div className="proxy-error">{error}</div>}
+
+      <form className="proxy-mode-row" onSubmit={submitNav}>
+        <button
+          type="button"
+          className="chip"
+          title="Back"
+          onClick={() => browserBack().catch((e) => setError(String(e)))}
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          className="chip"
+          title="Forward"
+          onClick={() => browserForward().catch((e) => setError(String(e)))}
+        >
+          ›
+        </button>
+        <button
+          type="button"
+          className="chip"
+          title="Reload"
+          onClick={() => browserReload().catch((e) => setError(String(e)))}
+        >
+          ↻
+        </button>
+        <button
+          type="button"
+          className="chip"
+          title="Stop loading"
+          onClick={() => browserStop().catch((e) => setError(String(e)))}
+        >
+          ✕
+        </button>
+        <input
+          type="text"
+          className="proxy-browser-url"
+          spellCheck={false}
+          value={urlInput}
+          onChange={(e) => setUrlInput(e.target.value)}
+          placeholder="https://target.example/login"
+          style={{ flex: 1, minWidth: "16em" }}
+        />
+        <button type="submit" className="chip active">
+          Go
+        </button>
+        <button
+          type="button"
+          className="chip"
+          title="Close the embedded browser and free its memory"
+          onClick={() => {
+            browserClose().catch(() => {});
+          }}
+        >
+          Close browser
+        </button>
+      </form>
+
+      <p className="muted">
+        Traffic from this browser flows through the corvex proxy at{" "}
+        <code>127.0.0.1:8888</code>. Pages you visit appear in the{" "}
+        <strong>Traffic</strong> tab and respect Scope, Intercept rules,
+        and the Intercept mode toggle above. Start the proxy from the
+        toolbar before navigating.
+      </p>
+      {currentUrl && (
+        <p className="muted">
+          Current URL: <code>{currentUrl}</code>
+        </p>
+      )}
+
+      <div
+        ref={mountRef}
+        className="proxy-browser-mount"
+        style={{
+          flex: 1,
+          minHeight: "20em",
+          width: "100%",
+          background: "var(--surface-2, rgba(0,0,0,0.05))",
+          border: "1px solid var(--border, rgba(255,255,255,0.08))",
+          borderRadius: 4,
+        }}
+      />
     </div>
   );
 }

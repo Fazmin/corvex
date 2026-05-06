@@ -966,6 +966,15 @@ export function HelpView() {
             "capture everything, intercept none" until you add rules.
           </p>
           <p>
+            The Intercept tab also has a <strong>Browser</strong>{" "}
+            sub-tab that hosts an embedded WebView2 browser pre-routed
+            through the corvex MITM proxy — no need to point an
+            external browser at <code>127.0.0.1:8888</code> or change
+            system proxy settings. See <em>Scenario recipes → 19. Browse
+            a target without touching system proxy settings</em> for
+            the click-through.
+          </p>
+          <p>
             When an exchange pauses, a row appears in the <em>Pending</em>{" "}
             queue on the left. The phase badge tells you which side is
             frozen: an amber <code>→ req</code> means the request is held
@@ -4000,6 +4009,73 @@ Content-Length: 42
               relaunch — the bundled snapshot re-seeds automatically.
             </li>
           </ol>
+
+          <h4>
+            19. Browse a target without touching system proxy settings
+          </h4>
+          <p>
+            The Intercept tab has an embedded browser that routes its
+            traffic through the corvex MITM proxy automatically — no
+            need to configure your OS or external browser. Useful for
+            quick on-demand pokes at a target, for parallel sessions
+            (system browser + isolated in-app browser), or on locked-down
+            machines where you can't change network settings.
+          </p>
+          <ol className="numbered">
+            <li>
+              Open <strong>Proxy → Intercept</strong>. Click the{" "}
+              <strong>Browser</strong> sub-tab next to{" "}
+              <em>Pending</em>.
+            </li>
+            <li>
+              First-time only: a yellow banner asks to install the
+              corvex root CA into your Windows{" "}
+              <em>CurrentUser → Trusted Root</em> store. Click{" "}
+              <strong>Install CA into Windows trust store</strong> —
+              no admin elevation required. WebView2 picks up the new
+              trust on the next navigation. (Subsequent launches skip
+              the prompt because the cert is already present.)
+            </li>
+            <li>
+              Make sure the Proxy is running (<em>Start</em> on the
+              toolbar — the embedded browser routes through whatever
+              port the proxy is bound to, defaulting to{" "}
+              <code>127.0.0.1:8888</code>).
+            </li>
+            <li>
+              Type a URL into the address bar (e.g.{" "}
+              <code>https://target.example/login</code>) and press{" "}
+              <kbd>Enter</kbd>. Use ‹ › ↻ ✕ for back / forward /
+              reload / stop.
+            </li>
+            <li>
+              Every navigation appears as a row in the{" "}
+              <strong>Traffic</strong> tab — same exchange log as a
+              system-proxied browser. Scope rules, Intercept rules,
+              and the Intercept mode toggle all apply identically. Set
+              mode = <em>Request</em> and the next page load pauses
+              in <em>Pending</em> for editing.
+            </li>
+            <li>
+              Click <strong>Close browser</strong> in the toolbar to
+              tear the WebView2 surface down and free its memory.
+              Switching to another sub-tab just hides it — your
+              browsing session is preserved.
+            </li>
+          </ol>
+          <p className="callout">
+            The embedded browser uses the same WebView2 engine that
+            ships with Windows 11 — pages render the same as Edge.
+            Cookies and storage are isolated to corvex's own user-data
+            folder, so logging into a target here does not affect
+            your system browser session, and vice versa.
+          </p>
+          <p className="callout">
+            If "Install CA" fails on a domain-managed machine (Group
+            Policy can silently block CurrentUser Root writes), fall
+            back to <strong>Proxy → Settings → Export CA</strong> and
+            install the PEM through your IT-approved channel.
+          </p>
         </section>
 
         {/* ------------------------------------------------------------------ */}
