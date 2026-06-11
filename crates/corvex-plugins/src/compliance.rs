@@ -504,12 +504,15 @@ impl Plugin for CompliancePlugin {
         // ---- Finalize grade ----
         score.finalize();
 
-        // Emit the summary grade finding
+        // Emit the summary grade finding. This is a derived posture summary,
+        // not a confirmed vulnerability — the substantive per-header issues
+        // already carry their own severities below. A typical real site lacks
+        // HSTS/CSP and lands at D/F, so grading the summary as High made it a
+        // near-universal noisy finding; cap it well below the real issues.
         let grade_severity = match score.grade {
-            'A' => Severity::Info,
-            'B' => Severity::Low,
-            'C' => Severity::Medium,
-            'D' | 'F' => Severity::High,
+            'A' | 'B' => Severity::Info,
+            'C' | 'D' => Severity::Low,
+            'F' => Severity::Medium,
             _ => Severity::Info,
         };
 

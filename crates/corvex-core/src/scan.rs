@@ -417,6 +417,25 @@ async fn scan_one(ctx: Arc<ScanCtx>, mark: Arc<Mutex<Mark>>) -> Result<()> {
         m.start_time = SystemTime::now();
     }
 
+    // Seed the soft-404 baseline so the rules matcher can suppress
+    // status-only findings on servers that return a usable 200 body for
+    // every path (custom error pages, SPA catch-alls, WAFs). Best-effort:
+    // a failed probe leaves the cache un-seeded and `is_404` falls back to
+    // status codes + the db_404_strings signatures. Skipped in dep-only
+    // mode (no HTTP surface to probe).
+    if init.is_some() {
+        let mut cache = FourOhFourCache::default();
+        match seed_baseline(&ctx, mark.clone(), &mut cache).await {
+            Ok(()) => {
+                let mut m = mark.lock().await;
+                m.fourohfour = cache;
+            }
+            Err(e) => {
+                tracing::debug!(target: "scan", "404 baseline seed failed: {e}");
+            }
+        }
+    }
+
     // Report host start
     {
         let m = mark.lock().await;

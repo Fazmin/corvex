@@ -22,30 +22,29 @@ use crate::severity;
 /// counted by reason so the report can show ingestion fidelity.
 pub fn parse(path: &Path) -> Result<(Vec<NormalizedRule>, ParseStats)> {
     let raw = read_filtered(path)?;
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .flexible(true)
-        .quote(b'"')
-        .escape(Some(b'\\'))
-        .trim(csv::Trim::None)
-        .from_reader(raw.as_bytes());
 
     let mut rules = Vec::new();
     let mut stats = ParseStats::default();
 
-    for (i, rec) in rdr.records().enumerate() {
-        let rec = match rec {
-            Ok(r) => r,
-            Err(_) => {
-                stats.skip("csv_parse_error");
-                continue;
-            }
-        };
+    for (i, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        // Nikto's `db_tests` is NOT standard CSV: the match column (field 5)
+        // is a regex where backslash is a metacharacter (`\[`, `\.`, `\s`),
+        // and an embedded quote is written `\"`. A generic CSV reader with
+        // `escape = '\\'` consumes those backslashes and corrupts the regex
+        // — e.g. `\[winnt\]` (literal `[winnt]`) becomes `[winnt]`, a
+        // character class that matches almost any response. `split_nikto_csv`
+        // mirrors Nikto's own parser: `\"` stays an in-field quote, but every
+        // backslash is PRESERVED so the downstream regex engine sees the
+        // pattern the author wrote.
+        let rec = split_nikto_csv(line);
 
         // Skip optional CSV header row.
         if i == 0
             && rec
-                .get(0)
+                .first()
                 .map(|s| s.eq_ignore_ascii_case("id") || s.eq_ignore_ascii_case("nikto_id"))
                 .unwrap_or(false)
         {
@@ -57,20 +56,23 @@ pub fn parse(path: &Path) -> Result<(Vec<NormalizedRule>, ParseStats)> {
             continue;
         }
 
-        let id = rec.get(0).unwrap_or_default().trim().to_string();
+        let id = field(&rec, 0).trim().to_string();
         if id.is_empty() {
             stats.skip("missing_id");
             continue;
         }
 
-        let references = rec.get(1).unwrap_or_default().to_string();
-        let tuning = rec.get(2).unwrap_or_default().to_string();
-        let uri = rec.get(3).unwrap_or_default().to_string();
-        let method = rec.get(4).unwrap_or_default().to_string();
-        let dsl = rec.get(5).unwrap_or_default().to_string();
-        let message = rec.get(6).unwrap_or_default().to_string();
-        let data = rec.get(7).unwrap_or_default().to_string();
-        let headers = rec.get(8).unwrap_or_default().to_string();
+        let references = field(&rec, 1).to_string();
+        let tuning = field(&rec, 2).to_string();
+        let uri = field(&rec, 3).to_string();
+        let method = field(&rec, 4).to_string();
+        let dsl = field(&rec, 5).to_string();
+        // The match column (dsl) keeps its backslashes — they're regex
+        // metacharacters. The message is human-readable text, so the only
+        // backslash escape that occurs there (`\"`) is unescaped for display.
+        let message = field(&rec, 6).replace(r#"\""#, "\"");
+        let data = field(&rec, 7).to_string();
+        let headers = field(&rec, 8).to_string();
 
         let sev = severity::severity_from_nikto_tuning(&tuning);
 
@@ -121,6 +123,76 @@ pub fn parse(path: &Path) -> Result<(Vec<NormalizedRule>, ParseStats)> {
     }
 
     Ok((rules, stats))
+}
+
+/// Field accessor that mirrors the old `StringRecord::get(n).unwrap_or_default()`
+/// behaviour over a plain `Vec<String>` of columns.
+fn field(rec: &[String], n: usize) -> &str {
+    rec.get(n).map(|s| s.as_str()).unwrap_or("")
+}
+
+/// Split one `db_tests` line into columns the way Nikto itself does.
+///
+/// Columns are comma-separated and optionally double-quoted. Inside a quoted
+/// column a backslash escapes the next character *for field-termination
+/// purposes only* — so `\"` does not close the field — but the backslash is
+/// kept in the emitted value. Nikto feeds these column strings straight to its
+/// regex engine, where `\[`, `\.`, `\s`, `\(` and friends are meaningful, so
+/// stripping the backslash (as a CSV `escape` setting does) silently rewrites
+/// the pattern. Preserving it is the whole point of this function.
+fn split_nikto_csv(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut chars = line.chars().peekable();
+    loop {
+        let mut field = String::new();
+        if matches!(chars.peek(), Some('"')) {
+            chars.next(); // consume opening quote
+            while let Some(c) = chars.next() {
+                match c {
+                    '\\' => {
+                        // Keep the backslash AND the escaped char; `\"` is an
+                        // in-field quote, every other `\x` is regex content.
+                        field.push('\\');
+                        if let Some(next) = chars.next() {
+                            field.push(next);
+                        }
+                    }
+                    '"' => break, // closing quote
+                    other => field.push(other),
+                }
+            }
+            // Tolerate stray characters between the closing quote and the
+            // separator (Nikto's CSV regex allows an optional comma there).
+            while let Some(&c) = chars.peek() {
+                if c == ',' {
+                    break;
+                }
+                chars.next();
+            }
+        } else {
+            // Unquoted column — runs to the next comma.
+            while let Some(&c) = chars.peek() {
+                if c == ',' {
+                    break;
+                }
+                field.push(c);
+                chars.next();
+            }
+        }
+        fields.push(field);
+        match chars.peek() {
+            Some(',') => {
+                chars.next();
+                // A trailing comma denotes a final empty column.
+                if chars.peek().is_none() {
+                    fields.push(String::new());
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    fields
 }
 
 /// Read the file, stripping `#` comment lines and blank lines (the same
@@ -212,4 +284,50 @@ fn nikto_owasp_from_tuning(tuning: &str) -> Option<String> {
         return Some(bucket.to_string());
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_regex_backslashes_in_match_column() {
+        // The exact db_tests row behind the recurring false-positive critical.
+        // The match column must come back with its backslashes intact so the
+        // regex engine sees the literal `[winnt]`, not a character class.
+        let line = r#""000494","","8","/msadc/..%255c../winnt/system32/cmd.exe?/c+dir+c:%5c","GET","BODY:\[winnt\]&&!BODY:Internal server error","Can issue arbitrary commands to host.","","""#;
+        let rec = split_nikto_csv(line);
+        assert_eq!(field(&rec, 0), "000494");
+        assert_eq!(field(&rec, 2), "8");
+        assert_eq!(field(&rec, 4), "GET");
+        assert_eq!(
+            field(&rec, 5),
+            r"BODY:\[winnt\]&&!BODY:Internal server error"
+        );
+        assert_eq!(field(&rec, 6), "Can issue arbitrary commands to host.");
+    }
+
+    #[test]
+    fn handles_escaped_quotes_and_embedded_commas() {
+        // `\"` keeps the field open; a comma inside the quotes is content.
+        let line = r#""000065","","8","@CGIDIRSexcite;IFS=\"$\";/bin/cat%20@LFI(nix,abs)","GET","CODE:200""#;
+        let rec = split_nikto_csv(line);
+        assert_eq!(field(&rec, 0), "000065");
+        assert_eq!(
+            field(&rec, 3),
+            r#"@CGIDIRSexcite;IFS=\"$\";/bin/cat%20@LFI(nix,abs)"#
+        );
+        assert_eq!(field(&rec, 4), "GET");
+        assert_eq!(field(&rec, 5), "CODE:200");
+    }
+
+    #[test]
+    fn empty_columns_and_trailing_comma() {
+        let rec = split_nikto_csv(r#""a","","c","#);
+        assert_eq!(rec.len(), 4);
+        assert_eq!(field(&rec, 0), "a");
+        assert_eq!(field(&rec, 1), "");
+        assert_eq!(field(&rec, 2), "c");
+        assert_eq!(field(&rec, 3), "");
+    }
 }

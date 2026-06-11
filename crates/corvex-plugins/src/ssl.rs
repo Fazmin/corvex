@@ -86,37 +86,45 @@ fn tls_grade(protocol: Option<&str>, cipher: Option<&str>) -> (char, Severity) {
     (grade, severity)
 }
 
-/// Check for known weak cipher patterns and return findings.
-fn check_cipher_weaknesses(cipher: &str) -> Vec<(String, Severity)> {
+/// Check for known weak cipher patterns and return findings. The first tuple
+/// element is a stable key (`rc4`, `3des`, …) used to build a distinct
+/// `corvex_id` per weakness so multiple issues on one cipher don't collide
+/// under a single id (which would let UI dedup collapse them into one row).
+fn check_cipher_weaknesses(cipher: &str) -> Vec<(&'static str, String, Severity)> {
     let ciph = cipher.to_ascii_uppercase();
     let mut issues = Vec::new();
 
     if ciph.contains("RC4") {
         issues.push((
+            "rc4",
             "Cipher uses RC4 which is cryptographically broken.".into(),
             Severity::High,
         ));
     }
     if ciph.contains("3DES") || ciph.contains("DES-CBC3") {
         issues.push((
+            "3des",
             "Cipher uses 3DES (64-bit block) — vulnerable to Sweet32 attacks.".into(),
             Severity::Medium,
         ));
     }
     if ciph.contains("NULL") {
         issues.push((
+            "null",
             "NULL cipher detected — data is transmitted unencrypted.".into(),
             Severity::Critical,
         ));
     }
     if ciph.contains("EXPORT") {
         issues.push((
+            "export",
             "EXPORT-grade cipher detected — vulnerable to FREAK/Logjam.".into(),
             Severity::High,
         ));
     }
     if ciph.contains("CBC") && !ciph.contains("3DES") {
         issues.push((
+            "cbc",
             "CBC mode cipher in use — may be susceptible to BEAST/Lucky13 padding attacks.".into(),
             Severity::Low,
         ));
@@ -245,9 +253,9 @@ impl Plugin for SslPlugin {
 
         // ---- Cipher weakness checks ----
         if let Some(cipher) = &info.cipher {
-            for (msg, sev) in check_cipher_weaknesses(cipher) {
+            for (key, msg, sev) in check_cipher_weaknesses(cipher) {
                 findings.push(ReportItem {
-                    corvex_id: "SSL-CIPHER-WEAK".into(),
+                    corvex_id: format!("SSL-CIPHER-WEAK-{}", key.to_ascii_uppercase()),
                     method: "GET".into(),
                     uri: "/".into(),
                     message: msg,

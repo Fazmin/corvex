@@ -230,6 +230,7 @@ impl ActiveCheck for Ssrf {
                 let body = resp.body_str();
                 let body_lower = body.to_ascii_lowercase();
                 let baseline_lower = baseline_body.to_ascii_lowercase();
+                let payload_lower = probe.payload.to_ascii_lowercase();
 
                 // Require at least one marker that wasn't already in
                 // the baseline. Case-insensitive on both sides.
@@ -238,6 +239,14 @@ impl ActiveCheck for Ssrf {
                     .iter()
                     .filter(|m| {
                         let needle = m.to_ascii_lowercase();
+                        // Skip markers that are substrings of the probe's own
+                        // payload (e.g. `127.0.0.1` in `http://127.0.0.1/`):
+                        // those are satisfied merely by the app echoing the
+                        // injected URL back in an error page, which is NOT
+                        // proof it actually fetched the loopback target.
+                        if payload_lower.contains(&needle) {
+                            return false;
+                        }
                         body_lower.contains(&needle) && !baseline_lower.contains(&needle)
                     })
                     .copied()

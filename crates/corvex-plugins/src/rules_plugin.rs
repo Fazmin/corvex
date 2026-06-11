@@ -124,6 +124,28 @@ impl Plugin for RulesPlugin {
                     Some(s) => s,
                     None => continue,
                 };
+                // Soft-404 suppression. A rule that matched purely on HTTP
+                // status (no body/header/cookie content match) carries no
+                // proof the probed resource actually exists — against a
+                // server that answers 200 with a usable body for every path
+                // (custom error pages, SPA catch-alls, WAFs) every such rule
+                // fires identically. Mirrors Nikto's `200 && !body_match &&
+                // is_404` guard, which the unified matcher had dropped.
+                if !has_content_matcher(&spec) && trigger.response.status == 200 {
+                    let is_soft_404 = {
+                        let m = mark.lock().await;
+                        m.fourohfour.is_404(&trigger.response, &ctx.dbs)
+                    };
+                    if is_soft_404 {
+                        tracing::debug!(
+                            target: "rules_plugin",
+                            "suppressed soft-404 status-only hit for {}/{}",
+                            rule.source_tool,
+                            rule.source_rule_id
+                        );
+                        continue;
+                    }
+                }
                 let item = ReportItem {
                     corvex_id: format!("{}-{}", rule.source_tool, rule.source_rule_id),
                     method: trigger.request.method.clone(),
@@ -151,4 +173,28 @@ fn parse_severity(s: &str) -> Severity {
         "low" => Severity::Low,
         _ => Severity::Info,
     }
+}
+
+/// True when the rule inspects actual response content (body/header/cookie)
+/// rather than matching on HTTP status alone. Status-only rules are the ones
+/// that need soft-404 suppression — a body/header/cookie match is itself the
+/// evidence the finding is real.
+fn has_content_matcher(spec: &matcher::MatchSpec) -> bool {
+    fn is_content(m: &matcher::Matcher) -> bool {
+        matches!(
+            m,
+            matcher::Matcher::Body { .. }
+                | matcher::Matcher::Header { .. }
+                | matcher::Matcher::Cookie { .. }
+        )
+    }
+    if spec.when.iter().any(|leaf| is_content(&leaf.matcher)) {
+        return true;
+    }
+    if let Some(graph) = &spec.when_cond {
+        return graph.nodes.iter().any(|node| {
+            matches!(node, matcher::CondNode::Leaf(leaf) if is_content(&leaf.matcher))
+        });
+    }
+    false
 }

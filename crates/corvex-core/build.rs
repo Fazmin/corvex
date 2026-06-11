@@ -175,14 +175,88 @@ fn read_filtered(path: &Path) -> Result<String> {
     Ok(out)
 }
 
-fn reader_from(s: &str) -> csv::Reader<&[u8]> {
-    csv::ReaderBuilder::new()
-        .has_headers(false)
-        .flexible(true)
-        .quote(b'"')
-        .escape(Some(b'\\'))
-        .trim(csv::Trim::None)
-        .from_reader(s.as_bytes())
+/// Records parsed from a Nikto db file.
+///
+/// Replaces the old `csv::Reader` so every loader keeps its `rdr.records()`
+/// loop unchanged, but the underlying split now PRESERVES regex backslashes.
+/// Nikto db files (db_tests, db_outdated, db_server_msgs, …) carry regexes in
+/// which `\` is a metacharacter; a CSV `escape = '\\'` setting silently
+/// consumed those backslashes and rewrote the patterns (e.g. `\[winnt\]`, a
+/// literal, degraded into `[winnt]`, a character class matching nearly
+/// anything). See `split_nikto_csv` for the field semantics.
+struct NiktoReader {
+    recs: Vec<csv::StringRecord>,
+}
+
+impl NiktoReader {
+    fn records(&mut self) -> impl Iterator<Item = csv::Result<csv::StringRecord>> + '_ {
+        self.recs.drain(..).map(Ok)
+    }
+}
+
+fn reader_from(s: &str) -> NiktoReader {
+    let recs = s
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| split_nikto_csv(l).into_iter().collect::<csv::StringRecord>())
+        .collect();
+    NiktoReader { recs }
+}
+
+/// Split one Nikto db line into columns the way Nikto itself does.
+///
+/// Columns are comma-separated and optionally double-quoted. Inside a quoted
+/// column `\"` is an in-field quote (it does not terminate the column), but
+/// the backslash is KEPT in the value — Nikto feeds these strings straight to
+/// its regex engine where `\[`, `\.`, `\s`, `\(` are meaningful. This mirrors
+/// `crates/corvex-rules-builder/src/parsers/nikto.rs::split_nikto_csv`.
+fn split_nikto_csv(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut chars = line.chars().peekable();
+    loop {
+        let mut field = String::new();
+        if matches!(chars.peek(), Some('"')) {
+            chars.next(); // opening quote
+            while let Some(c) = chars.next() {
+                match c {
+                    '\\' => {
+                        field.push('\\');
+                        if let Some(next) = chars.next() {
+                            field.push(next);
+                        }
+                    }
+                    '"' => break,
+                    other => field.push(other),
+                }
+            }
+            while let Some(&c) = chars.peek() {
+                if c == ',' {
+                    break;
+                }
+                chars.next();
+            }
+        } else {
+            while let Some(&c) = chars.peek() {
+                if c == ',' {
+                    break;
+                }
+                field.push(c);
+                chars.next();
+            }
+        }
+        fields.push(field);
+        match chars.peek() {
+            Some(',') => {
+                chars.next();
+                if chars.peek().is_none() {
+                    fields.push(String::new());
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    fields
 }
 
 // ----- Per-DB loaders --------------------------------------------------------

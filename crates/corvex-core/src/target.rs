@@ -1,6 +1,7 @@
 //! `Mark` — the per-target state bag (= Perl `%mark`).
 
 use crate::error::{CorvexError, Result};
+use crate::fourohfour::FourOhFourCache;
 use crate::http::cookies::CookieJar;
 use crate::http::tls::SslInfo;
 use dns_lookup::lookup_host;
@@ -90,6 +91,12 @@ pub struct Mark {
     pub errmsg: Option<String>,
     pub messages: Vec<String>,
     pub has_vhost: bool,
+    /// Soft-404 baseline for this host. Seeded once per host with a probe to
+    /// a guaranteed-missing path so checks can tell a real hit from a server
+    /// that returns 200/usable bodies for every path (custom error pages,
+    /// SPA catch-alls, WAFs). Default = un-seeded; consulted by the rules
+    /// matcher before emitting status-only findings.
+    pub fourohfour: FourOhFourCache,
 }
 
 impl Mark {
@@ -113,6 +120,7 @@ impl Mark {
             errmsg: None,
             messages: Vec::new(),
             has_vhost: false,
+            fourohfour: FourOhFourCache::default(),
         }
     }
 
