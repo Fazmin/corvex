@@ -48,6 +48,7 @@ flate2.workspace = true
 base64.workspace = true
 bincode.workspace = true
 indexmap.workspace = true
+url.workspace = true
 csv = "1"
 
 [[bin]]

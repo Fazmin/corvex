@@ -8,6 +8,7 @@
 mod asset_cmd;
 mod asset_db;
 mod asset_identity;
+mod browser_cmd;
 mod check_bridge;
 mod commands;
 mod device_embed;
@@ -282,6 +283,18 @@ fn main() {
             commands::exploitdb_update,
             commands::exploitdb_fetch_source,
             commands::rules_summary,
+            browser_cmd::browser_create,
+            browser_cmd::browser_navigate,
+            browser_cmd::browser_back,
+            browser_cmd::browser_forward,
+            browser_cmd::browser_reload,
+            browser_cmd::browser_stop,
+            browser_cmd::browser_set_bounds,
+            browser_cmd::browser_show,
+            browser_cmd::browser_hide,
+            browser_cmd::browser_close,
+            browser_cmd::browser_install_ca,
+            browser_cmd::browser_ca_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -674,6 +687,9 @@ async fn run_heavy_init(
             bridge.attach_cluster_anomalies(state.clone(), app.clone());
             app.manage(bridge);
             app.manage(state);
+            // Embedded intercept-browser slot — empty until the user
+            // opens the Browser sub-tab inside the Intercept view.
+            app.manage(Arc::new(browser_cmd::InterceptBrowser::default()));
             tracing::info!(target: "proxy", "proxy state ready");
             ip::finish_ok(&app, &progress, ip::STEP_PROXY);
         }
