@@ -22,8 +22,8 @@ members = [
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
-license = "GPL-2.0-only"
-repository = "https://github.com/sullo/corvex"
+license = "Apache-2.0"
+repository = "https://github.com/Fazmin/corvex"
 description = "Rust port of the Corvex web vulnerability scanner"
 
 [workspace.dependencies]
