@@ -2,6 +2,24 @@
 
 Corvex is a Rust web vulnerability scanner with four engines: a **signature engine** that probes targets against a 7,236-test database, an **active fuzzing engine** that crawls the target, extracts forms and parameters, and injects payloads to detect injection vulnerabilities in real time, a **SQL injection engine** with five detection techniques, 8 DBMS backends, ~50 WAF-bypass tamper modules, and full exploitation capabilities, and a **Software Composition Analysis (SCA) engine** that cross-references dependency manifests, SBOMs, and compiled binaries against a local NVD + EPSS vulnerability database with ~50 binary checkers for common libraries. Built on `tokio` for concurrency and raw HTTP/1.x framing with direct OpenSSL handshakes, SNI support, TLS 1.3 ciphersuites, and ALPN negotiation.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/home.png" width="800" alt="Corvex desktop app home view"><br>
+  <sub>The desktop app — a unified workbench for web scanning, active fuzzing, SCA, and recon.</sub>
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/web-scan.png" alt="Web scan dashboard"><br><sub><b>Web scan</b> — signature + active engine dashboard with live findings and stat cards.</sub></td>
+    <td width="50%"><img src="docs/screenshots/fuzzing.png" alt="Active fuzzing configuration"><br><sub><b>Active fuzzing</b> — crawler, SQL injection level/risk/technique config, 50 tamper modules.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/sca.png" alt="Software Composition Analysis view"><br><sub><b>SCA</b> — dependency, SBOM, and binary analysis against the local CVE + EPSS database.</sub></td>
+    <td width="50%"><img src="docs/screenshots/databases.png" alt="Embedded databases view"><br><sub><b>Databases</b> — stats for the embedded signature, probe, and vulnerability catalogs.</sub></td>
+  </tr>
+</table>
+
 ## What it does
 
 ### Signature engine (passive)
